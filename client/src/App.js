@@ -82,7 +82,7 @@ async function callClaude(messages, systemPrompt, maxTokens = 1000) {
   }
 
   // Production: call your secure backend proxy
-  const res = await fetch(`${API_BASE}/api/claude`, {
+  const res = await fetch("https://vaultmind-production-5775.up.railway.app/api/claude", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
