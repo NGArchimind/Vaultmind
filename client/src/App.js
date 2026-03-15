@@ -4,7 +4,7 @@ import { useState, useRef, useCallback } from "react";
 // In Replit: calls your secure backend proxy at /api/claude (API key stays server-side)
 // In Claude.ai demo mode: returns realistic mock data so you can test the UI
 const IS_DEMO = false;
-const API_BASE = "vaultmind-production-5775.up.railway.app";
+const API_BASE = "https://vaultmind-production-5775.up.railway.app";
 const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
