@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
 const IS_DEMO = false;
-const API_BASE = "https://vaultmind-production-5775.up.railway.app";
+const API_BASE = "https://vaultmind-production-5775.up.railway.app/api/vaults";
 const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 const MAX_PAGES_PER_CHUNK = 90;
 
@@ -358,14 +358,15 @@ export default function App() {
       setStage("reading");
       setStatusMsg("Step 2/3 · Loading selected documents…");
 
+      // VAULT ISOLATION: only use PDFs from this specific vault
       const relevantNames = (selection.selected || []).map(s => s.docName);
       const docsToRead = pdfs.filter(p => relevantNames.some(n => p.name.includes(n) || n.includes(p.name)));
       const finalDocs = docsToRead.length > 0 ? docsToRead : pdfs.slice(0, 2);
 
-      // Load PDFs from R2
+      // Load PDFs from R2 — strictly scoped to current vault only
       const loadedDocs = [];
       for (const pdf of finalDocs) {
-        const pdfData = await api(`/api/vaults/${vault.id}/pdfs/${encodeURIComponent(pdf.name)}`);
+        const pdfData = await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
         loadedDocs.push({ ...pdf, base64: pdfData.base64 });
       }
 
@@ -379,17 +380,24 @@ export default function App() {
         title: pdf.name,
       }));
 
+      const vaultDocNames = pdfs.map(p => p.name).join(", ");
       const focusSections = (selection.selected || []).map(s => s.sections?.join(", ")).filter(Boolean).join("; ");
-      const answerPrompt = `You are an expert building regulations consultant answering a question using the provided regulatory documents.
+      const answerPrompt = `You are an expert building regulations consultant answering a question using ONLY the provided regulatory documents.
 
+CRITICAL: You must ONLY use information from the documents provided below. Do not use any external knowledge, other regulations, or information from outside these specific documents. If the answer cannot be found in these documents, say so explicitly.
+
+VAULT DOCUMENTS: ${vaultDocNames}
 QUESTION: ${q}
-
 FOCUS SECTIONS: ${focusSections || "all relevant sections"}
 
 RESPONSE STRUCTURE — follow this exact structure every time:
 
 ## Summary
 Write 2-4 sentences giving a direct, concise answer to the question in plain English. This should stand alone as a complete answer for someone who needs a quick response.
+
+Immediately after the summary, provide the primary citation:
+> **[Document Name]** | Section [X.X] — [Heading] | Page [X]
+> *"[exact wording from document]"*
 
 ---
 
@@ -401,26 +409,16 @@ Write a thorough breakdown of the answer, structured using the same headings, nu
 - **Sub-headings (###)** to organise by topic or document section
 - **Bold** for defined terms, regulation numbers and key requirements
 
-For each point made, explain the reasoning and regulatory basis in plain English alongside the technical requirement.
-
----
-
-## Sources & Citations
-
-For every point made in the Detailed Analysis, provide:
-- Document name
-- Section number and heading
-- Page number
-- **Exact wording** from the regulation in quote marks
-
-Format each citation as:
+INLINE CITATIONS — after every statement, fact or requirement, immediately add the citation on the next line in this format:
 > **[Document Name]** | Section [X.X] — [Heading] | Page [X]
 > *"[exact wording from document]"*
+
+Do not group citations at the end. Every single point must have its citation directly beneath it.
 
 ---
 
 ## Contradictions & Conflicts
-If any contradictions, conflicts or ambiguities are found between sections or documents, list them clearly here. If none found, write "No contradictions identified."
+If any contradictions, conflicts or ambiguities are found between sections or documents within this vault, list them clearly here with citations for each conflicting statement. If none found, write "No contradictions identified."
 
 ---
 
@@ -428,12 +426,12 @@ STYLE REQUIREMENTS:
 - Write in the same formal, technical style as the source building regulations documents
 - Use the same terminology, defined terms and numbering conventions as the source material
 - Be precise and unambiguous — this is regulatory guidance
-- Do not add information not found in the documents
-- If the documents do not contain enough information to answer fully, state this clearly`;
+- Do NOT use any knowledge from outside the provided documents
+- If the documents do not contain enough information to answer fully, state this explicitly`;
 
       const finalAnswer = await callClaude(
         [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-        "You are an expert building regulations consultant. Answer questions by carefully analysing the provided regulatory documents. Always match the formal technical style of the source material. Be precise, thorough and cite exact wording.",
+        `You are an expert building regulations consultant. Answer questions by carefully analysing ONLY the provided regulatory documents from the "${vault.name}" vault. Never use external knowledge. Always cite exact wording inline immediately after each point. Match the formal technical style of the source material.`,
         4000
       );
 
