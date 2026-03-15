@@ -3,7 +3,8 @@ import { useState, useRef, useCallback } from "react";
 // ── API config ────────────────────────────────────────────────────────────────
 // In Replit: calls your secure backend proxy at /api/claude (API key stays server-side)
 // In Claude.ai demo mode: returns realistic mock data so you can test the UI
-const IS_DEMO = typeof window !== "undefined" && !window.location.hostname.includes("replit") && !window.location.hostname.includes("localhost");
+const IS_DEMO = false;
+const API_BASE = "vaultmind-production-5775.up.railway.app";
 const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
@@ -81,7 +82,7 @@ async function callClaude(messages, systemPrompt, maxTokens = 1000) {
   }
 
   // Production: call your secure backend proxy
-  const res = await fetch("/api/claude", {
+  const res = await fetch(`${API_BASE}/api/claude`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
