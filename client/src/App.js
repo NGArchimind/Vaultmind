@@ -3,7 +3,7 @@ import { useState, useRef, useCallback } from "react";
 // ── API config ────────────────────────────────────────────────────────────────
 // In Replit: calls your secure backend proxy at /api/claude (API key stays server-side)
 // In Claude.ai demo mode: returns realistic mock data so you can test the UI
-const IS_DEMO = typeof window !== "undefined" && !window.location.hostname.includes("replit") && !window.location.hostname.includes("localhost");
+const IS_DEMO = false;
 const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 
 // ── helpers ───────────────────────────────────────────────────────────────────
