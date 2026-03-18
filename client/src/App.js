@@ -98,14 +98,14 @@ function Spinner({ size = 18 }) {
   );
 }
 
-function ProgressBar({ label, pct, color = "#c8a96e" }) {
+function ProgressBar({ label, pct, color = "#1d70b8" }) {
   return (
     <div style={{ marginBottom: 10 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#888", marginBottom: 4 }}>
-        <span>{label}</span><span>{Math.round(pct)}%</span>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#505a5f", marginBottom: 4 }}>
+        <span style={{ fontWeight: 700 }}>{label}</span><span>{Math.round(pct)}%</span>
       </div>
-      <div style={{ height: 4, background: "#2a2a2a", borderRadius: 2 }}>
-        <div style={{ height: "100%", width: `${pct}%`, background: color, borderRadius: 2, transition: "width 0.4s ease" }} />
+      <div style={{ height: 5, background: "#b1b4b6" }}>
+        <div style={{ height: "100%", width: `${pct}%`, background: color, transition: "width 0.4s ease" }} />
       </div>
     </div>
   );
@@ -133,10 +133,22 @@ function AnswerRenderer({ text }) {
     const header = rows[0];
     const body = rows.slice(2);
     elements.push(
-      <div key={`tbl-${key}`} style={{ overflowX: "auto", margin: "16px 0" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
-          <thead><tr>{header.map((h, i) => <th key={i} style={{ background: "#1e1b14", color: "#c8a96e", padding: "8px 12px", border: "1px solid #333", textAlign: "left", fontFamily: "'Playfair Display', serif" }}>{h}</th>)}</tr></thead>
-          <tbody>{body.map((row, ri) => <tr key={ri} style={{ background: ri % 2 === 0 ? "#141414" : "#181818" }}>{row.map((cell, ci) => <td key={ci} style={{ padding: "7px 12px", border: "1px solid #2a2a2a", color: "#ccc", verticalAlign: "top" }}>{cell}</td>)}</tr>)}</tbody>
+      <div key={`tbl-${key}`} style={{ overflowX: "auto", margin: "20px 0" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 14 }}>
+          <thead>
+            <tr>{header.map((h, i) => (
+              <th key={i} style={{ background: "#f3f2f1", color: "#0b0c0c", padding: "10px 15px", border: "1px solid #b1b4b6", textAlign: "left", fontWeight: 700, fontSize: 14 }}>{h}</th>
+            ))}</tr>
+          </thead>
+          <tbody>
+            {body.map((row, ri) => (
+              <tr key={ri} style={{ background: ri % 2 === 0 ? "#ffffff" : "#f8f8f8" }}>
+                {row.map((cell, ci) => (
+                  <td key={ci} style={{ padding: "10px 15px", border: "1px solid #b1b4b6", color: "#0b0c0c", verticalAlign: "top", fontSize: 14, lineHeight: 1.5 }}>{cell}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
         </table>
       </div>
     );
@@ -146,17 +158,68 @@ function AnswerRenderer({ text }) {
   lines.forEach((line, i) => {
     if (line.startsWith("|")) { inTable = true; tableBuffer.push(line); return; }
     if (inTable) flushTable(i);
-    if (line.startsWith("### ")) elements.push(<h3 key={i} style={{ color: "#c8a96e", fontFamily: "'Playfair Display', serif", fontSize: 15, margin: "18px 0 6px", fontWeight: 600 }}>{line.slice(4)}</h3>);
-    else if (line.startsWith("## ")) elements.push(<h2 key={i} style={{ color: "#e8d5a3", fontFamily: "'Playfair Display', serif", fontSize: 18, margin: "22px 0 8px", borderBottom: "1px solid #333", paddingBottom: 6 }}>{line.slice(3)}</h2>);
-    else if (line.startsWith("# ")) elements.push(<h1 key={i} style={{ color: "#e8d5a3", fontFamily: "'Playfair Display', serif", fontSize: 22, margin: "24px 0 10px" }}>{line.slice(2)}</h1>);
-    else if (line.startsWith("> ")) elements.push(<blockquote key={i} style={{ borderLeft: "2px solid #c8a96e", paddingLeft: 12, color: "#888", fontStyle: "italic", fontSize: 12, margin: "10px 0" }}>{line.slice(2)}</blockquote>);
-    else if (line.startsWith("- ") || line.startsWith("* ")) elements.push(<li key={i} style={{ color: "#ccc", fontSize: 13.5, lineHeight: 1.7, marginLeft: 18 }}>{formatInline(line.slice(2))}</li>);
-    else if (line.match(/^\d+\. /)) elements.push(<li key={i} style={{ color: "#ccc", fontSize: 13.5, lineHeight: 1.7, marginLeft: 18, listStyleType: "decimal" }}>{formatInline(line.replace(/^\d+\. /, ""))}</li>);
-    else if (line === "") elements.push(<div key={i} style={{ height: 10 }} />);
-    else elements.push(<p key={i} style={{ color: "#ccc", fontSize: 13.5, lineHeight: 1.75, margin: "4px 0" }}>{formatInline(line)}</p>);
+
+    if (line.startsWith("### ")) {
+      elements.push(<h3 key={i} style={{ color: "#0b0c0c", fontSize: 19, fontWeight: 700, margin: "24px 0 10px", paddingBottom: 4, borderBottom: "2px solid #1d70b8" }}>{line.slice(4)}</h3>);
+    } else if (line.startsWith("## ")) {
+      // Summary and major sections get green regulation box treatment
+      const isSummary = line.slice(3).toLowerCase().includes("summary");
+      elements.push(
+        <h2 key={i} style={{
+          color: "#0b0c0c", fontSize: 22, fontWeight: 700,
+          margin: "28px 0 12px",
+          paddingLeft: isSummary ? 12 : 0,
+          borderLeft: isSummary ? "6px solid #00703c" : "none",
+          background: isSummary ? "#e9f7ef" : "transparent",
+          padding: isSummary ? "10px 14px" : "0",
+          borderRadius: isSummary ? 2 : 0,
+        }}>{line.slice(3)}</h2>
+      );
+    } else if (line.startsWith("# ")) {
+      elements.push(<h1 key={i} style={{ color: "#0b0c0c", fontSize: 27, fontWeight: 700, margin: "32px 0 16px", borderBottom: "3px solid #1d70b8", paddingBottom: 8 }}>{line.slice(2)}</h1>);
+    } else if (line.startsWith("> ")) {
+      const quoteText = line.slice(2);
+      const isCitation = quoteText.startsWith("*") && quoteText.endsWith("*");
+      if (isCitation) {
+        // Citation — GOV.UK metadata style
+        elements.push(
+          <p key={i} style={{ fontSize: 13, color: "#505a5f", fontStyle: "italic", margin: "4px 0 14px 18px", paddingLeft: 12, borderLeft: "3px solid #b1b4b6" }}>
+            {quoteText.slice(1, -1)}
+          </p>
+        );
+      } else {
+        // Document quote — GOV.UK inset text style with blue left border
+        elements.push(
+          <blockquote key={i} style={{
+            borderLeft: "5px solid #1d70b8",
+            paddingLeft: 16,
+            marginLeft: 0,
+            marginTop: 12,
+            marginBottom: 4,
+            color: "#0b0c0c",
+            fontStyle: "italic",
+            fontSize: 15,
+            lineHeight: 1.75,
+            background: "#f0f4ff",
+            padding: "12px 16px",
+            borderRadius: "0 4px 4px 0",
+          }}>
+            {quoteText}
+          </blockquote>
+        );
+      }
+    } else if (line.startsWith("- ") || line.startsWith("* ")) {
+      elements.push(<li key={i} style={{ color: "#0b0c0c", fontSize: 15, lineHeight: 1.7, marginLeft: 20, marginBottom: 4 }}>{formatInline(line.slice(2))}</li>);
+    } else if (line.match(/^\d+\. /)) {
+      elements.push(<li key={i} style={{ color: "#0b0c0c", fontSize: 15, lineHeight: 1.7, marginLeft: 20, marginBottom: 4, listStyleType: "decimal" }}>{formatInline(line.replace(/^\d+\. /, ""))}</li>);
+    } else if (line === "") {
+      elements.push(<div key={i} style={{ height: 12 }} />);
+    } else {
+      elements.push(<p key={i} style={{ color: "#0b0c0c", fontSize: 15, lineHeight: 1.75, margin: "6px 0" }}>{formatInline(line)}</p>);
+    }
   });
   if (inTable) flushTable("end");
-  return <div>{elements}</div>;
+  return <div style={{ fontFamily: "Arial, sans-serif" }}>{elements}</div>;
 }
 
 // ── main app ──────────────────────────────────────────────────────────────────
@@ -699,231 +762,251 @@ RULES:
 
   // ── render ─────────────────────────────────────────────────────────────────
   return (
-    <div style={{ fontFamily: "'DM Sans', system-ui, sans-serif", background: "#0e0d0b", minHeight: "100vh", color: "#ddd", display: "flex" }}>
+    <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", color: "#0b0c0c", display: "flex", flexDirection: "column" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=DM+Sans:wght@300;400;500&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        ::-webkit-scrollbar { width: 5px; } ::-webkit-scrollbar-track { background: #111; } ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+        ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #f3f2f1; } ::-webkit-scrollbar-thumb { background: #b1b4b6; border-radius: 3px; }
         @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-        .vault-item { cursor: pointer; transition: background 0.2s; }
-        .vault-item:hover { background: #1c1a14 !important; }
-        .btn { cursor: pointer; transition: all 0.15s; border: none; }
-        .btn:hover { filter: brightness(1.15); }
-        .btn:disabled { cursor: not-allowed; opacity: 0.5; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .vault-item { cursor: pointer; transition: background 0.15s; }
+        .vault-item:hover { background: #e8f0fe !important; }
+        .btn { cursor: pointer; transition: all 0.15s; border: none; font-family: Arial, sans-serif; }
+        .btn:hover { filter: brightness(0.92); }
+        .btn:disabled { cursor: not-allowed; opacity: 0.4; }
+        .govuk-input:focus { outline: 3px solid #ffdd00; outline-offset: 0; }
       `}</style>
 
-      {/* sidebar */}
-      <div style={{ width: 260, minHeight: "100vh", borderRight: "1px solid #1e1c18", background: "#0b0a08", display: "flex", flexDirection: "column", flexShrink: 0 }}>
-        <div style={{ padding: "24px 20px 16px", borderBottom: "1px solid #1e1c18" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-            <div style={{ width: 28, height: 28, background: "linear-gradient(135deg,#c8a96e,#8b6914)", borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>⬡</div>
-            <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 17, color: "#e8d5a3", fontWeight: 600 }}>VaultMind</span>
-          </div>
-          <p style={{ fontSize: 10, color: "#555", marginTop: 2, letterSpacing: "0.08em", textTransform: "uppercase" }}>Document Intelligence</p>
-        </div>
-
-        <div style={{ padding: "14px 14px 8px", fontSize: 10, color: "#555", letterSpacing: "0.1em", textTransform: "uppercase" }}>Vaults</div>
-
-        <div style={{ flex: 1, overflowY: "auto" }}>
-          {loadingVaults ? (
-            <div style={{ padding: 16, display: "flex", alignItems: "center", gap: 8, color: "#555", fontSize: 12 }}><Spinner size={12} /> Loading…</div>
-          ) : vaults.map(v => (
-            <div key={v.id} className="vault-item"
-              onClick={() => { setSelectedVault(v.id); setAnswer(null); setStage(null); setCostEst(null); }}
-              style={{ padding: "10px 16px", background: selectedVault === v.id ? "#1c1a14" : "transparent", borderLeft: selectedVault === v.id ? "2px solid #c8a96e" : "2px solid transparent" }}>
-              <div style={{ fontSize: 13, color: selectedVault === v.id ? "#e8d5a3" : "#aaa", fontWeight: selectedVault === v.id ? 500 : 400 }}>{v.name}</div>
-            </div>
-          ))}
-        </div>
-
-        {creating ? (
-          <div style={{ padding: "12px 14px", borderTop: "1px solid #1e1c18" }}>
-            <input value={newVaultName} onChange={e => setNewVaultName(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && createVault()}
-              placeholder="Vault name…" autoFocus
-              style={{ width: "100%", background: "#151310", border: "1px solid #333", borderRadius: 6, padding: "7px 10px", color: "#ddd", fontSize: 13, outline: "none", marginBottom: 8 }} />
-            <div style={{ display: "flex", gap: 6 }}>
-              <button className="btn" onClick={createVault} style={{ flex: 1, background: "#c8a96e", color: "#0e0d0b", borderRadius: 6, padding: "6px 0", fontSize: 12, fontWeight: 600 }}>Create</button>
-              <button className="btn" onClick={() => setCreating(false)} style={{ flex: 1, background: "#1e1c18", color: "#888", borderRadius: 6, padding: "6px 0", fontSize: 12 }}>Cancel</button>
-            </div>
-          </div>
-        ) : (
-          <div style={{ padding: "12px 14px", borderTop: "1px solid #1e1c18" }}>
-            <button className="btn" onClick={() => setCreating(true)}
-              style={{ width: "100%", background: "#1a1814", border: "1px dashed #333", borderRadius: 8, padding: "9px 0", color: "#777", fontSize: 12, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              <span style={{ fontSize: 16, color: "#555" }}>+</span> New Vault
-            </button>
-          </div>
-        )}
+      {/* GOV.UK Crown bar */}
+      <div style={{ background: "#0b0c0c", padding: "8px 20px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+        <span style={{ color: "#ffffff", fontSize: 13, fontWeight: 700, letterSpacing: "0.02em" }}>GOV.UK</span>
+        <span style={{ color: "#6f777b", fontSize: 12 }}>|</span>
+        <span style={{ color: "#b1b4b6", fontSize: 12 }}>Building Regulations Document Intelligence</span>
       </div>
 
-      {/* main */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: "100vh", maxHeight: "100vh", overflow: "hidden" }}>
-        {!vault ? (
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, opacity: 0.4 }}>
-            <div style={{ fontSize: 48 }}>⬡</div>
-            <p style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, color: "#888" }}>Select or create a vault</p>
-            <p style={{ fontSize: 12, color: "#555" }}>Upload PDFs once — available to your whole team instantly</p>
-          </div>
-        ) : (
-          <>
-            {/* header */}
-            <div style={{ padding: "18px 28px", borderBottom: "1px solid #1e1c18", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-              <div>
-                <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 20, color: "#e8d5a3", fontWeight: 600 }}>{vault.name}</h1>
-                <p style={{ fontSize: 11, color: "#555", marginTop: 3 }}>{pdfs.length} document{pdfs.length !== 1 ? "s" : ""} · {vaultIndex ? "✓ Indexed" : "Not indexed"}</p>
+      {/* Blue service header */}
+      <div style={{ background: "#1d70b8", padding: "12px 20px", flexShrink: 0 }}>
+        <span style={{ color: "#ffffff", fontSize: 18, fontWeight: 700 }}>VaultMind</span>
+        <span style={{ color: "#cde4f7", fontSize: 13, marginLeft: 12 }}>Approved Documents Search</span>
+      </div>
+
+      <div style={{ flex: 1, display: "flex", overflow: "hidden", maxHeight: "calc(100vh - 89px)" }}>
+
+        {/* sidebar */}
+        <div style={{ width: 280, borderRight: "1px solid #b1b4b6", background: "#ffffff", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+
+          {/* Vault list */}
+          <div style={{ padding: "14px 16px 6px", fontSize: 11, color: "#505a5f", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #f3f2f1" }}>Document Vaults</div>
+
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {loadingVaults ? (
+              <div style={{ padding: 16, display: "flex", alignItems: "center", gap: 8, color: "#505a5f", fontSize: 13 }}><Spinner size={12} /> Loading…</div>
+            ) : vaults.map(v => (
+              <div key={v.id} className="vault-item"
+                onClick={() => { setSelectedVault(v.id); setAnswer(null); setStage(null); setCostEst(null); }}
+                style={{ padding: "10px 16px", background: selectedVault === v.id ? "#e8f0fe" : "transparent", borderLeft: selectedVault === v.id ? "4px solid #1d70b8" : "4px solid transparent" }}>
+                <div style={{ fontSize: 14, color: "#0b0c0c", fontWeight: selectedVault === v.id ? 700 : 400 }}>{v.name}</div>
               </div>
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            ))}
+          </div>
+
+          {creating ? (
+            <div style={{ padding: "12px 16px", borderTop: "1px solid #b1b4b6", background: "#f3f2f1" }}>
+              <label style={{ fontSize: 13, fontWeight: 700, color: "#0b0c0c", display: "block", marginBottom: 4 }}>Vault name</label>
+              <input value={newVaultName} onChange={e => setNewVaultName(e.target.value)}
+                onKeyDown={e => e.key === "Enter" && createVault()}
+                placeholder="Enter vault name" autoFocus className="govuk-input"
+                style={{ width: "100%", border: "2px solid #0b0c0c", padding: "6px 8px", fontSize: 14, color: "#0b0c0c", marginBottom: 8, outline: "none" }} />
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn" onClick={createVault} style={{ background: "#00703c", color: "#ffffff", padding: "7px 14px", fontSize: 14, fontWeight: 700 }}>Create</button>
+                <button className="btn" onClick={() => setCreating(false)} style={{ background: "#f3f2f1", color: "#0b0c0c", padding: "7px 14px", fontSize: 14, border: "1px solid #0b0c0c" }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ padding: "12px 16px", borderTop: "1px solid #b1b4b6" }}>
+              <button className="btn" onClick={() => setCreating(true)}
+                style={{ width: "100%", background: "#1d70b8", color: "#ffffff", padding: "9px 0", fontSize: 14, fontWeight: 700, textAlign: "center" }}>
+                + New Vault
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* main */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f3f2f1" }}>
+          {!vault ? (
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12 }}>
+              <p style={{ fontSize: 18, color: "#505a5f", fontWeight: 700 }}>Select or create a vault</p>
+              <p style={{ fontSize: 14, color: "#6f777b" }}>Upload PDFs once — available to your whole team instantly</p>
+            </div>
+          ) : (
+            <>
+              {/* Vault header */}
+              <div style={{ padding: "16px 24px", borderBottom: "2px solid #1d70b8", background: "#ffffff", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                <div>
+                  <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0b0c0c" }}>{vault.name}</h1>
+                  <p style={{ fontSize: 13, color: "#505a5f", marginTop: 2 }}>
+                    {pdfs.length} document{pdfs.length !== 1 ? "s" : ""} &nbsp;·&nbsp;
+                    {vaultIndex
+                      ? <span style={{ color: "#00703c", fontWeight: 700 }}>✓ Indexed</span>
+                      : <span style={{ color: "#d4351c" }}>Not indexed</span>}
+                  </p>
+                </div>
                 {pdfs.length > 0 && (
                   <button className="btn" onClick={indexVault} disabled={isRunning}
-                    style={{ background: vaultIndex ? "#1a1814" : "linear-gradient(135deg,#c8a96e,#8b6914)", color: vaultIndex ? "#888" : "#0e0d0b", border: vaultIndex ? "1px solid #333" : "none", borderRadius: 8, padding: "9px 20px", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
-                    {stage === "indexing" ? <><Spinner size={13} /> Indexing…</> : vaultIndex ? "Re-index" : "⬡ Index Vault"}
+                    style={{ background: vaultIndex ? "#f3f2f1" : "#00703c", color: vaultIndex ? "#0b0c0c" : "#ffffff", border: vaultIndex ? "1px solid #b1b4b6" : "none", padding: "9px 20px", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+                    {stage === "indexing" ? <><Spinner size={13} /> Indexing…</> : vaultIndex ? "Re-index Vault" : "Index Vault"}
                   </button>
                 )}
               </div>
-            </div>
 
-            <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-              {/* PDF panel */}
-              <div style={{ width: 240, borderRight: "1px solid #1e1c18", display: "flex", flexDirection: "column", flexShrink: 0 }}>
-                <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
-                  onClick={() => fileInputRef.current.click()}
-                  style={{ margin: 12, border: `1.5px dashed ${dragOver ? "#c8a96e" : "#2a2820"}`, borderRadius: 10, padding: "14px 10px", textAlign: "center", cursor: "pointer", transition: "border-color 0.2s", background: dragOver ? "#1a1710" : "transparent" }}>
-                  {uploadingPdf ? <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "#c8a96e", fontSize: 12 }}><Spinner size={14} /> Uploading…</div> : (
-                    <>
-                      <div style={{ fontSize: 22, marginBottom: 4 }}>📄</div>
-                      <p style={{ fontSize: 11, color: "#666", lineHeight: 1.5 }}>Drop PDFs here<br />or click to browse</p>
-                    </>
-                  )}
-                  <input ref={fileInputRef} type="file" multiple accept="application/pdf" style={{ display: "none" }} onChange={e => addPDFs(e.target.files)} />
+              <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+
+                {/* PDF panel */}
+                <div style={{ width: 240, borderRight: "1px solid #b1b4b6", background: "#ffffff", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+                  <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
+                    onClick={() => fileInputRef.current.click()}
+                    style={{ margin: 12, border: `2px dashed ${dragOver ? "#1d70b8" : "#b1b4b6"}`, padding: "14px 10px", textAlign: "center", cursor: "pointer", background: dragOver ? "#e8f0fe" : "#f3f2f1" }}>
+                    {uploadingPdf ? (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "#1d70b8", fontSize: 13 }}><Spinner size={14} /> Uploading…</div>
+                    ) : (
+                      <>
+                        <div style={{ fontSize: 22, marginBottom: 4 }}>📄</div>
+                        <p style={{ fontSize: 12, color: "#505a5f", lineHeight: 1.5 }}>Drop PDFs here<br />or click to browse</p>
+                      </>
+                    )}
+                    <input ref={fileInputRef} type="file" multiple accept="application/pdf" style={{ display: "none" }} onChange={e => addPDFs(e.target.files)} />
+                  </div>
+
+                  <div style={{ flex: 1, overflowY: "auto" }}>
+                    {pdfs.length > 0 && (
+                      <div style={{ padding: "4px 12px 2px", fontSize: 10, color: "#505a5f", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", display: "flex", gap: 12 }}>
+                        <span style={{ color: "#00703c" }}>✓ indexed</span>
+                        <span style={{ color: "#6f777b" }}>○ not indexed</span>
+                      </div>
+                    )}
+                    {pdfs.map(pdf => {
+                      const isIndexed = vaultIndex?.documents?.some(d => d.name === pdf.name);
+                      return (
+                        <div key={pdf.id} style={{ padding: "7px 12px", display: "flex", alignItems: "center", gap: 8, borderBottom: "1px solid #f3f2f1" }}>
+                          <span style={{ fontSize: 10, color: isIndexed ? "#00703c" : "#6f777b", flexShrink: 0, fontWeight: 700 }}>{isIndexed ? "✓" : "○"}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, color: "#0b0c0c", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pdf.name}</div>
+                            <div style={{ fontSize: 10, color: "#6f777b", marginTop: 1 }}>{(pdf.size / 1024).toFixed(0)} KB</div>
+                          </div>
+                          <button className="btn" onClick={() => deletePdf(pdf)} disabled={isRunning} title="Remove"
+                            style={{ background: "none", color: "#6f777b", fontSize: 15, padding: "2px 4px", lineHeight: 1, flexShrink: 0, fontWeight: 700 }}
+                            onMouseEnter={e => e.target.style.color = "#d4351c"}
+                            onMouseLeave={e => e.target.style.color = "#6f777b"}>×</button>
+                        </div>
+                      );
+                    })}
+                    {pdfs.length === 0 && <p style={{ fontSize: 13, color: "#6f777b", textAlign: "center", marginTop: 20 }}>No documents yet</p>}
+                  </div>
                 </div>
-                <div style={{ flex: 1, overflowY: "auto" }}>
-                  {pdfs.length > 0 && (
-                    <div style={{ padding: "6px 12px 2px", fontSize: 9, color: "#444", letterSpacing: "0.08em", textTransform: "uppercase", display: "flex", gap: 12 }}>
-                      <span style={{ color: "#6a8a5a" }}>✓ indexed</span>
-                      <span style={{ color: "#555" }}>○ not indexed</span>
+
+                {/* Q&A panel */}
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+                  {/* Progress */}
+                  {isRunning && (
+                    <div style={{ padding: "14px 24px", borderBottom: "1px solid #b1b4b6", background: "#ffffff", flexShrink: 0, animation: "fadeIn 0.3s ease" }}>
+                      <div style={{ fontSize: 13, color: "#1d70b8", marginBottom: 10, display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}><Spinner size={13} /> {statusMsg}</div>
+                      <ProgressBar label="Pass 1 · Index scoring" pct={progress.select} color="#1d70b8" />
+                      <ProgressBar label="Pass 2 · Page extraction" pct={progress.read} color="#00703c" />
+                      <ProgressBar label="Pass 3 · Answer synthesis" pct={progress.answer} color="#4c2c92" />
                     </div>
                   )}
-                  {pdfs.map(pdf => {
-                    const isIndexed = vaultIndex?.documents?.some(d => d.name === pdf.name);
-                    return (
-                      <div key={pdf.id} className="pdf-item" style={{ padding: "7px 12px", display: "flex", alignItems: "center", gap: 8, borderRadius: 6, margin: "1px 6px" }}>
-                        <span style={{ fontSize: 8, color: isIndexed ? "#6a8a5a" : "#444", flexShrink: 0 }}>{isIndexed ? "✓" : "○"}</span>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 11, color: isIndexed ? "#bbb" : "#777", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pdf.name}</div>
-                          <div style={{ fontSize: 9, color: "#3a3a3a", marginTop: 1 }}>{(pdf.size / 1024).toFixed(0)} KB</div>
-                        </div>
-                        <button
-                          className="btn"
-                          onClick={() => deletePdf(pdf)}
-                          disabled={isRunning}
-                          title="Remove from vault"
-                          style={{ background: "none", color: "#3a3a3a", fontSize: 14, padding: "2px 4px", borderRadius: 4, lineHeight: 1, flexShrink: 0 }}
-                          onMouseEnter={e => e.target.style.color = "#aa4444"}
-                          onMouseLeave={e => e.target.style.color = "#3a3a3a"}
-                        >×</button>
+
+                  {/* Status bar */}
+                  {!isRunning && statusMsg && (
+                    <div style={{ padding: "8px 24px", borderBottom: "1px solid #b1b4b6", background: "#ffffff", fontSize: 13, color: "#505a5f", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
+                      <span>{statusMsg}</span>
+                      {costEst !== null && (
+                        <span style={{ background: costEst < 0.01 ? "#e9f7ef" : "#fff7e6", border: `1px solid ${costEst < 0.01 ? "#00703c" : "#f47738"}`, color: costEst < 0.01 ? "#00703c" : "#f47738", padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>
+                          {costEst < 0.01 ? "✓ Under 1p" : `~${(costEst * 100).toFixed(2)}p`}
+                        </span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Answer area */}
+                  <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px" }}>
+
+                    {/* History */}
+                    {vaultHistory.length > 0 && (
+                      <div style={{ marginBottom: 20 }}>
+                        {vaultHistory.map((h, i) => (
+                          <div key={i} style={{ marginBottom: 8 }}>
+                            <div style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                              <span style={{ color: "#1d70b8", fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.question}</span>
+                              <span style={{ fontSize: 11, color: "#6f777b", flexShrink: 0 }}>{new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
-                    );
-                  })}
-                  {pdfs.length === 0 && <p style={{ fontSize: 11, color: "#444", textAlign: "center", marginTop: 20 }}>No documents yet</p>}
-                </div>
-              </div>
+                    )}
 
-              {/* Q&A panel */}
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                {isRunning && (
-                  <div style={{ padding: "16px 24px", borderBottom: "1px solid #1e1c18", background: "#0c0b09", animation: "fadeIn 0.3s ease", flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, color: "#c8a96e", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}><Spinner size={12} /> {statusMsg}</div>
-                    <ProgressBar label="Pass 1 · Contents & probability scoring" pct={progress.select} />
-                    <ProgressBar label="Pass 2 · Loading selected documents" pct={progress.read} color="#6a8a5a" />
-                    <ProgressBar label="Pass 3 · Deep read & answer synthesis" pct={progress.answer} color="#8a6a9a" />
-                  </div>
-                )}
+                    {/* Current answer */}
+                    {answer && (
+                      <div style={{ animation: "fadeIn 0.4s ease" }}>
+                        <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #1d70b8", padding: "24px 28px" }}>
+                          <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                            Response — {vault.name}
+                          </p>
+                          <AnswerRenderer text={answer} />
+                        </div>
+                      </div>
+                    )}
 
-                {!isRunning && statusMsg && (
-                  <div style={{ padding: "8px 24px", borderBottom: "1px solid #1e1c18", fontSize: 11, color: "#888", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-                    <span>{statusMsg}</span>
-                    {costEst !== null && (
-                      <span style={{ background: costEst < 0.01 ? "#1a2a1a" : "#2a1a0a", border: `1px solid ${costEst < 0.01 ? "#2a4a2a" : "#4a2a0a"}`, color: costEst < 0.01 ? "#6aaa6a" : "#c8a96e", borderRadius: 12, padding: "2px 10px", fontSize: 10, fontWeight: 500 }}>
-                        {costEst < 0.01 ? "✓ Under 1p" : `~${(costEst * 100).toFixed(2)}p`}
-                      </span>
+                    {!answer && !isRunning && vaultIndex && vaultHistory.length === 0 && (
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12 }}>
+                        <div style={{ width: 48, height: 5, background: "#1d70b8" }} />
+                        <p style={{ fontSize: 18, color: "#505a5f", fontWeight: 700 }}>Ask a question about this vault</p>
+                        <p style={{ fontSize: 14, color: "#6f777b" }}>The AI selects the most relevant pages before answering</p>
+                      </div>
+                    )}
+
+                    {!vaultIndex && !isRunning && pdfs.length > 0 && (
+                      <div style={{ background: "#fff7e6", border: "1px solid #f47738", borderLeft: "6px solid #f47738", padding: "16px 20px", margin: "20px 0" }}>
+                        <p style={{ fontSize: 15, fontWeight: 700, color: "#0b0c0c", marginBottom: 4 }}>Vault not indexed</p>
+                        <p style={{ fontSize: 14, color: "#505a5f" }}>Click "Index Vault" above to prepare documents for searching.</p>
+                      </div>
+                    )}
+
+                    {pdfs.length === 0 && !isRunning && (
+                      <div style={{ background: "#e8f0fe", border: "1px solid #1d70b8", borderLeft: "6px solid #1d70b8", padding: "16px 20px", margin: "20px 0" }}>
+                        <p style={{ fontSize: 15, fontWeight: 700, color: "#0b0c0c", marginBottom: 4 }}>No documents uploaded</p>
+                        <p style={{ fontSize: 14, color: "#505a5f" }}>Use the panel on the left to upload PDF documents to this vault.</p>
+                      </div>
                     )}
                   </div>
-                )}
 
-                <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px" }}>
-                  {vaultHistory.length > 0 && (
-                    <div style={{ marginBottom: 24 }}>
-                      {vaultHistory.map((h, i) => (
-                        <div key={i} style={{ marginBottom: 12, opacity: 0.5 }}>
-                          <div style={{ fontSize: 11, color: "#888", background: "#0f0e0c", border: "1px solid #1e1c18", borderRadius: 8, padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                            <span style={{ color: "#c8a96e", fontWeight: 500 }}>Q:</span>
-                            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.question}</span>
-                            <span style={{ fontSize: 10, color: "#444", flexShrink: 0 }}>{new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {answer && (
-                    <div style={{ animation: "fadeIn 0.4s ease" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 16 }}>
-                        <div style={{ width: 26, height: 26, background: "linear-gradient(135deg,#c8a96e,#8b6914)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>⬡</div>
-                        <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 13, color: "#888", fontStyle: "italic" }}>Answer from {vault.name}</div>
+                  {/* Question input */}
+                  {vaultIndex && (
+                    <div style={{ padding: "16px 24px", borderTop: "2px solid #1d70b8", background: "#ffffff", flexShrink: 0 }}>
+                      <label style={{ fontSize: 14, fontWeight: 700, color: "#0b0c0c", display: "block", marginBottom: 6 }}>
+                        Search the approved documents
+                      </label>
+                      <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
+                        <textarea value={question} onChange={e => setQuestion(e.target.value)}
+                          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
+                          placeholder="Enter your question… (press Enter to search)"
+                          disabled={isRunning} rows={2} className="govuk-input"
+                          style={{ flex: 1, border: "2px solid #0b0c0c", padding: "10px 12px", color: "#0b0c0c", fontSize: 14, outline: "none", resize: "none", lineHeight: 1.5, fontFamily: "Arial, sans-serif", opacity: isRunning ? 0.6 : 1, background: isRunning ? "#f3f2f1" : "#ffffff" }} />
+                        <button className="btn" onClick={askQuestion} disabled={isRunning || !question.trim()}
+                          style={{ background: isRunning || !question.trim() ? "#f3f2f1" : "#00703c", color: isRunning || !question.trim() ? "#6f777b" : "#ffffff", padding: "0 20px", fontSize: 15, fontWeight: 700, height: 58, display: "flex", alignItems: "center", justifyContent: "center", border: isRunning || !question.trim() ? "1px solid #b1b4b6" : "none", minWidth: 80 }}>
+                          {isRunning ? <Spinner size={16} /> : "Search"}
+                        </button>
                       </div>
-                      <div style={{ background: "#0f0e0c", border: "1px solid #1e1c18", borderRadius: 12, padding: "20px 24px" }}>
-                        <AnswerRenderer text={answer} />
-                      </div>
-                    </div>
-                  )}
-
-                  {!answer && !isRunning && vaultIndex && vaultHistory.length === 0 && (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", opacity: 0.35, gap: 10 }}>
-                      <div style={{ fontSize: 36 }}>💬</div>
-                      <p style={{ fontFamily: "'Playfair Display', serif", color: "#888", fontSize: 16 }}>Ask anything about this vault</p>
-                      <p style={{ fontSize: 11, color: "#555" }}>AI selects the most relevant pages before answering</p>
-                    </div>
-                  )}
-
-                  {!vaultIndex && !isRunning && pdfs.length > 0 && (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", opacity: 0.4, gap: 10 }}>
-                      <div style={{ fontSize: 36 }}>⬡</div>
-                      <p style={{ fontFamily: "'Playfair Display', serif", color: "#888", fontSize: 16 }}>Index this vault first</p>
-                      <p style={{ fontSize: 11, color: "#555" }}>Click "Index Vault" to prepare for questions</p>
-                    </div>
-                  )}
-
-                  {pdfs.length === 0 && !isRunning && (
-                    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", opacity: 0.4, gap: 10 }}>
-                      <div style={{ fontSize: 36 }}>📄</div>
-                      <p style={{ fontFamily: "'Playfair Display', serif", color: "#888", fontSize: 16 }}>No documents yet</p>
-                      <p style={{ fontSize: 11, color: "#555" }}>Upload PDFs using the panel on the left</p>
+                      <p style={{ fontSize: 11, color: "#6f777b", marginTop: 6 }}>AI-powered search · selects most relevant pages · target under 1p per search</p>
                     </div>
                   )}
                 </div>
-
-                {vaultIndex && (
-                  <div style={{ padding: "16px 24px", borderTop: "1px solid #1e1c18", background: "#0b0a08", flexShrink: 0 }}>
-                    <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
-                      <textarea value={question} onChange={e => setQuestion(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
-                        placeholder="Ask a question about this vault… (Enter to send)"
-                        disabled={isRunning} rows={2}
-                        style={{ flex: 1, background: "#141210", border: "1px solid #2a2820", borderRadius: 10, padding: "11px 14px", color: "#ddd", fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "inherit", opacity: isRunning ? 0.6 : 1 }} />
-                      <button className="btn" onClick={askQuestion} disabled={isRunning || !question.trim()}
-                        style={{ background: isRunning || !question.trim() ? "#1a1814" : "linear-gradient(135deg,#c8a96e,#8b6914)", color: isRunning || !question.trim() ? "#555" : "#0e0d0b", borderRadius: 10, padding: "11px 18px", fontSize: 16, fontWeight: 700, height: 54, width: 54, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                        {isRunning ? <Spinner size={14} /> : "→"}
-                      </button>
-                    </div>
-                    <p style={{ fontSize: 10, color: "#3a3830", marginTop: 6, textAlign: "right" }}>2-pass AI pipeline · target &lt; 1p / question</p>
-                  </div>
-                )}
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
