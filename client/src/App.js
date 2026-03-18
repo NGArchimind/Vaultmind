@@ -558,12 +558,13 @@ Include ALL sections with probability > 0.3. Always include page numbers where a
           copiedPages.forEach(p => extractedDoc.addPage(p));
           const extractedBytes = await extractedDoc.save();
 
-          // Convert to base64 safely for large files
-          const chunkSize = 8192;
-          let extractedBase64 = "";
-          for (let i = 0; i < extractedBytes.length; i += chunkSize) {
-            extractedBase64 += btoa(String.fromCharCode(...extractedBytes.slice(i, i + chunkSize)));
-          }
+          // Convert to base64 safely using FileReader (handles large PDFs correctly)
+          const extractedBase64 = await new Promise((resolve) => {
+            const blob = new Blob([extractedBytes], { type: "application/pdf" });
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.split(",")[1]);
+            reader.readAsDataURL(blob);
+          });
 
           totalPagesExtracted += pageIndices.length;
           docBlocks.push({
@@ -583,11 +584,12 @@ Include ALL sections with probability > 0.3. Always include page numbers where a
             const fallbackPages = await fallbackDoc.copyPages(srcDoc, Array.from({ length: fallbackCount }, (_, i) => i));
             fallbackPages.forEach(p => fallbackDoc.addPage(p));
             const fallbackBytes = await fallbackDoc.save();
-            let fallbackBase64 = "";
-            const chunkSize = 8192;
-            for (let i = 0; i < fallbackBytes.length; i += chunkSize) {
-              fallbackBase64 += btoa(String.fromCharCode(...fallbackBytes.slice(i, i + chunkSize)));
-            }
+            const fallbackBase64 = await new Promise((resolve) => {
+              const blob = new Blob([fallbackBytes], { type: "application/pdf" });
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result.split(",")[1]);
+              reader.readAsDataURL(blob);
+            });
             totalPagesExtracted += fallbackCount;
             docBlocks.push({
               type: "document",
@@ -690,7 +692,7 @@ RULES:
       setStage("done");
       setHistory(prev => [...prev, { vaultId: vault.id, question: q, answer: finalAnswer, timestamp: new Date() }]);
 
-      const estimatedTokens = (indexSummary.length + answerPrompt.length + finalDocs.length * 15000) / 4;
+      const estimatedTokens = (indexSummary.length + answerPrompt.length + totalPagesExtracted * 500) / 4;
       const costGBP = (estimatedTokens / 1_000_000) * 3 * 0.79;
       setCostEst(costGBP);
       setStatusMsg(`Answer ready · Est. cost: ${costGBP < 0.01 ? "< 1p" : costGBP.toFixed(2) + "p"}`);
