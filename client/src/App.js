@@ -332,7 +332,7 @@ export default function App() {
     }
   };
 
-  // ── question answering ──────────────────────────────────────────────────────
+  // ── question answering — 3-pass pipeline ────────────────────────────────────
   const askQuestion = async () => {
     if (!vaultIndex || !question.trim()) return;
     const q = question.trim();
@@ -341,61 +341,251 @@ export default function App() {
     setQuestion("");
     setStage("selecting");
     setProgress({ index: 100, select: 0, read: 0, answer: 0 });
-    setStatusMsg("Step 1/3 · Selecting most relevant sections…");
+    setStatusMsg("Pass 1/3 · Reading contents pages and scoring sections…");
 
     try {
-      const indexSummary = JSON.stringify(vaultIndex).slice(0, 8000);
-      const selectionText = await callClaude(
-        [{ role: "user", content: `Document Index:\n${indexSummary}\n\nQuestion: ${q}\n\nRespond ONLY as JSON: {"selected": [{"docName": "...", "sections": ["heading1"], "reason": "..."}], "styleNotes": "describe writing style briefly"}` }],
-        "Select relevant document sections based on an index. Return pure JSON only.",
-        800
-      );
-      setProgress(p => ({ ...p, select: 100 }));
+      // ── PASS 1: Read first 10 pages of each PDF (contents + intro) ─────────
+      // Load just the first chunk of each PDF to read contents pages properly
+      const contentsData = [];
+      for (const pdf of pdfs) {
+        setStatusMsg(`Pass 1/3 · Scanning contents: ${pdf.name}…`);
+        try {
+          const pdfData = await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
 
-      let selection = { selected: [], styleNotes: "" };
-      try { selection = JSON.parse(selectionText.replace(/```json|```/g, "").trim()); } catch {}
+          // Extract just first 10 pages for contents pass
+          let contentsBase64 = pdfData.base64;
+          try {
+            if (!window.PDFLib) {
+              await new Promise((resolve, reject) => {
+                const script = document.createElement("script");
+                script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js";
+                script.onload = resolve; script.onerror = reject;
+                document.head.appendChild(script);
+              });
+            }
+            const { PDFDocument } = window.PDFLib;
+            const pdfBytes = Uint8Array.from(atob(pdfData.base64), c => c.charCodeAt(0));
+            const srcDoc = await PDFDocument.load(pdfBytes);
+            const totalPages = srcDoc.getPageCount();
+            const contentsPageCount = Math.min(10, totalPages);
+            const contentsDoc = await PDFDocument.create();
+            const pages = await contentsDoc.copyPages(srcDoc, Array.from({ length: contentsPageCount }, (_, i) => i));
+            pages.forEach(p => contentsDoc.addPage(p));
+            const contentsBytes = await contentsDoc.save();
+            contentsBase64 = btoa(String.fromCharCode(...contentsBytes));
+          } catch (e) {
+            console.warn("Could not extract contents pages, using full PDF:", e);
+          }
 
-      setStage("reading");
-      setStatusMsg("Step 2/3 · Loading selected documents…");
-
-      // VAULT ISOLATION: only use PDFs from this specific vault
-      const relevantNames = (selection.selected || []).map(s => s.docName);
-      const docsToRead = pdfs.filter(p => relevantNames.some(n => p.name.includes(n) || n.includes(p.name)));
-      const finalDocs = docsToRead.length > 0 ? docsToRead : pdfs.slice(0, 2);
-
-      // Load PDFs from R2 — strictly scoped to current vault only
-      const loadedDocs = [];
-      for (const pdf of finalDocs) {
-        const pdfData = await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
-        loadedDocs.push({ ...pdf, base64: pdfData.base64 });
+          contentsData.push({ pdf, base64: pdfData.base64, contentsBase64, totalPages: 0 });
+        } catch (e) {
+          console.warn(`Could not load ${pdf.name}:`, e);
+        }
       }
 
-      setProgress(p => ({ ...p, read: 100 }));
-      setStage("answering");
-      setStatusMsg("Step 3/3 · Synthesising answer…");
+      setProgress(p => ({ ...p, select: 30 }));
 
-      const docBlocks = loadedDocs.map(pdf => ({
+      // ── PASS 1b: Probability scoring using contents + full index ───────────
+      setStatusMsg("Pass 1/3 · Probability scoring — identifying highest relevance pages…");
+
+      const indexSummary = JSON.stringify(vaultIndex).slice(0, 12000);
+
+      // Send contents pages + index to get scored page selections
+      const contentsBlocks = contentsData.map(d => ({
         type: "document",
-        source: { type: "base64", media_type: "application/pdf", data: pdf.base64 },
-        title: pdf.name,
+        source: { type: "base64", media_type: "application/pdf", data: d.contentsBase64 },
+        title: `CONTENTS: ${d.pdf.name}`,
       }));
 
+      const scoringPrompt = `You are an expert building regulations analyst. Your job is to identify which specific sections and pages of these documents are most likely to contain the answer to the question below.
+
+You have been given:
+1. The contents pages / first pages of each document (to read table of contents, chapter lists, section numbering)
+2. A full structural index of all headings
+
+DOCUMENT INDEX:
+${indexSummary}
+
+QUESTION: ${q}
+
+Analyse the contents pages and index carefully. For EVERY section that could possibly be relevant — even tangentially — assign a probability score.
+
+Be CONSERVATIVE — it is better to include a borderline section than to miss critical information. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections.
+
+Respond ONLY as JSON:
+{
+  "styleNotes": "brief description of document style and terminology",
+  "selectedDocs": [
+    {
+      "docName": "exact document filename",
+      "reason": "why this document is relevant",
+      "sections": [
+        {
+          "heading": "exact section heading",
+          "pageHint": "page number or range",
+          "probability": 0.95,
+          "reason": "why this section is relevant",
+          "crossRefs": ["any sections this might cross-reference"]
+        }
+      ]
+    }
+  ]
+}
+
+Include ALL sections with probability > 0.3. For building regulations, err on the side of inclusion.`;
+
+      const scoringText = await callClaude(
+        [{ role: "user", content: [...contentsBlocks, { type: "text", text: scoringPrompt }] }],
+        "You are a building regulations expert scoring document sections for relevance. Be conservative — include borderline sections. Return pure JSON only.",
+        2000
+      );
+
+      setProgress(p => ({ ...p, select: 100 }));
+
+      let scoring = { selectedDocs: [], styleNotes: "" };
+      try {
+        const clean = scoringText.replace(/```json|```/g, "").trim();
+        scoring = JSON.parse(clean);
+      } catch {
+        const m = scoringText.match(/\{[\s\S]*\}/);
+        if (m) try { scoring = JSON.parse(m[0]); } catch {}
+      }
+
+      // ── PASS 2: Extract ONLY the specific pages identified in Pass 1 ─────────
+      setStage("reading");
+      setStatusMsg("Pass 2/3 · Extracting specific relevant pages only…");
+
+      // Helper to parse page hints like "12", "12-15", "12,14,16"
+      const parsePageNums = (hint, totalPages) => {
+        const pages = new Set();
+        if (!hint) return pages;
+        const str = String(hint).replace(/[^0-9,\-]/g, "");
+        str.split(",").forEach(part => {
+          const range = part.split("-");
+          if (range.length === 2) {
+            const start = parseInt(range[0]);
+            const end = parseInt(range[1]);
+            if (!isNaN(start) && !isNaN(end)) {
+              for (let i = start; i <= Math.min(end, totalPages); i++) pages.add(i);
+            }
+          } else {
+            const n = parseInt(part);
+            if (!isNaN(n) && n > 0 && n <= totalPages) pages.add(n);
+          }
+        });
+        return pages;
+      };
+
+      // Build a map of which pages to extract per document
+      const docPageMap = {};
+      (scoring.selectedDocs || []).forEach(selectedDoc => {
+        const matchedDoc = contentsData.find(d =>
+          d.pdf.name.includes(selectedDoc.docName) || selectedDoc.docName.includes(d.pdf.name)
+        );
+        if (!matchedDoc) return;
+        const key = matchedDoc.pdf.name;
+        if (!docPageMap[key]) docPageMap[key] = { contentsDoc: matchedDoc, pages: new Set() };
+        (selectedDoc.sections || []).forEach(section => {
+          const parsed = parsePageNums(section.pageHint, 9999);
+          // Add a 2-page buffer around each identified page to catch overflow
+          parsed.forEach(p => {
+            for (let i = Math.max(1, p - 1); i <= p + 2; i++) docPageMap[key].pages.add(i);
+          });
+        });
+      });
+
+      // Fallback: if no pages identified, use first 2 docs fully
+      if (Object.keys(docPageMap).length === 0) {
+        contentsData.slice(0, 2).forEach(d => {
+          docPageMap[d.pdf.name] = { contentsDoc: d, pages: new Set() }; // empty = use full doc
+        });
+      }
+
+      // Extract specific pages from each document using pdf-lib
+      const docBlocks = [];
+      let totalPagesExtracted = 0;
+
+      for (const [docName, { contentsDoc, pages }] of Object.entries(docPageMap)) {
+        setStatusMsg(`Pass 2/3 · Extracting pages from ${docName}…`);
+        try {
+          if (!window.PDFLib) {
+            await new Promise((resolve, reject) => {
+              const script = document.createElement("script");
+              script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js";
+              script.onload = resolve; script.onerror = reject;
+              document.head.appendChild(script);
+            });
+          }
+          const { PDFDocument } = window.PDFLib;
+          const pdfBytes = Uint8Array.from(atob(contentsDoc.base64), c => c.charCodeAt(0));
+          const srcDoc = await PDFDocument.load(pdfBytes);
+          const totalPages = srcDoc.getPageCount();
+
+          let pageIndices;
+          if (pages.size === 0) {
+            // No specific pages — use whole doc (capped at 90 pages)
+            pageIndices = Array.from({ length: Math.min(totalPages, 90) }, (_, i) => i);
+          } else {
+            // Convert 1-based page numbers to 0-based indices, filter valid
+            pageIndices = Array.from(pages)
+              .map(p => p - 1)
+              .filter(i => i >= 0 && i < totalPages)
+              .sort((a, b) => a - b);
+          }
+
+          // Cap at 90 pages per document to stay within Anthropic limit
+          if (pageIndices.length > 90) pageIndices = pageIndices.slice(0, 90);
+
+          const extractedDoc = await PDFDocument.create();
+          const copiedPages = await extractedDoc.copyPages(srcDoc, pageIndices);
+          copiedPages.forEach(p => extractedDoc.addPage(p));
+          const extractedBytes = await extractedDoc.save();
+          const extractedBase64 = btoa(String.fromCharCode(...extractedBytes));
+
+          totalPagesExtracted += pageIndices.length;
+          docBlocks.push({
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: extractedBase64 },
+            title: `${docName} (pages: ${pageIndices.map(i => i + 1).join(", ")})`,
+          });
+        } catch (e) {
+          console.warn(`Page extraction failed for ${docName}, using full doc:`, e);
+          // Fallback: use full doc if extraction fails
+          docBlocks.push({
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: contentsDoc.base64 },
+            title: docName,
+          });
+        }
+      }
+
+      setStatusMsg(`Pass 2/3 · ${totalPagesExtracted} specific pages extracted across ${docBlocks.length} document${docBlocks.length !== 1 ? "s" : ""}…`);
+      setProgress(p => ({ ...p, read: 100 }));
+
+      // ── PASS 3: Deep read extracted pages + answer ─────────────────────────
+      setStage("answering");
+      setStatusMsg("Pass 3/3 · Deep reading selected pages and synthesising answer…");
+
       const vaultDocNames = pdfs.map(p => p.name).join(", ");
-      const focusSections = (selection.selected || []).map(s => s.sections?.join(", ")).filter(Boolean).join("; ");
+      const focusSections = (scoring.selectedDocs || [])
+        .flatMap(d => (d.sections || []).map(s => `${d.docName}: ${s.heading} (p.${s.pageHint})`))
+        .join("; ");
+
       const answerPrompt = `You are an expert building regulations consultant answering a question using ONLY the provided regulatory documents.
 
-CRITICAL: You must ONLY use information from the documents provided below. Do not use any external knowledge, other regulations, or information from outside these specific documents. If the answer cannot be found in these documents, say so explicitly.
+CRITICAL: You must ONLY use information from the documents provided. Do not use any external knowledge or information from outside these specific documents. If the answer cannot be found in these documents, say so explicitly.
 
+VAULT: ${vault.name}
 VAULT DOCUMENTS: ${vaultDocNames}
 QUESTION: ${q}
-FOCUS SECTIONS: ${focusSections || "all relevant sections"}
+PRIORITY SECTIONS IDENTIFIED: ${focusSections || "all sections"}
 
 RESPONSE STRUCTURE — follow this exact structure every time:
 
 ## Summary
-Write 2-4 sentences giving a direct, concise answer to the question in plain English. This should stand alone as a complete answer for someone who needs a quick response.
+Write 2-4 sentences giving a direct, concise answer in plain English. This should stand alone as a complete answer.
 
-Immediately after the summary, provide the primary citation:
+Immediately after the summary provide the primary citation:
 > **[Document Name]** | Section [X.X] — [Heading] | Page [X]
 > *"[exact wording from document]"*
 
@@ -403,35 +593,35 @@ Immediately after the summary, provide the primary citation:
 
 ## Detailed Analysis
 
-Write a thorough breakdown of the answer, structured using the same headings, numbering and terminology used in the source documents. Use:
+Thorough breakdown using the same headings, numbering and terminology as the source documents. Use:
 - **Bullet points** for lists of requirements or criteria
-- **Tables** where comparing multiple requirements, dimensions, specifications or options
-- **Sub-headings (###)** to organise by topic or document section
+- **Tables** where comparing requirements, dimensions, specifications or options
+- **Sub-headings (###)** to organise by document section
 - **Bold** for defined terms, regulation numbers and key requirements
 
-INLINE CITATIONS — after every statement, fact or requirement, immediately add the citation on the next line in this format:
+INLINE CITATIONS — after every statement, fact or requirement, immediately add on the next line:
 > **[Document Name]** | Section [X.X] — [Heading] | Page [X]
 > *"[exact wording from document]"*
 
-Do not group citations at the end. Every single point must have its citation directly beneath it.
+Every single point must have its citation directly beneath it. Do not group citations.
 
 ---
 
 ## Contradictions & Conflicts
-If any contradictions, conflicts or ambiguities are found between sections or documents within this vault, list them clearly here with citations for each conflicting statement. If none found, write "No contradictions identified."
+List any contradictions, conflicts or ambiguities found between sections or documents, with citations for each conflicting statement. If none found, write "No contradictions identified."
 
 ---
 
 STYLE REQUIREMENTS:
-- Write in the same formal, technical style as the source building regulations documents
-- Use the same terminology, defined terms and numbering conventions as the source material
-- Be precise and unambiguous — this is regulatory guidance
-- Do NOT use any knowledge from outside the provided documents
-- If the documents do not contain enough information to answer fully, state this explicitly`;
+- Formal, technical style matching the source building regulations
+- Same terminology, defined terms and numbering conventions as source material
+- Precise and unambiguous — this is regulatory guidance
+- No external knowledge
+- If documents do not contain enough information, state this explicitly`;
 
       const finalAnswer = await callClaude(
         [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-        `You are an expert building regulations consultant. Answer questions by carefully analysing ONLY the provided regulatory documents from the "${vault.name}" vault. Never use external knowledge. Always cite exact wording inline immediately after each point. Match the formal technical style of the source material.`,
+        `You are an expert building regulations consultant. Answer using ONLY documents from the "${vault.name}" vault. Never use external knowledge. Cite exact wording inline after every point.`,
         4000
       );
 
@@ -440,7 +630,7 @@ STYLE REQUIREMENTS:
       setStage("done");
       setHistory(prev => [...prev, { vaultId: vault.id, question: q, answer: finalAnswer, timestamp: new Date() }]);
 
-      const estimatedTokens = (indexSummary.length + answerPrompt.length + loadedDocs.length * 15000) / 4;
+      const estimatedTokens = (indexSummary.length + answerPrompt.length + finalDocs.length * 15000) / 4;
       const costGBP = (estimatedTokens / 1_000_000) * 3 * 0.79;
       setCostEst(costGBP);
       setStatusMsg(`Answer ready · Est. cost: ${costGBP < 0.01 ? "< 1p" : costGBP.toFixed(2) + "p"}`);
@@ -572,10 +762,9 @@ STYLE REQUIREMENTS:
                 {isRunning && (
                   <div style={{ padding: "16px 24px", borderBottom: "1px solid #1e1c18", background: "#0c0b09", animation: "fadeIn 0.3s ease", flexShrink: 0 }}>
                     <div style={{ fontSize: 12, color: "#c8a96e", marginBottom: 12, display: "flex", alignItems: "center", gap: 8 }}><Spinner size={12} /> {statusMsg}</div>
-                    <ProgressBar label="1. Index scan" pct={progress.index} />
-                    <ProgressBar label="2. Page selection" pct={progress.select} color="#6a8a5a" />
-                    <ProgressBar label="3. Deep read" pct={progress.read} color="#5a7a8a" />
-                    <ProgressBar label="4. Answer synthesis" pct={progress.answer} color="#8a6a9a" />
+                    <ProgressBar label="Pass 1 · Contents & probability scoring" pct={progress.select} />
+                    <ProgressBar label="Pass 2 · Loading selected documents" pct={progress.read} color="#6a8a5a" />
+                    <ProgressBar label="Pass 3 · Deep read & answer synthesis" pct={progress.answer} color="#8a6a9a" />
                   </div>
                 )}
 
