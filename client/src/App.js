@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
 const IS_DEMO = false;
-const API_BASE = "https://vaultmind-production-5775.up.railway.app/api/vaults";
+const API_BASE = "RAILWAY_URL_PLACEHOLDER";
 const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 const MAX_PAGES_PER_CHUNK = 90;
 
