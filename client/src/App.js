@@ -120,6 +120,11 @@ function formatInline(text) {
   });
 }
 
+// Approved Document green colour
+const AD_GREEN = "#4a7c20";
+const AD_GREEN_LIGHT = "#f0f4e8";
+const AD_GREEN_MID = "#d4e6b5";
+
 function AnswerRenderer({ text }) {
   if (!text) return null;
   const lines = text.split("\n");
@@ -133,18 +138,18 @@ function AnswerRenderer({ text }) {
     const header = rows[0];
     const body = rows.slice(2);
     elements.push(
-      <div key={`tbl-${key}`} style={{ overflowX: "auto", margin: "20px 0" }}>
-        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 14 }}>
+      <div key={`tbl-${key}`} style={{ overflowX: "auto", margin: "16px 0", border: "1px solid #aaa" }}>
+        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
           <thead>
             <tr>{header.map((h, i) => (
-              <th key={i} style={{ background: "#f3f2f1", color: "#0b0c0c", padding: "10px 15px", border: "1px solid #b1b4b6", textAlign: "left", fontWeight: 700, fontSize: 14 }}>{h}</th>
+              <th key={i} style={{ background: AD_GREEN, color: "#ffffff", padding: "8px 12px", border: "1px solid #777", textAlign: "left", fontWeight: 700, fontSize: 13, fontFamily: "Arial, sans-serif" }}>{h}</th>
             ))}</tr>
           </thead>
           <tbody>
             {body.map((row, ri) => (
-              <tr key={ri} style={{ background: ri % 2 === 0 ? "#ffffff" : "#f8f8f8" }}>
+              <tr key={ri} style={{ background: ri % 2 === 0 ? "#ffffff" : AD_GREEN_LIGHT }}>
                 {row.map((cell, ci) => (
-                  <td key={ci} style={{ padding: "10px 15px", border: "1px solid #b1b4b6", color: "#0b0c0c", verticalAlign: "top", fontSize: 14, lineHeight: 1.5 }}>{cell}</td>
+                  <td key={ci} style={{ padding: "8px 12px", border: "1px solid #ccc", color: "#0b0c0c", verticalAlign: "top", fontSize: 13, lineHeight: 1.5 }}>{cell}</td>
                 ))}
               </tr>
             ))}
@@ -160,66 +165,76 @@ function AnswerRenderer({ text }) {
     if (inTable) flushTable(i);
 
     if (line.startsWith("### ")) {
-      elements.push(<h3 key={i} style={{ color: "#0b0c0c", fontSize: 19, fontWeight: 700, margin: "24px 0 10px", paddingBottom: 4, borderBottom: "2px solid #1d70b8" }}>{line.slice(4)}</h3>);
-    } else if (line.startsWith("## ")) {
-      // Summary and major sections get green regulation box treatment
-      const isSummary = line.slice(3).toLowerCase().includes("summary");
+      // Sub-headings — green uppercase like AD section headings
       elements.push(
-        <h2 key={i} style={{
-          color: "#0b0c0c", fontSize: 22, fontWeight: 700,
-          margin: "28px 0 12px",
-          paddingLeft: isSummary ? 12 : 0,
-          borderLeft: isSummary ? "6px solid #00703c" : "none",
-          background: isSummary ? "#e9f7ef" : "transparent",
-          padding: isSummary ? "10px 14px" : "0",
-          borderRadius: isSummary ? 2 : 0,
-        }}>{line.slice(3)}</h2>
+        <h3 key={i} style={{ color: AD_GREEN, fontSize: 13, fontWeight: 700, margin: "20px 0 6px", textTransform: "uppercase", letterSpacing: "0.04em", fontFamily: "Arial, sans-serif" }}>
+          {line.slice(4)}
+        </h3>
       );
+    } else if (line.startsWith("## ")) {
+      const text = line.slice(3);
+      const isSummary = text.toLowerCase().includes("summary");
+      if (isSummary) {
+        // Summary — green requirement box style like D1 requirement box
+        elements.push(
+          <div key={i} style={{ background: AD_GREEN_LIGHT, border: `1px solid ${AD_GREEN_MID}`, borderLeft: `4px solid ${AD_GREEN}`, padding: "12px 16px", margin: "16px 0 8px" }}>
+            <h2 style={{ color: AD_GREEN, fontSize: 15, fontWeight: 700, margin: 0, fontFamily: "Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.04em" }}>{text}</h2>
+          </div>
+        );
+      } else {
+        // Regular section heading — black with green underline rule
+        elements.push(
+          <div key={i} style={{ borderBottom: `2px solid ${AD_GREEN}`, marginTop: 28, marginBottom: 10, paddingBottom: 4 }}>
+            <h2 style={{ color: "#0b0c0c", fontSize: 18, fontWeight: 700, margin: 0, fontFamily: "Arial, sans-serif" }}>{text}</h2>
+          </div>
+        );
+      }
     } else if (line.startsWith("# ")) {
-      elements.push(<h1 key={i} style={{ color: "#0b0c0c", fontSize: 27, fontWeight: 700, margin: "32px 0 16px", borderBottom: "3px solid #1d70b8", paddingBottom: 8 }}>{line.slice(2)}</h1>);
+      elements.push(
+        <div key={i} style={{ borderBottom: `3px solid ${AD_GREEN}`, marginTop: 32, marginBottom: 14, paddingBottom: 6 }}>
+          <h1 style={{ color: "#0b0c0c", fontSize: 22, fontWeight: 700, margin: 0, fontFamily: "Arial, sans-serif" }}>{line.slice(2)}</h1>
+        </div>
+      );
     } else if (line.startsWith("> ")) {
       const quoteText = line.slice(2);
       const isCitation = quoteText.startsWith("*") && quoteText.endsWith("*");
       if (isCitation) {
-        // Citation — GOV.UK metadata style
         elements.push(
-          <p key={i} style={{ fontSize: 13, color: "#505a5f", fontStyle: "italic", margin: "4px 0 14px 18px", paddingLeft: 12, borderLeft: "3px solid #b1b4b6" }}>
+          <p key={i} style={{ fontSize: 12, color: "#555", fontStyle: "italic", margin: "3px 0 12px 16px", fontFamily: "Arial, sans-serif" }}>
             {quoteText.slice(1, -1)}
           </p>
         );
       } else {
-        // Document quote — GOV.UK inset text style with blue left border
+        // Document quote — green left border, light green background like AD requirement boxes
         elements.push(
-          <blockquote key={i} style={{
-            borderLeft: "5px solid #1d70b8",
-            paddingLeft: 16,
-            marginLeft: 0,
-            marginTop: 12,
-            marginBottom: 4,
-            color: "#0b0c0c",
-            fontStyle: "italic",
-            fontSize: 15,
-            lineHeight: 1.75,
-            background: "#f0f4ff",
-            padding: "12px 16px",
-            borderRadius: "0 4px 4px 0",
-          }}>
+          <div key={i} style={{ borderLeft: `4px solid ${AD_GREEN}`, background: AD_GREEN_LIGHT, padding: "10px 14px", margin: "10px 0 4px", fontStyle: "italic", fontSize: 14, color: "#0b0c0c", lineHeight: 1.7, fontFamily: "Arial, sans-serif" }}>
             {quoteText}
-          </blockquote>
+          </div>
         );
       }
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
-      elements.push(<li key={i} style={{ color: "#0b0c0c", fontSize: 15, lineHeight: 1.7, marginLeft: 20, marginBottom: 4 }}>{formatInline(line.slice(2))}</li>);
+      elements.push(<li key={i} style={{ color: "#0b0c0c", fontSize: 14, lineHeight: 1.7, marginLeft: 20, marginBottom: 3, fontFamily: "Arial, sans-serif" }}>{formatInline(line.slice(2))}</li>);
+    } else if (line.match(/^\d+\.\d+ /)) {
+      // Numbered paragraphs like 1.1, 1.2 — AD style
+      const numMatch = line.match(/^(\d+\.\d+) (.+)/);
+      if (numMatch) {
+        elements.push(
+          <div key={i} style={{ display: "flex", gap: 12, margin: "6px 0", fontFamily: "Arial, sans-serif" }}>
+            <span style={{ color: AD_GREEN, fontWeight: 700, fontSize: 14, flexShrink: 0, minWidth: 32 }}>{numMatch[1]}</span>
+            <p style={{ color: "#0b0c0c", fontSize: 14, lineHeight: 1.7, margin: 0 }}>{formatInline(numMatch[2])}</p>
+          </div>
+        );
+      }
     } else if (line.match(/^\d+\. /)) {
-      elements.push(<li key={i} style={{ color: "#0b0c0c", fontSize: 15, lineHeight: 1.7, marginLeft: 20, marginBottom: 4, listStyleType: "decimal" }}>{formatInline(line.replace(/^\d+\. /, ""))}</li>);
+      elements.push(<li key={i} style={{ color: "#0b0c0c", fontSize: 14, lineHeight: 1.7, marginLeft: 20, marginBottom: 3, listStyleType: "decimal", fontFamily: "Arial, sans-serif" }}>{formatInline(line.replace(/^\d+\. /, ""))}</li>);
     } else if (line === "") {
-      elements.push(<div key={i} style={{ height: 12 }} />);
+      elements.push(<div key={i} style={{ height: 10 }} />);
     } else {
-      elements.push(<p key={i} style={{ color: "#0b0c0c", fontSize: 15, lineHeight: 1.75, margin: "6px 0" }}>{formatInline(line)}</p>);
+      elements.push(<p key={i} style={{ color: "#0b0c0c", fontSize: 14, lineHeight: 1.75, margin: "5px 0", fontFamily: "Arial, sans-serif" }}>{formatInline(line)}</p>);
     }
   });
   if (inTable) flushTable("end");
-  return <div style={{ fontFamily: "Arial, sans-serif" }}>{elements}</div>;
+  return <div>{elements}</div>;
 }
 
 // ── main app ──────────────────────────────────────────────────────────────────
@@ -776,17 +791,18 @@ RULES:
         .govuk-input:focus { outline: 3px solid #ffdd00; outline-offset: 0; }
       `}</style>
 
-      {/* GOV.UK Crown bar */}
-      <div style={{ background: "#0b0c0c", padding: "8px 20px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
-        <span style={{ color: "#ffffff", fontSize: 13, fontWeight: 700, letterSpacing: "0.02em" }}>GOV.UK</span>
-        <span style={{ color: "#6f777b", fontSize: 12 }}>|</span>
-        <span style={{ color: "#b1b4b6", fontSize: 12 }}>Building Regulations Document Intelligence</span>
+      {/* HM Government crown bar — matches Approved Document header */}
+      <div style={{ background: "#0b0c0c", padding: "8px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+        <span style={{ color: "#ffffff", fontSize: 13, fontWeight: 700 }}>🏛</span>
+        <span style={{ color: "#ffffff", fontSize: 13, fontWeight: 700 }}>HM Government</span>
+        <span style={{ color: "#555", fontSize: 12, marginLeft: 8 }}>|</span>
+        <span style={{ color: "#aaa", fontSize: 12 }}>Building Regulations — Approved Documents</span>
       </div>
 
-      {/* Blue service header */}
-      <div style={{ background: "#1d70b8", padding: "12px 20px", flexShrink: 0 }}>
-        <span style={{ color: "#ffffff", fontSize: 18, fontWeight: 700 }}>VaultMind</span>
-        <span style={{ color: "#cde4f7", fontSize: 13, marginLeft: 12 }}>Approved Documents Search</span>
+      {/* Green service header — matches AD green */}
+      <div style={{ background: "#4a7c20", padding: "14px 20px", flexShrink: 0, display: "flex", alignItems: "baseline", gap: 16 }}>
+        <span style={{ color: "#ffffff", fontSize: 20, fontWeight: 700, fontFamily: "Arial, sans-serif" }}>VaultMind</span>
+        <span style={{ color: "#d4e6b5", fontSize: 14, fontFamily: "Arial, sans-serif" }}>Approved Document Intelligence</span>
       </div>
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden", maxHeight: "calc(100vh - 89px)" }}>
@@ -803,7 +819,7 @@ RULES:
             ) : vaults.map(v => (
               <div key={v.id} className="vault-item"
                 onClick={() => { setSelectedVault(v.id); setAnswer(null); setStage(null); setCostEst(null); }}
-                style={{ padding: "10px 16px", background: selectedVault === v.id ? "#e8f0fe" : "transparent", borderLeft: selectedVault === v.id ? "4px solid #1d70b8" : "4px solid transparent" }}>
+                style={{ padding: "10px 16px", background: selectedVault === v.id ? "#f0f4e8" : "transparent", borderLeft: selectedVault === v.id ? "4px solid #4a7c20" : "4px solid transparent" }}>
                 <div style={{ fontSize: 14, color: "#0b0c0c", fontWeight: selectedVault === v.id ? 700 : 400 }}>{v.name}</div>
               </div>
             ))}
@@ -824,7 +840,7 @@ RULES:
           ) : (
             <div style={{ padding: "12px 16px", borderTop: "1px solid #b1b4b6" }}>
               <button className="btn" onClick={() => setCreating(true)}
-                style={{ width: "100%", background: "#1d70b8", color: "#ffffff", padding: "9px 0", fontSize: 14, fontWeight: 700, textAlign: "center" }}>
+                style={{ width: "100%", background: "#4a7c20", color: "#ffffff", padding: "9px 0", fontSize: 14, fontWeight: 700, textAlign: "center" }}>
                 + New Vault
               </button>
             </div>
@@ -841,19 +857,19 @@ RULES:
           ) : (
             <>
               {/* Vault header */}
-              <div style={{ padding: "16px 24px", borderBottom: "2px solid #1d70b8", background: "#ffffff", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div style={{ padding: "16px 24px", borderBottom: "3px solid #4a7c20", background: "#ffffff", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
                 <div>
                   <h1 style={{ fontSize: 22, fontWeight: 700, color: "#0b0c0c" }}>{vault.name}</h1>
                   <p style={{ fontSize: 13, color: "#505a5f", marginTop: 2 }}>
                     {pdfs.length} document{pdfs.length !== 1 ? "s" : ""} &nbsp;·&nbsp;
                     {vaultIndex
-                      ? <span style={{ color: "#00703c", fontWeight: 700 }}>✓ Indexed</span>
+                      ? <span style={{ color: "#4a7c20", fontWeight: 700 }}>✓ Indexed</span>
                       : <span style={{ color: "#d4351c" }}>Not indexed</span>}
                   </p>
                 </div>
                 {pdfs.length > 0 && (
                   <button className="btn" onClick={indexVault} disabled={isRunning}
-                    style={{ background: vaultIndex ? "#f3f2f1" : "#00703c", color: vaultIndex ? "#0b0c0c" : "#ffffff", border: vaultIndex ? "1px solid #b1b4b6" : "none", padding: "9px 20px", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
+                    style={{ background: vaultIndex ? "#f3f2f1" : "#4a7c20", color: vaultIndex ? "#0b0c0c" : "#ffffff", border: vaultIndex ? "1px solid #b1b4b6" : "none", padding: "9px 20px", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>
                     {stage === "indexing" ? <><Spinner size={13} /> Indexing…</> : vaultIndex ? "Re-index Vault" : "Index Vault"}
                   </button>
                 )}
@@ -865,7 +881,7 @@ RULES:
                 <div style={{ width: 240, borderRight: "1px solid #b1b4b6", background: "#ffffff", display: "flex", flexDirection: "column", flexShrink: 0 }}>
                   <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
                     onClick={() => fileInputRef.current.click()}
-                    style={{ margin: 12, border: `2px dashed ${dragOver ? "#1d70b8" : "#b1b4b6"}`, padding: "14px 10px", textAlign: "center", cursor: "pointer", background: dragOver ? "#e8f0fe" : "#f3f2f1" }}>
+                    style={{ margin: 12, border: `2px dashed ${dragOver ? "#4a7c20" : "#b1b4b6"}`, padding: "14px 10px", textAlign: "center", cursor: "pointer", background: dragOver ? "#f0f4e8" : "#f3f2f1" }}>
                     {uploadingPdf ? (
                       <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: "#1d70b8", fontSize: 13 }}><Spinner size={14} /> Uploading…</div>
                     ) : (
@@ -910,8 +926,8 @@ RULES:
                   {/* Progress */}
                   {isRunning && (
                     <div style={{ padding: "14px 24px", borderBottom: "1px solid #b1b4b6", background: "#ffffff", flexShrink: 0, animation: "fadeIn 0.3s ease" }}>
-                      <div style={{ fontSize: 13, color: "#1d70b8", marginBottom: 10, display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}><Spinner size={13} /> {statusMsg}</div>
-                      <ProgressBar label="Pass 1 · Index scoring" pct={progress.select} color="#1d70b8" />
+                      <div style={{ fontSize: 13, color: "#4a7c20", marginBottom: 10, display: "flex", alignItems: "center", gap: 8, fontWeight: 700 }}><Spinner size={13} /> {statusMsg}</div>
+                      <ProgressBar label="Pass 1 · Index scoring" pct={progress.select} color="#4a7c20" />
                       <ProgressBar label="Pass 2 · Page extraction" pct={progress.read} color="#00703c" />
                       <ProgressBar label="Pass 3 · Answer synthesis" pct={progress.answer} color="#4c2c92" />
                     </div>
@@ -938,7 +954,7 @@ RULES:
                         {vaultHistory.map((h, i) => (
                           <div key={i} style={{ marginBottom: 8 }}>
                             <div style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                              <span style={{ color: "#1d70b8", fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                              <span style={{ color: "#4a7c20", fontWeight: 700, flexShrink: 0 }}>Q:</span>
                               <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.question}</span>
                               <span style={{ fontSize: 11, color: "#6f777b", flexShrink: 0 }}>{new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                             </div>
@@ -950,7 +966,7 @@ RULES:
                     {/* Current answer */}
                     {answer && (
                       <div style={{ animation: "fadeIn 0.4s ease" }}>
-                        <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #1d70b8", padding: "24px 28px" }}>
+                        <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #4a7c20", padding: "24px 28px" }}>
                           <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                             Response — {vault.name}
                           </p>
@@ -961,7 +977,7 @@ RULES:
 
                     {!answer && !isRunning && vaultIndex && vaultHistory.length === 0 && (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 12 }}>
-                        <div style={{ width: 48, height: 5, background: "#1d70b8" }} />
+                        <div style={{ width: 48, height: 5, background: "#4a7c20" }} />
                         <p style={{ fontSize: 18, color: "#505a5f", fontWeight: 700 }}>Ask a question about this vault</p>
                         <p style={{ fontSize: 14, color: "#6f777b" }}>The AI selects the most relevant pages before answering</p>
                       </div>
@@ -984,7 +1000,7 @@ RULES:
 
                   {/* Question input */}
                   {vaultIndex && (
-                    <div style={{ padding: "16px 24px", borderTop: "2px solid #1d70b8", background: "#ffffff", flexShrink: 0 }}>
+                    <div style={{ padding: "16px 24px", borderTop: "3px solid #4a7c20", background: "#ffffff", flexShrink: 0 }}>
                       <label style={{ fontSize: 14, fontWeight: 700, color: "#0b0c0c", display: "block", marginBottom: 6 }}>
                         Search the approved documents
                       </label>
@@ -995,7 +1011,7 @@ RULES:
                           disabled={isRunning} rows={2} className="govuk-input"
                           style={{ flex: 1, border: "2px solid #0b0c0c", padding: "10px 12px", color: "#0b0c0c", fontSize: 14, outline: "none", resize: "none", lineHeight: 1.5, fontFamily: "Arial, sans-serif", opacity: isRunning ? 0.6 : 1, background: isRunning ? "#f3f2f1" : "#ffffff" }} />
                         <button className="btn" onClick={askQuestion} disabled={isRunning || !question.trim()}
-                          style={{ background: isRunning || !question.trim() ? "#f3f2f1" : "#00703c", color: isRunning || !question.trim() ? "#6f777b" : "#ffffff", padding: "0 20px", fontSize: 15, fontWeight: 700, height: 58, display: "flex", alignItems: "center", justifyContent: "center", border: isRunning || !question.trim() ? "1px solid #b1b4b6" : "none", minWidth: 80 }}>
+                          style={{ background: isRunning || !question.trim() ? "#f3f2f1" : "#4a7c20", color: isRunning || !question.trim() ? "#6f777b" : "#ffffff", padding: "0 20px", fontSize: 15, fontWeight: 700, height: 58, display: "flex", alignItems: "center", justifyContent: "center", border: isRunning || !question.trim() ? "1px solid #b1b4b6" : "none", minWidth: 80 }}>
                           {isRunning ? <Spinner size={16} /> : "Search"}
                         </button>
                       </div>
