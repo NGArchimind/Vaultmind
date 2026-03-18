@@ -51,7 +51,12 @@ async function splitPdfIntoChunks(base64Data, chunkSize) {
       const pages = await chunkDoc.copyPages(srcDoc, Array.from({ length: end - start }, (_, i) => start + i));
       pages.forEach(p => chunkDoc.addPage(p));
       const chunkBytes = await chunkDoc.save();
-      const chunkBase64 = btoa(String.fromCharCode(...chunkBytes));
+      const chunkBase64 = await new Promise((resolve) => {
+        const blob = new Blob([chunkBytes], { type: "application/pdf" });
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result.split(",")[1]);
+        reader.readAsDataURL(blob);
+      });
       chunks.push({ base64: chunkBase64, startPage: start + 1, endPage: end, totalPages });
     }
     return chunks;
