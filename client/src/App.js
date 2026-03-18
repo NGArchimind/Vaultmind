@@ -255,6 +255,18 @@ export default function App() {
 
   const onDrop = (e) => { e.preventDefault(); setDragOver(false); addPDFs(e.dataTransfer.files); };
 
+  const deletePdf = async (pdf) => {
+    if (!window.confirm(`Remove "${pdf.name}" from this vault? This cannot be undone.`)) return;
+    try {
+      await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`, { method: "DELETE" });
+      setVaultIndex(null); // index is now stale
+      await loadVaultContents(vault.id);
+      setStatusMsg(`"${pdf.name}" removed — re-index the vault to update.`);
+    } catch (e) {
+      setStatusMsg("Failed to remove: " + e.message);
+    }
+  };
+
   // ── indexing ────────────────────────────────────────────────────────────────
   const indexVault = async () => {
     if (!vault || pdfs.length === 0) return;
@@ -778,15 +790,33 @@ STYLE REQUIREMENTS:
                   <input ref={fileInputRef} type="file" multiple accept="application/pdf" style={{ display: "none" }} onChange={e => addPDFs(e.target.files)} />
                 </div>
                 <div style={{ flex: 1, overflowY: "auto" }}>
-                  {pdfs.map(pdf => (
-                    <div key={pdf.id} style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 8 }}>
-                      <span style={{ fontSize: 16 }}>📄</span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 11, color: "#bbb", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pdf.name}</div>
-                        <div style={{ fontSize: 10, color: "#444", marginTop: 1 }}>{(pdf.size / 1024).toFixed(0)} KB</div>
-                      </div>
+                  {pdfs.length > 0 && (
+                    <div style={{ padding: "6px 12px 2px", fontSize: 9, color: "#444", letterSpacing: "0.08em", textTransform: "uppercase", display: "flex", gap: 12 }}>
+                      <span style={{ color: "#6a8a5a" }}>✓ indexed</span>
+                      <span style={{ color: "#555" }}>○ not indexed</span>
                     </div>
-                  ))}
+                  )}
+                  {pdfs.map(pdf => {
+                    const isIndexed = vaultIndex?.documents?.some(d => d.name === pdf.name);
+                    return (
+                      <div key={pdf.id} className="pdf-item" style={{ padding: "7px 12px", display: "flex", alignItems: "center", gap: 8, borderRadius: 6, margin: "1px 6px" }}>
+                        <span style={{ fontSize: 8, color: isIndexed ? "#6a8a5a" : "#444", flexShrink: 0 }}>{isIndexed ? "✓" : "○"}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 11, color: isIndexed ? "#bbb" : "#777", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{pdf.name}</div>
+                          <div style={{ fontSize: 9, color: "#3a3a3a", marginTop: 1 }}>{(pdf.size / 1024).toFixed(0)} KB</div>
+                        </div>
+                        <button
+                          className="btn"
+                          onClick={() => deletePdf(pdf)}
+                          disabled={isRunning}
+                          title="Remove from vault"
+                          style={{ background: "none", color: "#3a3a3a", fontSize: 14, padding: "2px 4px", borderRadius: 4, lineHeight: 1, flexShrink: 0 }}
+                          onMouseEnter={e => e.target.style.color = "#aa4444"}
+                          onMouseLeave={e => e.target.style.color = "#3a3a3a"}
+                        >×</button>
+                      </div>
+                    );
+                  })}
                   {pdfs.length === 0 && <p style={{ fontSize: 11, color: "#444", textAlign: "center", marginTop: 20 }}>No documents yet</p>}
                 </div>
               </div>
