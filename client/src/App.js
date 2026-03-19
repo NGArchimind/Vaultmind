@@ -70,13 +70,13 @@ async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2)
   const res = await fetch(`${API_BASE}/api/claude`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model: ANTHROPIC_MODEL, max_tokens: maxTokens, system: systemPrompt, messages }),
+    body: JSON.stringify({ model: "gemini-1.5-pro", max_tokens: maxTokens, system: systemPrompt, messages }),
   });
 
-  // Auto-retry on rate limit with 65 second wait
+  // Auto-retry on rate limit with 15 second wait (Gemini recovers faster)
   if (res.status === 429 && retries > 0) {
-    console.log(`Rate limit hit, waiting 65 seconds before retry (${retries} retries left)…`);
-    await new Promise(r => setTimeout(r, 65000));
+    console.log(`Rate limit hit, waiting 15 seconds before retry (${retries} retries left)…`);
+    await new Promise(r => setTimeout(r, 15000));
     return callClaude(messages, systemPrompt, maxTokens, retries - 1);
   }
 
@@ -575,7 +575,7 @@ IMPORTANT: pageHint MUST be a plain integer (e.g. 42) or a range string (e.g. "1
 
       // Build a ranked list of all sections across all docs, sorted by probability (highest first)
       // This ensures the 90-page budget is spent on the MOST relevant pages first
-      const HARD_PAGE_BUDGET = 10;
+      const HARD_PAGE_BUDGET = 50;
       const allScoredSections = [];
 
       (scoring.selectedDocs || []).forEach(selectedDoc => {
@@ -792,7 +792,7 @@ RULES:
     } catch (err) {
       setStage(null);
       if (err.message && err.message.includes('rate_limit')) {
-        setStatusMsg('Rate limit reached — please wait 60 seconds and try again.');
+        setStatusMsg('Rate limit reached — retrying automatically in 15 seconds…');
       } else {
         setStatusMsg("Error: " + err.message);
       }
