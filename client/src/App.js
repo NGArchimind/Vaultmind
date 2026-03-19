@@ -473,7 +473,7 @@ Respond ONLY as JSON — no other text:
       "sections": [
         {
           "heading": "exact section heading from index",
-          "pageHint": "page number or range e.g. 12 or 12-15",
+          "pageHint": 42,
           "probability": 0.95,
           "reason": "why this section is relevant",
           "crossRefs": ["other section headings this likely cross-references"]
@@ -483,7 +483,8 @@ Respond ONLY as JSON — no other text:
   ]
 }
 
-Include ALL sections with probability > 0.3. Always include page numbers where available in the index.`;
+Include ALL sections with probability > 0.3. Always include page numbers where available in the index.
+IMPORTANT: pageHint MUST be a plain integer (e.g. 42) or a range string (e.g. "12-15"). Never use text like "p.12" or "page 12". If no page number is known, use 1.`;
 
       const scoringText = await callClaude(
         [{ role: "user", content: scoringPrompt }],
@@ -524,34 +525,42 @@ Include ALL sections with probability > 0.3. Always include page numbers where a
       setStage("reading");
       setStatusMsg("Pass 2/3 · Extracting specific relevant pages only…");
 
-      // Helper to parse page hints in ANY format:
-      // "12", "p.12", "page 12", "pp.12-15", "12-15", "12,14,16", "Section 2 p.34"
-      const parsePageNums = (hint, totalPages) => {
+      // Helper to parse page hints in ANY format — very aggressive extraction
+      const parsePageNums = (hint) => {
         const pages = new Set();
-        if (!hint) return pages;
-        const str = String(hint);
+        if (hint === null || hint === undefined) return pages;
 
-        // Extract all numbers from the hint
+        // Handle plain numbers directly (most common case after prompt fix)
+        if (typeof hint === "number") {
+          if (hint > 0 && hint < 9999) pages.add(Math.round(hint));
+          return pages;
+        }
+
+        const str = String(hint).trim();
+        if (!str) return pages;
+
+        // Try direct integer parse first
+        const directInt = parseInt(str);
+        if (!isNaN(directInt) && directInt > 0 && directInt < 9999) {
+          pages.add(directInt);
+          return pages;
+        }
+
+        // Extract all numbers from the string
         const allNums = str.match(/\d+/g);
         if (!allNums) return pages;
 
-        // Check if it looks like a range (two numbers close together)
-        if (allNums.length >= 2) {
-          const n1 = parseInt(allNums[0]);
-          const n2 = parseInt(allNums[1]);
-          // If both are plausible page numbers and n2 > n1, treat as range
-          if (n1 > 0 && n2 > n1 && n2 <= n1 + 20 && n2 <= 9999) {
-            for (let i = n1; i <= n2; i++) pages.add(i);
-            return pages;
-          }
+        const nums = allNums.map(n => parseInt(n)).filter(n => n > 0 && n < 9999);
+        if (nums.length === 0) return pages;
+
+        // Two close numbers = range
+        if (nums.length >= 2 && nums[1] > nums[0] && nums[1] <= nums[0] + 30) {
+          for (let i = nums[0]; i <= nums[1]; i++) pages.add(i);
+          return pages;
         }
 
-        // Otherwise add each number as an individual page
-        allNums.forEach(n => {
-          const num = parseInt(n);
-          if (num > 0 && num <= 9999) pages.add(num);
-        });
-
+        // Otherwise each number is a page
+        nums.forEach(n => pages.add(n));
         return pages;
       };
 
@@ -566,7 +575,7 @@ Include ALL sections with probability > 0.3. Always include page numbers where a
         );
         if (!matchedDoc) return;
         (selectedDoc.sections || []).forEach(section => {
-          const parsed = parsePageNums(section.pageHint, 9999);
+          const parsed = parsePageNums(section.pageHint);
           if (parsed.size > 0) {
             allScoredSections.push({
               docName: matchedDoc.pdf.name,
@@ -623,7 +632,15 @@ Include ALL sections with probability > 0.3. Always include page numbers where a
 
       const pagesUsed = HARD_PAGE_BUDGET - budgetRemaining;
       console.log(`Page budget used: ${pagesUsed}/${HARD_PAGE_BUDGET} pages across ${Object.keys(docPageMap).length} documents`);
-      if (pagesUsed === 0) console.warn("WARNING: No pages selected — page hint format may not be parseable");
+      if (pagesUsed === 0) {
+        console.warn("WARNING: No pages selected — page hint format may not be parseable");
+        // Log what page hints look like for debugging
+        (scoring.selectedDocs || []).forEach(d => {
+          (d.sections || []).forEach(s => {
+            console.log("pageHint sample:", JSON.stringify(s.pageHint), "heading:", s.heading?.slice(0,40));
+          });
+        });
+      }
 
       // Extract specific pages server-side (reliable binary handling)
       const docBlocks = [];
