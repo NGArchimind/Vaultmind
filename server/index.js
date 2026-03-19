@@ -24,28 +24,90 @@ async function streamToBuffer(stream) {
   return Buffer.concat(chunks);
 }
 
-// ── Claude proxy ──────────────────────────────────────────────────────────────
+// ── Gemini AI proxy ───────────────────────────────────────────────────────────
+// Accepts the same request format as before but translates to Gemini API
 app.post("/api/claude", async (req, res) => {
-  console.log("Claude request received");
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return res.status(500).json({ error: "ANTHROPIC_API_KEY not set." });
+  console.log("Gemini request received");
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: "GEMINI_API_KEY not set." });
+
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const { model, max_tokens, system, messages } = req.body;
+
+    // Build Gemini contents array from Anthropic-format messages
+    const contents = [];
+
+    // Add system prompt as first user turn if present
+    if (system) {
+      contents.push({
+        role: "user",
+        parts: [{ text: `SYSTEM INSTRUCTIONS:\n${system}` }]
+      });
+      contents.push({
+        role: "model",
+        parts: [{ text: "Understood. I will follow these instructions." }]
+      });
+    }
+
+    // Convert each message
+    for (const msg of messages) {
+      const parts = [];
+
+      if (typeof msg.content === "string") {
+        parts.push({ text: msg.content });
+      } else if (Array.isArray(msg.content)) {
+        for (const block of msg.content) {
+          if (block.type === "text") {
+            parts.push({ text: block.text });
+          } else if (block.type === "document" && block.source?.type === "base64") {
+            // PDF as inline data
+            parts.push({
+              inline_data: {
+                mime_type: block.source.media_type || "application/pdf",
+                data: block.source.data
+              }
+            });
+          }
+        }
+      }
+
+      contents.push({
+        role: msg.role === "assistant" ? "model" : "user",
+        parts
+      });
+    }
+
+    const geminiModel = "gemini-1.5-pro";
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel}:generateContent?key=${apiKey}`;
+
+    const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify(req.body),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents,
+        generationConfig: {
+          maxOutputTokens: max_tokens || 4000,
+          temperature: 0.1,
+        }
+      }),
     });
+
     if (!response.ok) {
       const err = await response.text();
+      console.error("Gemini error:", err);
       return res.status(response.status).json({ error: err });
     }
+
     const data = await response.json();
-    res.json(data);
+
+    // Convert Gemini response back to Anthropic format so frontend needs no changes
+    const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
+    res.json({
+      content: [{ type: "text", text }]
+    });
+
   } catch (err) {
+    console.error("Gemini proxy error:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
