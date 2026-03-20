@@ -6,6 +6,12 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: "100mb" }));
 
+// Extend timeout to 5 minutes to handle large Gemini requests
+app.use((req, res, next) => {
+  res.setTimeout(300000);
+  next();
+});
+
 // ── R2 client ─────────────────────────────────────────────────────────────────
 const r2 = new S3Client({
   region: "auto",
@@ -233,57 +239,55 @@ app.post("/api/extract-pages", async (req, res) => {
     return res.status(400).json({ error: "base64 and pages array required" });
   }
 
-  const { PDFDocument } = require("pdf-lib");
   const pdfBytes = Buffer.from(base64, "base64");
+  const pageList = pages.map(Number).filter(p => p > 0).sort((a, b) => a - b);
 
-  // Attempt 1: standard pdf-lib copy
+  // Attempt 1: mupdf — handles compressed object streams that pdf-lib cannot copy
   try {
+    const mupdf = require("mupdf");
+    const srcDoc = mupdf.Document.openDocument(pdfBytes, "application/pdf");
+    const totalPages = srcDoc.countPages();
+    const validPages = pageList.filter(p => p <= totalPages);
+    if (validPages.length === 0) return res.status(400).json({ error: "No valid pages" });
+
+    // Create a new document and copy the requested pages into it
+    const outDoc = new mupdf.Document.createBlankDocument();
+    for (const pageNum of validPages) {
+      srcDoc.copyPage(pageNum - 1, outDoc, -1);
+    }
+    const outBytes = outDoc.saveToBuffer("compress");
+    console.log(`mupdf extracted ${validPages.length} pages successfully`);
+    return res.json({
+      base64: Buffer.from(outBytes).toString("base64"),
+      pagesExtracted: validPages.length,
+      pageNumbers: validPages
+    });
+  } catch (mupdfErr) {
+    console.warn("mupdf extraction failed, trying pdf-lib:", mupdfErr.message);
+  }
+
+  // Attempt 2: pdf-lib fallback
+  try {
+    const { PDFDocument } = require("pdf-lib");
     const srcDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
     const totalPages = srcDoc.getPageCount();
-    const pageIndices = pages
+    const pageIndices = pageList
       .map(p => p - 1)
-      .filter(i => i >= 0 && i < totalPages)
-      .sort((a, b) => a - b);
+      .filter(i => i >= 0 && i < totalPages);
     if (pageIndices.length === 0) return res.status(400).json({ error: "No valid pages" });
     const extractedDoc = await PDFDocument.create();
     const copiedPages = await extractedDoc.copyPages(srcDoc, pageIndices);
     copiedPages.forEach(p => extractedDoc.addPage(p));
     const extractedBytes = await extractedDoc.save();
-    console.log(`Extracted ${pageIndices.length} pages successfully`);
+    console.log(`pdf-lib extracted ${pageIndices.length} pages successfully`);
     return res.json({
       base64: Buffer.from(extractedBytes).toString("base64"),
       pagesExtracted: pageIndices.length,
       pageNumbers: pageIndices.map(i => i + 1)
     });
-  } catch (err) {
-    console.warn("Standard extraction failed, trying repair approach:", err.message);
-  }
-
-  // Attempt 2: save and reload to repair broken xrefs, then extract
-  try {
-    const srcDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true, updateMetadata: false });
-    // Force a re-serialisation which rebuilds the xref table
-    const repairedBytes = await srcDoc.save({ useObjectStreams: false });
-    const repairedDoc = await PDFDocument.load(repairedBytes, { ignoreEncryption: true });
-    const totalPages = repairedDoc.getPageCount();
-    const pageIndices = pages
-      .map(p => p - 1)
-      .filter(i => i >= 0 && i < totalPages)
-      .sort((a, b) => a - b);
-    if (pageIndices.length === 0) return res.status(400).json({ error: "No valid pages" });
-    const extractedDoc = await PDFDocument.create();
-    const copiedPages = await extractedDoc.copyPages(repairedDoc, pageIndices);
-    copiedPages.forEach(p => extractedDoc.addPage(p));
-    const extractedBytes = await extractedDoc.save();
-    console.log(`Extracted ${pageIndices.length} pages via repair approach`);
-    return res.json({
-      base64: Buffer.from(extractedBytes).toString("base64"),
-      pagesExtracted: pageIndices.length,
-      pageNumbers: pageIndices.map(i => i + 1)
-    });
-  } catch (err2) {
-    console.error("Both extraction methods failed:", err2.message);
-    return res.status(500).json({ error: err2.message });
+  } catch (pdfLibErr) {
+    console.error("All extraction methods failed:", pdfLibErr.message);
+    return res.status(500).json({ error: pdfLibErr.message });
   }
 });
 
