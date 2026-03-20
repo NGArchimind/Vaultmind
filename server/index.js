@@ -254,7 +254,9 @@ app.post("/api/extract-pages", async (req, res) => {
     for (const pageNum of validPages) {
       outDoc.graftPage(outDoc.countPages(), srcDoc, pageNum - 1);
     }
-    const outBytes = Buffer.from(outDoc.saveToBuffer("compress,garbage"));
+    // mupdf returns a Uint8Array-like buffer — convert via Array.from for compatibility
+    const rawBuffer = outDoc.saveToBuffer("compress,garbage");
+    const outBytes = Buffer.from(Array.from(rawBuffer));
     console.log(`mupdf extracted ${validPages.length} pages successfully`);
     return res.json({
       base64: outBytes.toString("base64"),
