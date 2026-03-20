@@ -232,9 +232,12 @@ app.post("/api/extract-pages", async (req, res) => {
   if (!base64 || !pages || !Array.isArray(pages)) {
     return res.status(400).json({ error: "base64 and pages array required" });
   }
+
+  const { PDFDocument } = require("pdf-lib");
+  const pdfBytes = Buffer.from(base64, "base64");
+
+  // Attempt 1: standard pdf-lib copy
   try {
-    const { PDFDocument } = require("pdf-lib");
-    const pdfBytes = Buffer.from(base64, "base64");
     const srcDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
     const totalPages = srcDoc.getPageCount();
     const pageIndices = pages
@@ -246,27 +249,41 @@ app.post("/api/extract-pages", async (req, res) => {
     const copiedPages = await extractedDoc.copyPages(srcDoc, pageIndices);
     copiedPages.forEach(p => extractedDoc.addPage(p));
     const extractedBytes = await extractedDoc.save();
-    const extractedBase64 = Buffer.from(extractedBytes).toString("base64");
-    res.json({
-      base64: extractedBase64,
+    console.log(`Extracted ${pageIndices.length} pages successfully`);
+    return res.json({
+      base64: Buffer.from(extractedBytes).toString("base64"),
       pagesExtracted: pageIndices.length,
       pageNumbers: pageIndices.map(i => i + 1)
     });
   } catch (err) {
-    // pdf-lib cannot copy pages from some GOV.UK PDFs due to broken internal references.
-    // Fallback: return the full PDF — Gemini can read it natively and find the right pages.
-    console.warn("pdf-lib page extraction failed, returning full PDF as fallback:", err.message);
-    try {
-      res.json({
-        base64: base64,
-        pagesExtracted: pages.length,
-        pageNumbers: pages,
-        fullPdfFallback: true
-      });
-    } catch (fallbackErr) {
-      console.error("Complete extraction failure:", fallbackErr.message);
-      res.status(500).json({ error: err.message });
-    }
+    console.warn("Standard extraction failed, trying repair approach:", err.message);
+  }
+
+  // Attempt 2: save and reload to repair broken xrefs, then extract
+  try {
+    const srcDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true, updateMetadata: false });
+    // Force a re-serialisation which rebuilds the xref table
+    const repairedBytes = await srcDoc.save({ useObjectStreams: false });
+    const repairedDoc = await PDFDocument.load(repairedBytes, { ignoreEncryption: true });
+    const totalPages = repairedDoc.getPageCount();
+    const pageIndices = pages
+      .map(p => p - 1)
+      .filter(i => i >= 0 && i < totalPages)
+      .sort((a, b) => a - b);
+    if (pageIndices.length === 0) return res.status(400).json({ error: "No valid pages" });
+    const extractedDoc = await PDFDocument.create();
+    const copiedPages = await extractedDoc.copyPages(repairedDoc, pageIndices);
+    copiedPages.forEach(p => extractedDoc.addPage(p));
+    const extractedBytes = await extractedDoc.save();
+    console.log(`Extracted ${pageIndices.length} pages via repair approach`);
+    return res.json({
+      base64: Buffer.from(extractedBytes).toString("base64"),
+      pagesExtracted: pageIndices.length,
+      pageNumbers: pageIndices.map(i => i + 1)
+    });
+  } catch (err2) {
+    console.error("Both extraction methods failed:", err2.message);
+    return res.status(500).json({ error: err2.message });
   }
 });
 
