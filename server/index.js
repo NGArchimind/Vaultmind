@@ -250,11 +250,11 @@ app.post("/api/extract-pages", async (req, res) => {
     const totalPages = srcDoc.countPages();
     const validPages = pageList.filter(p => p <= totalPages);
     if (validPages.length === 0) return res.status(400).json({ error: "No valid pages" });
-    const outDoc = new mupdf.PDFDocument();
+    // Use PDFDocument.merge approach — graftPage from srcDoc into outDoc
+    const outDoc = mupdf.PDFDocument.createBlankDocument();
     for (const pageNum of validPages) {
-      outDoc.graftPage(outDoc.countPages(), srcDoc, pageNum - 1);
+      outDoc.graftPage(-1, srcDoc, pageNum - 1);
     }
-    // mupdf returns a Uint8Array-like buffer — convert via Array.from for compatibility
     const rawBuffer = outDoc.saveToBuffer("compress,garbage");
     const outBytes = Buffer.from(Array.from(rawBuffer));
     console.log(`mupdf extracted ${validPages.length} pages successfully`);
