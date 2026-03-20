@@ -486,7 +486,7 @@ IMPORTANT: pageHint MUST be a plain integer (e.g. 42) or a range string (e.g. "1
       const scoringText = await callClaude(
         [{ role: "user", content: scoringPrompt }],
         "You are a building regulations expert. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
-        2000
+        8000
       );
 
       setProgress(p => ({ ...p, select: 100 }));
@@ -498,6 +498,10 @@ IMPORTANT: pageHint MUST be a plain integer (e.g. 42) or a range string (e.g. "1
       } catch {
         const m = scoringText.match(/\{[\s\S]*\}/);
         if (m) try { scoring = JSON.parse(m[0]); } catch {}
+      }
+      // If scoring came back empty, log the raw response for debugging
+      if (!scoring.selectedDocs || scoring.selectedDocs.length === 0) {
+        console.warn("Scoring returned empty — raw response:", scoringText.slice(0, 500));
       }
       // Debug: log scoring result
       console.log("Scoring result:", JSON.stringify(scoring).slice(0, 500));
