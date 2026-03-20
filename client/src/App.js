@@ -396,11 +396,13 @@ export default function App() {
               "You are a document indexer. Extract only structural metadata. Return pure JSON only, no markdown, no explanation.",
               4000
             );
+            console.log(`Raw index response for ${pdf.name} (first 200 chars):`, indexText.slice(0, 200));
             let parsed = null;
             const clean = indexText.replace(/```json|```/g, "").trim();
-            try { parsed = JSON.parse(clean); } catch {}
+            try { parsed = JSON.parse(clean); } catch (e) { console.warn("JSON.parse failed:", e.message); }
             if (!parsed) { const m = clean.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch {} }
             if (!parsed) { const m = clean.match(/"headings"\s*:\s*(\[[\s\S]*?\])/); if (m) try { parsed = { headings: JSON.parse(m[1]) }; } catch {} }
+            console.log("Parsed result:", parsed ? `${parsed.headings?.length} headings` : "null");
             if (parsed?.headings) docIndex = { name: pdf.name, headings: parsed.headings };
             console.log(`Indexed ${pdf.name}: ${docIndex.headings.length} headings found`);
           } catch (e) {
