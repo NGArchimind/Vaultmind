@@ -266,7 +266,8 @@ app.post("/api/extract-pages", async (req, res) => {
     console.log(`mupdf: inserted ${validPages.length} pages, outDoc has ${outPageCount} pages`);
     if (outPageCount === 0) throw new Error("mupdf produced empty document");
     const rawBuffer = outDoc.saveToBuffer("compress,garbage");
-    const outBytes = Buffer.from(Array.from(rawBuffer));
+    // rawBuffer is a mupdf Buffer object — convert directly to Node Buffer
+    const outBytes = Buffer.from(rawBuffer.asUint8Array());
     console.log(`mupdf extracted ${validPages.length} pages successfully`);
     return res.json({
       base64: outBytes.toString("base64"),
