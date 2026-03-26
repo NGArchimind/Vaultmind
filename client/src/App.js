@@ -761,10 +761,11 @@ RESPONSE STRUCTURE — follow this exact structure every time:
 
 ## Summary
 
-Give a direct, concise answer in plain English that an architect can act on immediately. This section must:
-- Answer the question directly in the opening sentence
-- Include a summary table if the answer involves any dimensions, measurements, ratings or comparative requirements across building types — use the format below
-- Include a citation for every piece of information stated
+Write a concise conclusion drawn directly from the detailed analysis below — this should read as the reasoned answer, not a standalone statement. It must:
+- State the conclusion clearly in the opening sentence, referencing the key evidence that supports it
+- Explain briefly WHY the answer is what it is, based on the documents
+- Include a summary table if the answer involves dimensions, measurements or comparative requirements — use the format below
+- Only include information that is supported by the detailed analysis
 
 SUMMARY TABLE FORMAT (use whenever dimensions, measurements or comparative data are involved):
 | Building / Stair Type | Requirement | Value | Document |
@@ -773,6 +774,8 @@ SUMMARY TABLE FORMAT (use whenever dimensions, measurements or comparative data 
 
 CITATION FORMAT for the summary section — inline, immediately after the relevant statement:
 *[Document Name] | Page [X] | Section [X.X] — [Heading]*
+
+IMPORTANT: Write the detailed analysis FIRST in your thinking, then write the summary as a conclusion from it. The summary should feel like the last paragraph of a report, not the first.
 
 ---
 
@@ -795,7 +798,7 @@ Use ### sub-headings matching the source document section headings.
 Use **bold** for regulation numbers, defined terms and critical dimensional requirements.
 Use bullet points only for lists of discrete items within a section.
 
-Include ALL relevant requirements — do not omit detail to save space.
+Include ALL requirements that directly answer the question. Do not include tangentially related sections unless they materially affect the answer. Quality over quantity — a focused, accurate answer is better than an exhaustive one.
 
 ---
 
