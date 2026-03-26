@@ -537,7 +537,7 @@ IMPORTANT: pageHint MUST be a plain integer (e.g. 42) or a range string (e.g. "1
       const scoringText = await callClaude(
         [{ role: "user", content: scoringPrompt }],
         "You are a building regulations expert. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
-        8000,
+        65000,
         2,
         "gemini-2.5-flash-lite"
       );
