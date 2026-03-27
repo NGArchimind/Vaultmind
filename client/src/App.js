@@ -254,6 +254,7 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [costEst, setCostEst] = useState(null);
   const [history, setHistory] = useState([]);
+  const [conversationHistory, setConversationHistory] = useState([]);
   const [loadingVaults, setLoadingVaults] = useState(true);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const fileInputRef = useRef();
@@ -289,6 +290,7 @@ export default function App() {
     setStatusMsg("Loading vault…");
     setPdfs([]);
     setVaultIndex(null);
+    setConversationHistory([]);
 
     try {
       const [pdfsData, indexData] = await Promise.all([
@@ -516,12 +518,20 @@ export default function App() {
       }).join("\n\n");
       setProgress(p => ({ ...p, select: 30 }));
 
+      // Build recent conversation context (last 3 exchanges)
+      const recentHistory = conversationHistory.slice(-3);
+      const conversationContext = recentHistory.length > 0
+        ? `\n\nCONVERSATION HISTORY (for context only — the current question may be a follow-up):\n${recentHistory.map((h, i) => `Q${i+1}: ${h.question}\nA${i+1}: ${h.answer.slice(0, 300)}…`).join("\n\n")}`
+        : "";
+
       const scoringPrompt = `You are an expert building regulations analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain the answer to the question.
 
 DOCUMENT INDEX (headings, sections and page numbers extracted from vault documents):
 ${indexSummary}
+${conversationContext}
 
 QUESTION: ${q}
+${recentHistory.length > 0 ? "NOTE: This may be a follow-up question. Use the conversation history above to understand the full context before scoring." : ""}
 
 Analyse the index carefully. For every section that could possibly be relevant — even tangentially — assign a probability score. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections. Be CONSERVATIVE — it is better to include a borderline section than to miss critical information.
 
@@ -758,7 +768,7 @@ Rules:
 
 VAULT: ${vault.name}
 QUESTION: ${q}
-PRIORITY SECTIONS IDENTIFIED: ${focusSections || "all sections"}
+${conversationHistory.slice(-3).length > 0 ? `\nCONVERSATION HISTORY (use this to understand follow-up questions):\n${conversationHistory.slice(-3).map((h, i) => `Q${i+1}: ${h.question}\nA${i+1} (summary): ${h.answer.slice(0, 500)}…`).join("\n\n")}\n` : ""}PRIORITY SECTIONS IDENTIFIED: ${focusSections || "all sections"}
 
 ---
 
@@ -830,6 +840,7 @@ RULES:
       setAnswer(finalAnswer);
       setStage("done");
       setHistory(prev => [...prev, { vaultId: vault.id, question: q, answer: finalAnswer, timestamp: new Date() }]);
+      setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
 
       const estimatedTokens = (indexSummary.length + answerPrompt.length + totalPagesExtracted * 500) / 4;
       const costGBP = (estimatedTokens / 1_000_000) * 3 * 0.79;
