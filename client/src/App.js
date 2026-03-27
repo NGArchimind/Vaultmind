@@ -494,8 +494,22 @@ export default function App() {
       // Compress index into compact plain text — far more efficient than raw JSON
       // Format: "DOCUMENT: filename\n  p14: Section heading\n  p22: Another section"
       // This reduces token usage by ~70% vs JSON, allowing 20+ documents to fit
+      // Filter out boilerplate headings that appear in every AD and would
+      // pollute scoring by matching generic questions about "approved documents"
+      const BOILERPLATE_HEADINGS = [
+        "the approved documents", "what is an approved document", "approved documents",
+        "list of approved documents", "use of guidance", "how to use this approved document",
+        "other guidance", "the building regulations", "online version", "hm government",
+        "main changes", "approved document", "list of approved documents"
+      ];
+      const isBoilerplate = (title) => {
+        const t = title.toLowerCase().trim();
+        return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
+      };
+
       const indexSummary = (vaultIndex.documents || []).map(doc => {
         const headings = (doc.headings || [])
+          .filter(h => !isBoilerplate(h.title))
           .map(h => `  p${h.pageHint || 1}: ${h.title}`)
           .join("\n");
         return `DOCUMENT: ${doc.name}\n${headings}`;
