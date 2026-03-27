@@ -750,38 +750,18 @@ PRIORITY SECTIONS IDENTIFIED: ${focusSections || "all sections"}
 
 INSTRUCTIONS:
 
-Step 1 — Read all provided document pages carefully and identify every passage directly relevant to the question.
+Step 1 — Read all provided document pages and identify every passage directly relevant to the question.
 Step 2 — Build the Detailed Analysis from that evidence.
-Step 3 — Write the Summary as a confident, definitive conclusion drawn from that analysis.
-
----
-
-## Detailed Analysis
-
-Organise by document. For each relevant section:
-
-1. One plain English sentence introducing what this section establishes and why it is relevant to the question
-2. The exact quoted passage from the document as a block quote
-3. The citation on its own line immediately below
-
-QUOTE FORMAT:
-> "[Exact text from document — do not paraphrase or truncate]"
-
-CITATION FORMAT (own line below quote):
-> *[Document Name] | Page [X] | Section [X.X] — [Heading]*
-
-Use ### sub-headings matching source document section headings.
-Use **bold** for regulation numbers, defined terms, and critical requirements.
-Only include sections that directly answer the question — omit anything tangential.
+Step 3 — Write the Summary as a confident, definitive conclusion drawn from that analysis — it should feel like the executive summary of a technical report.
 
 ---
 
 ## Summary
 
 A confident, definitive answer in 2–4 sentences. This must:
-- State the answer directly and definitively — do not hedge unless there is genuine ambiguity in the documents
-- Explain the reasoning in one sentence referencing the key evidence
-- Include a table if the answer involves dimensions, measurements or comparative requirements
+- State the answer directly and definitively in the opening sentence — do not hedge unless there is genuine ambiguity in the documents
+- Explain the reasoning briefly, referencing the key evidence
+- Include a table if the answer involves dimensions, measurements or comparative requirements across building types
 
 TABLE FORMAT:
 | Type | Requirement | Value | Source |
@@ -792,9 +772,29 @@ CITATION FORMAT — inline after each statement:
 
 ---
 
+## Detailed Analysis
+
+Organise by document and section. For each relevant passage:
+
+1. One plain English sentence introducing what this section establishes and why it is relevant
+2. The exact quoted passage as a block quote — do not paraphrase or truncate
+3. The citation on its own line immediately below
+
+QUOTE FORMAT:
+> "[Exact text from document]"
+
+CITATION FORMAT (own line below quote):
+> *[Document Name] | Page [X] | Section [X.X] — [Heading]*
+
+Use ### sub-headings matching source document section headings.
+Use **bold** for regulation numbers, defined terms, and critical requirements.
+Only include sections that directly answer the question — omit anything tangential.
+
+---
+
 ## Contradictions & Conflicts
 
-If conflicts exist between documents: state the conflict in one sentence, quote both sides with citations, then give a definitive practical conclusion on which takes precedence and why.
+If conflicts exist: state the conflict in one sentence, quote both sides with citations, then give a definitive practical conclusion on which takes precedence and why.
 
 If no conflicts: write "No contradictions identified."
 
@@ -803,7 +803,7 @@ If no conflicts: write "No contradictions identified."
 RULES:
 - Use ONLY the provided document pages — no external knowledge
 - Every factual statement must have a citation
-- If a page number or section reference is unclear from the document, omit the citation rather than guess
+- Omit citations rather than guess page numbers
 - If the provided pages do not contain enough information to answer definitively, state exactly what is missing and why`;
 
       const finalAnswer = await callClaude(
