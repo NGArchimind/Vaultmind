@@ -481,6 +481,9 @@ export default function App() {
       }
 
       console.log(`Indexed ${pdfName}: ${allHeadings.length} headings found (chunked)`);
+      // Log any staircase/landing related headings for debugging
+      const stairHeadings = allHeadings.filter(h => /stair|landing|step/i.test(h.title));
+      if (stairHeadings.length > 0) console.log("Stair-related headings:", stairHeadings.slice(0, 10));
       return allHeadings;
     } catch (e) {
       console.warn(`${pdfName}: chunked indexing failed:`, e.message);
@@ -605,7 +608,7 @@ export default function App() {
         ? `\n\nCONVERSATION HISTORY (this is a continuing conversation — the current question may be a follow-up to earlier questions):\n${recentHistory.map((h, i) => `Q${i+1}: ${h.question}\nA${i+1}: ${h.answer.slice(0, 600)}…`).join("\n\n")}`
         : "";
 
-      const scoringPrompt = `You are an expert building regulations analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain the answer to the question.
+      const scoringPrompt = `You are an expert technical document analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain the answer to the question.
 
 DOCUMENT INDEX (headings, sections and page numbers extracted from vault documents):
 ${indexSummary}
@@ -635,7 +638,7 @@ Rules:
 
       const scoringText = await callClaude(
         [{ role: "user", content: scoringPrompt }],
-        "You are a building regulations expert. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
+        "You are a technical document analyst. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
         65000,
         2,
         "gemini-2.5-flash"
