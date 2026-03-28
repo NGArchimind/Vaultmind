@@ -391,6 +391,94 @@ export default function App() {
     }
   };
 
+  // ── shared indexing helper — handles large PDFs by chunking ────────────────
+  const indexOnePdf = async (pdfName, base64) => {
+    const INDEX_PROMPT = 'Extract ALL structural metadata from this document: every section heading, sub-heading, chapter name, table of contents entry, figure and table caption. Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}';
+    const SYSTEM = "You are a document indexer. Extract only structural metadata. Return pure JSON only, no markdown, no explanation.";
+
+    const tryParse = (text) => {
+      const clean = text.replace(/```json|```/g, "").trim();
+      try { return JSON.parse(clean); } catch {}
+      const m = clean.match(/\{[\s\S]*\}/);
+      if (m) try { return JSON.parse(m[0]); } catch {}
+      return null;
+    };
+
+    // First attempt — send full PDF
+    try {
+      const contentBlocks = [
+        { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 }, title: pdfName },
+        { type: "text", text: INDEX_PROMPT }
+      ];
+      const indexText = await callClaude([{ role: "user", content: contentBlocks }], SYSTEM, 65000, 2, "gemini-2.5-flash-lite");
+      console.log(`Raw index response for ${pdfName} (first 200 chars):`, indexText.slice(0, 200));
+      const parsed = tryParse(indexText);
+      console.log("Parsed result:", parsed ? `${parsed.headings?.length} headings` : "null");
+      if (parsed?.headings?.length > 0) {
+        console.log(`Indexed ${pdfName}: ${parsed.headings.length} headings found`);
+        return parsed.headings;
+      }
+      // If we got zero headings or null, fall through to chunked approach
+      console.warn(`${pdfName}: full-PDF index returned no headings, trying chunked approach…`);
+    } catch (e) {
+      console.warn(`${pdfName}: full-PDF indexing failed (${e.message}), trying chunked approach…`);
+    }
+
+    // Chunked fallback — split PDF into page chunks and merge headings
+    try {
+      if (!window.PDFLib) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js";
+          script.onload = resolve; script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+      const { PDFDocument } = window.PDFLib;
+      const pdfBytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+      const srcDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+      const totalPages = srcDoc.getPageCount();
+      const CHUNK_SIZE = 60; // pages per chunk
+      const allHeadings = [];
+      const numChunks = Math.ceil(totalPages / CHUNK_SIZE);
+      console.log(`${pdfName}: splitting into ${numChunks} chunks of up to ${CHUNK_SIZE} pages (${totalPages} total)`);
+
+      for (let chunk = 0; chunk < numChunks; chunk++) {
+        const startPage = chunk * CHUNK_SIZE;
+        const endPage = Math.min(startPage + CHUNK_SIZE, totalPages);
+        setStatusMsg(`Indexing ${pdfName} — pages ${startPage + 1}–${endPage} of ${totalPages}…`);
+
+        const chunkDoc = await PDFDocument.create();
+        const pageIndices = Array.from({ length: endPage - startPage }, (_, i) => startPage + i);
+        const copiedPages = await chunkDoc.copyPages(srcDoc, pageIndices);
+        copiedPages.forEach(p => chunkDoc.addPage(p));
+        const chunkBytes = await chunkDoc.save();
+        const chunkBase64 = btoa(String.fromCharCode(...new Uint8Array(chunkBytes)));
+
+        try {
+          const contentBlocks = [
+            { type: "document", source: { type: "base64", media_type: "application/pdf", data: chunkBase64 }, title: `${pdfName} (pages ${startPage + 1}–${endPage})` },
+            { type: "text", text: `${INDEX_PROMPT} Note: these are pages ${startPage + 1}–${endPage} of the full document. Use the actual page numbers from the document, not chunk-relative numbers.` }
+          ];
+          const indexText = await callClaude([{ role: "user", content: contentBlocks }], SYSTEM, 65000, 2, "gemini-2.5-flash-lite");
+          const parsed = tryParse(indexText);
+          if (parsed?.headings) {
+            allHeadings.push(...parsed.headings);
+            console.log(`${pdfName} chunk ${chunk + 1}/${numChunks}: ${parsed.headings.length} headings`);
+          }
+        } catch (e) {
+          console.warn(`${pdfName} chunk ${chunk + 1} failed:`, e.message);
+        }
+      }
+
+      console.log(`Indexed ${pdfName}: ${allHeadings.length} headings found (chunked)`);
+      return allHeadings;
+    } catch (e) {
+      console.warn(`${pdfName}: chunked indexing failed:`, e.message);
+      return [];
+    }
+  };
+
   // ── indexing ────────────────────────────────────────────────────────────────
   const indexVault = async () => {
     if (!vault || pdfs.length === 0) return;
@@ -413,40 +501,8 @@ export default function App() {
         setStatusMsg(`Scanning ${pdf.name}…`);
         setProgress(p => ({ ...p, index: Math.round((i / pdfs.length) * 80) }));
 
-        let docIndex = { name: pdf.name, headings: [] };
-        try {
-          // Send full PDF directly to Gemini — no client-side splitting needed.
-          // Gemini 2.5 has a 1M token context window so chunking is unnecessary,
-          // and browser pdf-lib crashes on GOV.UK encrypted PDFs anyway.
-          const contentBlocks = [
-            { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 }, title: pdf.name },
-            { type: "text", text: 'Extract ALL structural metadata from this document: every section heading, sub-heading, chapter name, table of contents entry, figure and table caption. Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}' }
-          ];
-
-          try {
-            const indexText = await callClaude(
-              [{ role: "user", content: contentBlocks }],
-              "You are a document indexer. Extract only structural metadata. Return pure JSON only, no markdown, no explanation.",
-              65000,
-              2,
-              "gemini-2.5-flash-lite"
-            );
-            console.log(`Raw index response for ${pdf.name} (first 200 chars):`, indexText.slice(0, 200));
-            let parsed = null;
-            const clean = indexText.replace(/```json|```/g, "").trim();
-            try { parsed = JSON.parse(clean); } catch (e) { console.warn("JSON.parse failed:", e.message); }
-            if (!parsed) { const m = clean.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch {} }
-            if (!parsed) { const m = clean.match(/"headings"\s*:\s*(\[[\s\S]*?\])/); if (m) try { parsed = { headings: JSON.parse(m[1]) }; } catch {} }
-            console.log("Parsed result:", parsed ? `${parsed.headings?.length} headings` : "null");
-            if (parsed?.headings) docIndex = { name: pdf.name, headings: parsed.headings };
-            console.log(`Indexed ${pdf.name}: ${docIndex.headings.length} headings found`);
-          } catch (e) {
-            console.warn(`Indexing ${pdf.name} failed:`, e);
-          }
-        } catch (e) {
-          console.warn(`Could not index ${pdf.name}:`, e);
-        }
-        allDocuments.push(docIndex);
+        const headings = await indexOnePdf(pdf.name, base64);
+        allDocuments.push({ name: pdf.name, headings });
       }
 
       setProgress(p => ({ ...p, index: 100 }));
@@ -476,33 +532,18 @@ export default function App() {
     try {
       const pdfData = await api(`/api/vaults/${vault.id}/pdfs/${encodeURIComponent(pdf.name)}`);
       const base64 = pdfData.base64;
-      const contentBlocks = [
-        { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 }, title: pdf.name },
-        { type: "text", text: 'Extract ALL structural metadata from this document: every section heading, sub-heading, chapter name, table of contents entry, figure and table caption. Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}' }
-      ];
-      const indexText = await callClaude(
-        [{ role: "user", content: contentBlocks }],
-        "You are a document indexer. Extract only structural metadata. Return pure JSON only, no markdown, no explanation.",
-        65000,
-        2,
-        "gemini-2.5-flash-lite"
-      );
-      let parsed = null;
-      const clean = indexText.replace(/```json|```/g, "").trim();
-      try { parsed = JSON.parse(clean); } catch {}
-      if (!parsed) { const m = clean.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch {} }
-      if (!parsed?.headings) throw new Error("Could not parse index response");
+      const headings = await indexOnePdf(pdf.name, base64);
+      if (!headings.length) throw new Error("No headings found — document may be too large or unreadable");
 
       // Merge with existing index — replace this doc's entry
       const existingDocs = (vaultIndex?.documents || []).filter(d => d.name !== pdf.name);
-      const newDocIndex = { name: pdf.name, headings: parsed.headings };
-      const newIndex = { documents: [...existingDocs, newDocIndex], indexedAt: new Date().toISOString() };
+      const newIndex = { documents: [...existingDocs, { name: pdf.name, headings }], indexedAt: new Date().toISOString() };
 
       await api(`/api/vaults/${vault.id}/index`, { method: "POST", body: newIndex });
       setVaultIndex(newIndex);
       setStage("done-index");
       const total = newIndex.documents.reduce((s, d) => s + (d.headings?.length || 0), 0);
-      setStatusMsg(`✓ ${pdf.name} re-indexed — ${parsed.headings.length} sections found. ${total} total sections across vault.`);
+      setStatusMsg(`✓ ${pdf.name} re-indexed — ${headings.length} sections found. ${total} total sections across vault.`);
     } catch (e) {
       setStage(null);
       setStatusMsg(`Re-index failed for ${pdf.name}: ${e.message}`);
