@@ -257,7 +257,35 @@ export default function App() {
   const [conversationHistory, setConversationHistory] = useState([]);
   const [loadingVaults, setLoadingVaults] = useState(true);
   const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [passwordInput, setPasswordInput] = useState("");
+  const [passwordError, setPasswordError] = useState(false);
+  const [tempDoc, setTempDoc] = useState(null); // { name, base64 } — in memory only
+  const [tempDocDragOver, setTempDocDragOver] = useState(false);
   const fileInputRef = useRef();
+  const tempDocInputRef = useRef();
+
+  const CORRECT_PASSWORD = "4Rawbn11";
+
+  const handleLogin = () => {
+    if (passwordInput === CORRECT_PASSWORD) {
+      setAuthenticated(true);
+      setPasswordError(false);
+    } else {
+      setPasswordError(true);
+      setPasswordInput("");
+    }
+  };
+
+  const loadTempDoc = async (file) => {
+    if (!file || file.type !== "application/pdf") return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64 = e.target.result.split(",")[1];
+      setTempDoc({ name: file.name, base64 });
+    };
+    reader.readAsDataURL(file);
+  };
 
   const vault = vaults.find(v => v.id === selectedVault);
   const vaultHistory = history.filter(h => h.vaultId === selectedVault);
@@ -752,6 +780,16 @@ Rules:
         }
       }
 
+      // Add temp doc to context if one is loaded — sent in full, not page-extracted
+      if (tempDoc) {
+        docBlocks.push({
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: tempDoc.base64 },
+          title: `TEMPORARY DOCUMENT (not in vault): ${tempDoc.name}`,
+        });
+        console.log(`Temp doc included: ${tempDoc.name}`);
+      }
+
       setStatusMsg(`Pass 2/3 · ${totalPagesExtracted} specific pages extracted across ${docBlocks.length} document${docBlocks.length !== 1 ? "s" : ""}…`);
       setProgress(p => ({ ...p, read: 100 }));
 
@@ -769,7 +807,7 @@ Rules:
         ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
         : "";
 
-      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.
+      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `\n\nNOTE: A temporary document has been included for reference: "${tempDoc.name}". This is not part of the permanent vault — treat it as an additional reference document when answering.` : ""}
 
 ${contextBlock}CURRENT QUESTION: ${q}
 
@@ -858,20 +896,62 @@ RULES:
   const isRunning = ["indexing", "selecting", "reading", "answering"].includes(stage);
 
   // ── render ─────────────────────────────────────────────────────────────────
+
+  const globalStyles = `
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #f3f2f1; } ::-webkit-scrollbar-thumb { background: #b1b4b6; border-radius: 3px; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+    .vault-item { cursor: pointer; transition: background 0.15s; }
+    .vault-item:hover { background: #e8f0fe !important; }
+    .btn { cursor: pointer; transition: all 0.15s; border: none; font-family: Arial, sans-serif; }
+    .btn:hover { filter: brightness(0.92); }
+    .btn:disabled { cursor: not-allowed; opacity: 0.4; }
+    .govuk-input:focus { outline: 3px solid #ffdd00; outline-offset: 0; }
+  `;
+
+  // ── login screen ────────────────────────────────────────────────────────────
+  if (!authenticated) {
+    return (
+      <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+        <style>{globalStyles}</style>
+        <div style={{ background: "#0b0c0c", padding: "8px 20px", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ color: "#ffffff", fontSize: 13, fontWeight: 700 }}>🏛 HM Government</span>
+          <span style={{ color: "#555", fontSize: 12, marginLeft: 8 }}>|</span>
+          <span style={{ color: "#aaa", fontSize: 12 }}>Building Regulations — Approved Documents</span>
+        </div>
+        <div style={{ background: "#4a7c20", padding: "14px 20px" }}>
+          <span style={{ color: "#ffffff", fontSize: 20, fontWeight: 700 }}>VaultMind</span>
+          <span style={{ color: "#d4e6b5", fontSize: 14, marginLeft: 16 }}>Approved Document Intelligence</span>
+        </div>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#ffffff", padding: 40, width: 360, borderTop: "4px solid #4a7c20" }}>
+            <h2 style={{ fontSize: 22, fontWeight: 700, color: "#0b0c0c", marginBottom: 6 }}>Sign in</h2>
+            <p style={{ fontSize: 14, color: "#505a5f", marginBottom: 24 }}>Enter your access password to continue.</p>
+            <label style={{ fontSize: 14, fontWeight: 700, color: "#0b0c0c", display: "block", marginBottom: 4 }}>Password</label>
+            <input
+              type="password"
+              value={passwordInput}
+              onChange={e => { setPasswordInput(e.target.value); setPasswordError(false); }}
+              onKeyDown={e => e.key === "Enter" && handleLogin()}
+              autoFocus
+              className="govuk-input"
+              style={{ width: "100%", border: passwordError ? "2px solid #d4351c" : "2px solid #0b0c0c", padding: "8px 10px", fontSize: 16, marginBottom: 4, outline: "none" }}
+            />
+            {passwordError && <p style={{ color: "#d4351c", fontSize: 14, marginBottom: 12, fontWeight: 700 }}>Incorrect password. Please try again.</p>}
+            <button className="btn" onClick={handleLogin}
+              style={{ marginTop: 16, width: "100%", background: "#4a7c20", color: "#ffffff", padding: "10px 0", fontSize: 16, fontWeight: 700 }}>
+              Sign in
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", color: "#0b0c0c", display: "flex", flexDirection: "column" }}>
-      <style>{`
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: #f3f2f1; } ::-webkit-scrollbar-thumb { background: #b1b4b6; border-radius: 3px; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-        .vault-item { cursor: pointer; transition: background 0.15s; }
-        .vault-item:hover { background: #e8f0fe !important; }
-        .btn { cursor: pointer; transition: all 0.15s; border: none; font-family: Arial, sans-serif; }
-        .btn:hover { filter: brightness(0.92); }
-        .btn:disabled { cursor: not-allowed; opacity: 0.4; }
-        .govuk-input:focus { outline: 3px solid #ffdd00; outline-offset: 0; }
-      `}</style>
+      <style>{globalStyles}</style>
 
       {/* HM Government crown bar — matches Approved Document header */}
       <div style={{ background: "#0b0c0c", padding: "8px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
@@ -973,6 +1053,33 @@ RULES:
                       </>
                     )}
                     <input ref={fileInputRef} type="file" multiple accept="application/pdf" style={{ display: "none" }} onChange={e => addPDFs(e.target.files)} />
+                  </div>
+
+                  {/* Temp doc upload — in memory only, cleared on refresh */}
+                  <div style={{ margin: "8px 12px 0", borderTop: "1px solid #e8e8e8", paddingTop: 8 }}>
+                    <div style={{ fontSize: 10, color: "#505a5f", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
+                      Temporary Document
+                    </div>
+                    {tempDoc ? (
+                      <div style={{ background: "#fff8e1", border: "1px solid #ffdd00", padding: "6px 10px", display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 11, color: "#594d00", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {tempDoc.name}</span>
+                        <button className="btn" onClick={() => setTempDoc(null)} title="Remove temp document"
+                          style={{ background: "none", color: "#6f777b", fontSize: 14, padding: "0 2px", fontWeight: 700 }}
+                          onMouseEnter={e => e.target.style.color = "#d4351c"}
+                          onMouseLeave={e => e.target.style.color = "#6f777b"}>×</button>
+                      </div>
+                    ) : (
+                      <div
+                        onDragOver={e => { e.preventDefault(); setTempDocDragOver(true); }}
+                        onDragLeave={() => setTempDocDragOver(false)}
+                        onDrop={e => { e.preventDefault(); setTempDocDragOver(false); const f = e.dataTransfer.files[0]; if (f) loadTempDoc(f); }}
+                        onClick={() => tempDocInputRef.current.click()}
+                        style={{ border: `2px dashed ${tempDocDragOver ? "#4a7c20" : "#b1b4b6"}`, padding: "10px 8px", textAlign: "center", cursor: "pointer", background: tempDocDragOver ? "#f0f4e8" : "#fafafa", fontSize: 11, color: "#505a5f", lineHeight: 1.5 }}>
+                        Drop a PDF here for<br />temporary review
+                        <input ref={tempDocInputRef} type="file" accept="application/pdf" style={{ display: "none" }} onChange={e => { if (e.target.files[0]) loadTempDoc(e.target.files[0]); }} />
+                      </div>
+                    )}
+                    <p style={{ fontSize: 10, color: "#6f777b", marginTop: 4, lineHeight: 1.4 }}>Not saved — deleted on page refresh</p>
                   </div>
 
                   <div style={{ flex: 1, overflowY: "auto" }}>
