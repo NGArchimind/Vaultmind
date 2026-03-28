@@ -764,28 +764,28 @@ Rules:
         .flatMap(d => (d.sections || []).map(s => `${d.docName}: ${s.heading} (p.${s.pageHint})`))
         .join("; ");
 
-      const answerPrompt = `You are an expert building regulations consultant at an architectural practice answering a specific technical question. Use ONLY the provided document pages.
+      const priorContext = conversationHistory.slice(-5);
+      const contextBlock = priorContext.length > 0
+        ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
+        : "";
 
-VAULT: ${vault.name}
-QUESTION: ${q}
-${conversationHistory.slice(-5).length > 0 ? `\nCONVERSATION HISTORY (this is a continuing conversation — treat the current question in the context of everything discussed so far):\n${conversationHistory.slice(-5).map((h, i) => `Q${i+1}: ${h.question}\nA${i+1}: ${h.answer.slice(0, 800)}…`).join("\n\n")}\n` : ""}PRIORITY SECTIONS IDENTIFIED: ${focusSections || "all sections"}
+      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.
 
----
+${contextBlock}CURRENT QUESTION: ${q}
 
-INSTRUCTIONS:
-
-Step 1 — Read all provided document pages and identify every passage directly relevant to the question.
-Step 2 — Build the Detailed Analysis from that evidence.
-Step 3 — Write the Summary as a confident, definitive conclusion drawn from that analysis — it should feel like the executive summary of a technical report.
+PRIORITY SECTIONS: ${focusSections || "all sections"}
 
 ---
+
+RESPONSE FORMAT — output in this exact order every time:
 
 ## Summary
 
-A confident, definitive answer in 2–4 sentences. This must:
-- State the answer directly and definitively in the opening sentence — do not hedge unless there is genuine ambiguity in the documents
-- Explain the reasoning briefly, referencing the key evidence
-- Include a table if the answer involves dimensions, measurements or comparative requirements across building types
+WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences directly addressing the current question. Must:
+- Open with a direct answer in plain English
+- Reference the key evidence briefly
+- Build logically on any prior questions in the conversation where relevant
+- Include a table if dimensions, measurements or comparative requirements are involved
 
 TABLE FORMAT:
 | Type | Requirement | Value | Source |
@@ -798,41 +798,40 @@ CITATION FORMAT — inline after each statement:
 
 ## Detailed Analysis
 
-Organise by document and section. For each relevant passage:
+WRITE THIS SECOND. Organise by document and section. For each relevant passage:
 
-1. A plain English explanation of what this section establishes, why it is relevant to the question, and what practical implication it has for the architect or designer — write 2-3 sentences, not just one. Explain the context, purpose and consequence of the requirement in plain language that a non-specialist could follow.
-2. The exact quoted passage as a block quote — do not paraphrase or truncate
-3. The citation on its own line immediately below
+1. 2–3 sentences in plain English explaining what this section establishes, why it is relevant to this specific question, and what practical implication it has for the architect — include context and consequence, not just a summary of the text
+2. The exact quoted passage as a block quote
+3. The citation immediately below
 
 QUOTE FORMAT:
-> "[Exact text from document]"
+> "[Exact text from document — do not paraphrase or truncate]"
 
-CITATION FORMAT (own line below quote):
+CITATION FORMAT (own line below each quote):
 > *[Document Name] | Page [X] | Section [X.X] — [Heading]*
 
 Use ### sub-headings matching source document section headings.
-Use **bold** for regulation numbers, defined terms, and critical requirements.
-Only include sections that directly answer the question — omit anything tangential.
+Use **bold** for regulation numbers, defined terms and critical requirements.
+Only include passages that directly answer the question.
 
 ---
 
 ## Contradictions & Conflicts
 
-If conflicts exist: state the conflict in one sentence, quote both sides with citations, then give a definitive practical conclusion on which takes precedence and why.
-
-If no conflicts: write "No contradictions identified."
+WRITE THIS LAST. If conflicts exist: one sentence stating the conflict, quotes from each side with citations, then a definitive practical conclusion. If none: "No contradictions identified."
 
 ---
 
 RULES:
+- Summary MUST come first, Detailed Analysis second, Contradictions last — do not change this order
 - Use ONLY the provided document pages — no external knowledge
 - Every factual statement must have a citation
 - Omit citations rather than guess page numbers
-- If the provided pages do not contain enough information to answer definitively, state exactly what is missing and why`;
+- If pages do not contain enough to answer definitively, state exactly what is missing`;
 
       const finalAnswer = await callClaude(
         [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-        `You are an expert building regulations consultant at an architectural practice. Answer using ONLY the provided document pages. Give definitive answers. Structure: (1) Detailed Analysis with exact quotes and citations, (2) Summary as a confident conclusion with table if relevant, (3) Contradictions with practical resolution. Never hedge unless genuine ambiguity exists in the documents.`,
+        `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output: (1) ## Summary first, (2) ## Detailed Analysis second, (3) ## Contradictions & Conflicts last. Never change this order. Build on prior conversation context where relevant.`,
         65536
       );
 
