@@ -575,6 +575,9 @@ Return ONLY valid JSON:
       console.log(`Indexed ${pdfName}: ${deduped.length} headings found (chunked, deduped from ${allHeadings.length})`);
       const stairHeadings = deduped.filter(h => /stair|landing|step/i.test(h.title));
       if (stairHeadings.length > 0) console.log("Stair-related headings:", stairHeadings.slice(0, 10));
+      // Log all headings with page > 100 to see what body content was captured
+      const bodyHeadings = deduped.filter(h => h.pageHint > 100).slice(0, 20);
+      console.log("Sample body headings (page > 100):", bodyHeadings);
       return { headings: deduped, pageOffset };
     } catch (e) {
       console.warn(`${pdfName}: chunked indexing failed:`, e.message);
