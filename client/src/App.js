@@ -494,8 +494,15 @@ Return ONLY valid JSON:
       const parsed = tryParse(indexText);
       console.log("Parsed result:", parsed ? `${parsed.headings?.length} headings` : "null");
       if (parsed?.headings?.length > 0) {
-        console.log(`Indexed ${pdfName}: ${parsed.headings.length} headings found`);
-        return { headings: parsed.headings, pageOffset };
+        // Deduplicate — keep highest page number for duplicate titles
+        const headingMap = {};
+        for (const h of parsed.headings) {
+          const key = h.title.toLowerCase().trim();
+          if (!headingMap[key] || h.pageHint > headingMap[key].pageHint) headingMap[key] = h;
+        }
+        const deduped = Object.values(headingMap);
+        console.log(`Indexed ${pdfName}: ${deduped.length} headings found (deduped from ${parsed.headings.length})`);
+        return { headings: deduped, pageOffset };
       }
       console.warn(`${pdfName}: full-PDF index returned no headings, trying chunked approach…`);
     } catch (e) {
@@ -554,10 +561,21 @@ Return ONLY valid JSON:
         }
       }
 
-      console.log(`Indexed ${pdfName}: ${allHeadings.length} headings found (chunked)`);
-      const stairHeadings = allHeadings.filter(h => /stair|landing|step/i.test(h.title));
+      // Deduplicate: if the same heading appears at multiple page positions
+      // (e.g. once in the contents page and once in the body), keep the highest
+      // page number — the body occurrence is always deeper in the document
+      const headingMap = {};
+      for (const h of allHeadings) {
+        const key = h.title.toLowerCase().trim();
+        if (!headingMap[key] || h.pageHint > headingMap[key].pageHint) {
+          headingMap[key] = h;
+        }
+      }
+      const deduped = Object.values(headingMap);
+      console.log(`Indexed ${pdfName}: ${deduped.length} headings found (chunked, deduped from ${allHeadings.length})`);
+      const stairHeadings = deduped.filter(h => /stair|landing|step/i.test(h.title));
       if (stairHeadings.length > 0) console.log("Stair-related headings:", stairHeadings.slice(0, 10));
-      return { headings: allHeadings, pageOffset };
+      return { headings: deduped, pageOffset };
     } catch (e) {
       console.warn(`${pdfName}: chunked indexing failed:`, e.message);
       return [];
