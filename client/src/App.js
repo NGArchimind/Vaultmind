@@ -417,36 +417,30 @@ export default function App() {
       for (let b = 0; b < frontUint8.length; b++) frontBinary += String.fromCharCode(frontUint8[b]);
       const frontBase64 = btoa(frontBinary);
 
-      const prompt = `Examine these pages carefully. Find the table of contents or contents page.
-      
-Your task: work out the offset between PDF page positions and the printed page numbers used in this document.
+      const prompt = `These pages are from the front of a document. Pages 3 and 4 should contain a table of contents or contents page listing chapters and their page numbers.
 
-To do this:
-1. Find the table of contents and note what printed page number is listed for a clearly identifiable chapter or section
-2. Find that chapter or section heading in these pages if visible, or estimate which PDF page it would be on
-3. Calculate: offset = PDF page position - printed page number
+Extract every single entry from the table of contents — every part, chapter and section title with the page number shown next to it.
 
-For example: if the contents page says "Chapter 1 starts on page 5" and Chapter 1 actually begins on PDF page 9, the offset is 4.
-If the document starts numbering from page 1 on the very first PDF page, the offset is 0.
+Then calculate the PDF page offset: the table of contents itself appears on PDF pages 3-4 of this file. Look at what page numbers are printed on those pages to work out the offset. For example if PDF page 3 has "Page i" or no number, and PDF page 5 has printed number "1", then offset = 5 - 1 = 4.
 
-Also extract all entries from the table of contents with their printed page numbers.
-
-Return ONLY valid JSON:
+Return ONLY valid JSON with no other text:
 {
   "offset": 4,
-  "reasoning": "brief explanation of how offset was calculated",
+  "reasoning": "PDF page 5 has printed number 1, so offset is 4",
   "tocEntries": [
-    {"title": "section title", "printedPage": 5, "pdfPage": 9}
+    {"title": "6.6 Staircases", "printedPage": 245, "pdfPage": 249}
   ]
-}`;
+}
+
+Include every chapter entry you can find in the table of contents.`;
 
       const result = await callClaude(
         [{ role: "user", content: [
           { type: "document", source: { type: "base64", media_type: "application/pdf", data: frontBase64 } },
           { type: "text", text: prompt }
         ]}],
-        "You are a document analyst. Examine the table of contents and calculate the page offset. Return pure JSON only.",
-        8000, 2, "gemini-2.5-flash-lite"
+        "You are a document analyst. Extract the complete table of contents and calculate the page offset. Return pure JSON only, no markdown.",
+        32000, 2, "gemini-2.5-flash"
       );
 
       const clean = result.replace(/```json|```/g, "").trim();
@@ -454,9 +448,14 @@ Return ONLY valid JSON:
       try { parsed = JSON.parse(clean); } catch {}
       if (!parsed) { const m = clean.match(/\{[\s\S]*\}/); if (m) try { parsed = JSON.parse(m[0]); } catch {} }
 
-      if (parsed && typeof parsed.offset === "number") {
-        console.log(`Page offset detected: ${parsed.offset} (${parsed.reasoning})`);
-        return { offset: parsed.offset, tocEntries: parsed.tocEntries || [] };
+      if (parsed && (typeof parsed.offset === "number" || parsed.tocEntries?.length > 0)) {
+        const offset = typeof parsed.offset === "number" ? parsed.offset : 0;
+        console.log(`Page offset detected: ${offset} (${parsed.reasoning})`);
+        console.log(`TOC entries found: ${parsed.tocEntries?.length || 0}`);
+        if (parsed.tocEntries?.length > 0) {
+          console.log("Sample TOC entries:", parsed.tocEntries.slice(0, 5));
+        }
+        return { offset, tocEntries: parsed.tocEntries || [] };
       }
     } catch (e) {
       console.warn("Page offset detection failed:", e.message);
@@ -478,10 +477,22 @@ Return ONLY valid JSON:
       return null;
     };
 
-    // Detect page offset first — finds difference between PDF positions and printed page numbers
-    setStatusMsg(`Detecting page structure for ${pdfName}…`);
+    // Detect page offset and extract TOC first
+    setStatusMsg(`Reading table of contents for ${pdfName}…`);
     const { offset: pageOffset, tocEntries } = await detectPageOffset(base64);
     console.log(`${pdfName}: page offset = ${pageOffset}, TOC entries = ${tocEntries.length}`);
+
+    // If we have good TOC entries, convert them to headings with correct PDF page positions
+    const tocHeadings = tocEntries.map(e => ({
+      level: 1,
+      title: e.title,
+      pageHint: e.pdfPage || (e.printedPage + pageOffset)
+    })).filter(h => h.pageHint > 0);
+    if (tocHeadings.length > 0) {
+      console.log(`${pdfName}: using ${tocHeadings.length} TOC entries as primary headings`);
+      const stairToc = tocHeadings.filter(h => /stair|landing|door/i.test(h.title));
+      if (stairToc.length) console.log("TOC stair/door entries:", stairToc);
+    }
 
     // Step 1 — Try full PDF body heading extraction
     try {
@@ -561,23 +572,23 @@ Return ONLY valid JSON:
         }
       }
 
-      // Deduplicate: if the same heading appears at multiple page positions
-      // (e.g. once in the contents page and once in the body), keep the highest
-      // page number — the body occurrence is always deeper in the document
+      // Merge TOC headings (accurate page positions) with chunked body headings (detail)
+      // TOC entries take priority when the same section appears in both
       const headingMap = {};
+      // Add body headings first
       for (const h of allHeadings) {
         const key = h.title.toLowerCase().trim();
-        if (!headingMap[key] || h.pageHint > headingMap[key].pageHint) {
-          headingMap[key] = h;
-        }
+        if (!headingMap[key] || h.pageHint > headingMap[key].pageHint) headingMap[key] = h;
+      }
+      // TOC entries override — they have more accurate page positions
+      for (const h of tocHeadings) {
+        const key = h.title.toLowerCase().trim();
+        headingMap[key] = h;
       }
       const deduped = Object.values(headingMap);
-      console.log(`Indexed ${pdfName}: ${deduped.length} headings found (chunked, deduped from ${allHeadings.length})`);
-      const stairHeadings = deduped.filter(h => /stair|landing|step/i.test(h.title));
-      if (stairHeadings.length > 0) console.log("Stair-related headings:", stairHeadings.slice(0, 10));
-      // Log all headings with page > 100 to see what body content was captured
-      const bodyHeadings = deduped.filter(h => h.pageHint > 100).slice(0, 20);
-      console.log("Sample body headings (page > 100):", bodyHeadings);
+      console.log(`Indexed ${pdfName}: ${deduped.length} headings (${tocHeadings.length} from TOC, body deduped from ${allHeadings.length})`);
+      const stairHeadings = deduped.filter(h => /stair|landing|door/i.test(h.title));
+      if (stairHeadings.length > 0) console.log("Stair/door headings:", stairHeadings.slice(0, 10));
       return { headings: deduped, pageOffset };
     } catch (e) {
       console.warn(`${pdfName}: chunked indexing failed:`, e.message);
