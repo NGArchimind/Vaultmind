@@ -446,6 +446,9 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     };
 
     const dedupe = (headings) => {
+      // Exact title dedup — keep highest page number only
+      // This removes duplicate entries for the same heading title,
+      // preferring the body occurrence over any contents page reference
       const map = {};
       for (const h of headings) {
         const key = h.title.toLowerCase().trim();
@@ -621,8 +624,7 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       const indexSummary = (vaultIndex.documents || []).map(doc => {
         const headings = (doc.headings || [])
           .filter(h => !isBoilerplate(h.title))
-          .filter(h => (h.pageHint || 0) > 0)
-          .map(h => `  p${h.pageHint}: ${h.title}`)
+          .map(h => `  p${h.pageHint || 1}: ${h.title}`)
           .join("\n");
         return `DOCUMENT: ${doc.name}\n${headings}`;
       }).join("\n\n");
@@ -644,6 +646,8 @@ QUESTION: ${q}
 ${recentHistory.length > 0 ? "NOTE: This may be a follow-up question. Use the conversation history above to understand the full context before scoring." : ""}
 
 Analyse the index carefully. For every section that could possibly be relevant — even tangentially — assign a probability score. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections. Be CONSERVATIVE — it is better to include a borderline section than to miss critical information.
+
+NOTE: For large documents, the same section title may appear at a low page number (contents page reference) and a high page number (actual content). Always prefer the higher page number — that is where the real content lives.
 
 Respond ONLY as compact JSON — no other text, no explanations, no reasons:
 {
