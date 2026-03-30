@@ -435,7 +435,7 @@ export default function App() {
 
 For each item, record the PDF page position where it physically appears (page 1 = first page of this PDF file). Do NOT use printed page numbers — use only the physical PDF page position.
 
-Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}\`
+Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
 
     const tryParse = (text) => {
       const clean = text.replace(/```json|```/g, "").trim();
