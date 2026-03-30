@@ -416,13 +416,26 @@ export default function App() {
   };
 
   // ── shared indexing helper ────────────────────────────────────────────────────
-  // Same approach for all documents:
-  // 1. Extract the first 15 pages and read the table of contents to get
-  //    section titles with their PRINTED page numbers
-  // 2. Detect the offset between printed page numbers and PDF page positions
-  // 3. Store both headings and offset — offset applied at query time
+  // Indexes headings with their absolute PDF page positions.
+  // For small docs: sends full PDF to Gemini in one pass.
+  // For large docs (>60 pages): chunks into 60-page segments, merges results.
+  // Deduplicates on title — keeps the highest page number to prefer body
+  // occurrences over table of contents references.
   const indexOnePdf = async (pdfName, base64) => {
-    const SYSTEM = "You are a document indexer. Return pure JSON only, no markdown, no explanation.";
+    const SYSTEM = "You are a document indexer. Extract only structural metadata. Return pure JSON only, no markdown, no explanation.";
+    const INDEX_PROMPT = `Extract ALL headings and section identifiers from this document. Cast the net wide — include anything that could be a heading or section marker:
+
+- Numbered sections of any format: 6.6, 6.6.1, R1, D5, Part 2, Chapter 3, Section 4.2
+- Bold or large text that introduces a topic or section
+- Text that appears at the top of a page or at the start of a section with whitespace around it
+- Chapter or part title pages — even if the title appears over an image or graphic
+- Requirement statements (e.g. "Requirement K1:", "Technical Requirement R3")
+- Any text that acts as a label or identifier for a block of content below it
+- Appendix titles, figure captions, table headings
+
+For each item, record the PDF page position where it physically appears (page 1 = first page of this PDF file). Do NOT use printed page numbers — use only the physical PDF page position.
+
+Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}\`
 
     const tryParse = (text) => {
       const clean = text.replace(/```json|```/g, "").trim();
@@ -432,78 +445,75 @@ export default function App() {
       return null;
     };
 
-    // Step 1 — Extract TOC pages (first 15)
-    setStatusMsg(`Reading table of contents for ${pdfName}…`);
-    let pageOffset = 0;
-    let headings = [];
-
-    try {
-      const { base64: tocBase64, pageCount } = await extractPdfPages(base64, Array.from({ length: Math.min(15, 999) }, (_, i) => i));
-
-      const TOC_PROMPT = `You are reading the front pages of a document PDF.
-
-TASK 1 — Find the table of contents (usually pages 2-5 of this PDF). Extract every entry: every part, chapter and section title, along with the page number printed next to it in the table of contents.
-
-TASK 2 — Calculate the PDF page offset. This is the difference between PDF page positions (counting from 1 for the first page of the file) and the printed page numbers in the document. To calculate it:
-- Find a page in the PDF whose printed page number you can read clearly
-- offset = PDF position of that page minus the printed number on it
-- Example: if the 8th page of the PDF file is printed as "page 1", offset = 8 - 1 = 7
-
-CRITICAL: The "printedPage" field must be the number PRINTED IN THE TABLE OF CONTENTS next to the section title — not the PDF page where you found the TOC entry.
-
-Return ONLY valid JSON:
-{
-  "offset": 7,
-  "offsetReasoning": "PDF page 8 has printed number 1, so offset is 7",
-  "headings": [
-    {"level": 1, "title": "6.6 Staircases", "printedPage": 245},
-    {"level": 2, "title": "6.6.1 General", "printedPage": 247}
-  ]
-}`;
-
-      const result = await callClaude(
-        [{ role: "user", content: [
-          { type: "document", source: { type: "base64", media_type: "application/pdf", data: tocBase64 } },
-          { type: "text", text: TOC_PROMPT }
-        ]}],
-        SYSTEM, 32000, 2, "gemini-2.5-flash"
-      );
-
-      const parsed = tryParse(result);
-      if (parsed?.headings?.length > 0) {
-        pageOffset = typeof parsed.offset === "number" ? parsed.offset : 0;
-        headings = parsed.headings;
-        console.log(`${pdfName}: TOC extracted — ${headings.length} entries, offset = ${pageOffset} (${parsed.offsetReasoning})`);
-        const stairEntries = headings.filter(h => /stair|landing|door/i.test(h.title));
-        if (stairEntries.length) console.log("Stair/door TOC entries:", stairEntries);
-        return { headings, pageOffset };
+    const dedupe = (headings) => {
+      const map = {};
+      for (const h of headings) {
+        const key = h.title.toLowerCase().trim();
+        if (!map[key] || h.pageHint > map[key].pageHint) map[key] = h;
       }
-      console.warn(`${pdfName}: TOC extraction returned no headings`);
-    } catch (e) {
-      console.warn(`${pdfName}: TOC extraction failed:`, e.message);
-    }
+      return Object.values(map);
+    };
 
-    // Fallback — full PDF heading extraction (for small docs without clear TOC)
+    // First attempt — full PDF in one pass (works for most docs)
     try {
-      const FALLBACK_PROMPT = "Extract ALL structural headings from this document. For each, record the PDF page position (page 1 = first page of file). Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading", "printedPage": 1}]}";
       const result = await callClaude(
         [{ role: "user", content: [
           { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 }, title: pdfName },
-          { type: "text", text: FALLBACK_PROMPT }
+          { type: "text", text: INDEX_PROMPT }
         ]}],
         SYSTEM, 65000, 2, "gemini-2.5-flash-lite"
       );
+      console.log(`Raw index response for ${pdfName} (first 200 chars):`, result.slice(0, 200));
       const parsed = tryParse(result);
       if (parsed?.headings?.length > 0) {
-        headings = parsed.headings;
-        console.log(`${pdfName}: fallback heading extraction — ${headings.length} headings`);
-        return { headings, pageOffset: 0 };
+        const deduped = dedupe(parsed.headings);
+        console.log(`Indexed ${pdfName}: ${deduped.length} headings`);
+        return { headings: deduped };
       }
+      console.warn(`${pdfName}: full-PDF index returned no headings, trying chunked…`);
     } catch (e) {
-      console.warn(`${pdfName}: fallback extraction failed:`, e.message);
+      console.warn(`${pdfName}: full-PDF indexing failed (${e.message}), trying chunked…`);
     }
 
-    return { headings: [], pageOffset: 0 };
+    // Chunked fallback — 60 pages at a time, absolute page positions
+    try {
+      const { pageCount } = await extractPdfPages(base64, [0]);
+      const CHUNK_SIZE = 60;
+      const numChunks = Math.ceil(pageCount / CHUNK_SIZE);
+      const allHeadings = [];
+      console.log(`${pdfName}: splitting into ${numChunks} chunks (${pageCount} pages total)`);
+
+      for (let chunk = 0; chunk < numChunks; chunk++) {
+        const startPage = chunk * CHUNK_SIZE;
+        const endPage = Math.min(startPage + CHUNK_SIZE, pageCount);
+        setStatusMsg(`Indexing ${pdfName} — pages ${startPage + 1}–${endPage} of ${pageCount}…`);
+        const { base64: chunkBase64 } = await extractPdfPages(base64, Array.from({ length: endPage - startPage }, (_, i) => startPage + i));
+        try {
+          const chunkPrompt = INDEX_PROMPT + ` IMPORTANT: These are PDF pages ${startPage + 1}–${endPage} of the full document. You must add ${startPage} to every page position you observe within this chunk to get the correct absolute PDF page number. For example, if a heading appears on page 3 of this chunk and startPage is ${startPage}, the pageHint should be ${startPage + 3}.`;
+          const result = await callClaude(
+            [{ role: "user", content: [
+              { type: "document", source: { type: "base64", media_type: "application/pdf", data: chunkBase64 } },
+              { type: "text", text: chunkPrompt }
+            ]}],
+            SYSTEM, 65000, 2, "gemini-2.5-flash-lite"
+          );
+          const parsed = tryParse(result);
+          if (parsed?.headings) {
+            allHeadings.push(...parsed.headings);
+            console.log(`${pdfName} chunk ${chunk + 1}/${numChunks}: ${parsed.headings.length} headings`);
+          }
+        } catch (e) {
+          console.warn(`${pdfName} chunk ${chunk + 1} failed:`, e.message);
+        }
+      }
+
+      const deduped = dedupe(allHeadings);
+      console.log(`Indexed ${pdfName}: ${deduped.length} headings (deduped from ${allHeadings.length})`);
+      return { headings: deduped };
+    } catch (e) {
+      console.warn(`${pdfName}: chunked indexing failed:`, e.message);
+      return { headings: [] };
+    }
   };
 
   // ── indexing ────────────────────────────────────────────────────────────────
@@ -528,8 +538,8 @@ Return ONLY valid JSON:
         setStatusMsg(`Scanning ${pdf.name}…`);
         setProgress(p => ({ ...p, index: Math.round((i / pdfs.length) * 80) }));
 
-        const { headings, pageOffset } = await indexOnePdf(pdf.name, base64);
-        allDocuments.push({ name: pdf.name, headings, pageOffset: pageOffset || 0 });
+        const { headings } = await indexOnePdf(pdf.name, base64);
+        allDocuments.push({ name: pdf.name, headings });
       }
 
       setProgress(p => ({ ...p, index: 100 }));
@@ -559,12 +569,12 @@ Return ONLY valid JSON:
     try {
       const pdfData = await api(`/api/vaults/${vault.id}/pdfs/${encodeURIComponent(pdf.name)}`);
       const base64 = pdfData.base64;
-      const { headings, pageOffset } = await indexOnePdf(pdf.name, base64);
+      const { headings } = await indexOnePdf(pdf.name, base64);
       if (!headings.length) throw new Error("No headings found — document may be too large or unreadable");
 
       // Merge with existing index — replace this doc's entry
       const existingDocs = (vaultIndex?.documents || []).filter(d => d.name !== pdf.name);
-      const newIndex = { documents: [...existingDocs, { name: pdf.name, headings, pageOffset: pageOffset || 0 }], indexedAt: new Date().toISOString() };
+      const newIndex = { documents: [...existingDocs, { name: pdf.name, headings }], indexedAt: new Date().toISOString() };
 
       await api(`/api/vaults/${vault.id}/index`, { method: "POST", body: newIndex });
       setVaultIndex(newIndex);
@@ -611,7 +621,8 @@ Return ONLY valid JSON:
       const indexSummary = (vaultIndex.documents || []).map(doc => {
         const headings = (doc.headings || [])
           .filter(h => !isBoilerplate(h.title))
-          .map(h => `  p${h.printedPage || h.pageHint || 1}: ${h.title}`)
+          .filter(h => (h.pageHint || 0) > 0)
+          .map(h => `  p${h.pageHint}: ${h.title}`)
           .join("\n");
         return `DOCUMENT: ${doc.name}\n${headings}`;
       }).join("\n\n");
@@ -755,20 +766,13 @@ Rules:
         );
         if (!matchedDoc) return;
 
-        // Look up stored page offset for this document
-        const docIndexEntry = (vaultIndex.documents || []).find(d => d.name === matchedDoc.pdf.name);
-        const pageOffset = docIndexEntry?.pageOffset || 0;
-
         (selectedDoc.sections || []).forEach(section => {
           const parsed = parsePageNums(section.pageHint);
-          // Apply page offset — converts printed page numbers to absolute PDF positions
-          const offsetPages = new Set();
-          parsed.forEach(p => offsetPages.add(Math.max(1, p + pageOffset)));
-          if (offsetPages.size > 0) {
+          if (parsed.size > 0) {
             allScoredSections.push({
               docName: matchedDoc.pdf.name,
               contentsDoc: matchedDoc,
-              pages: offsetPages,
+              pages: parsed,
               probability: section.probability || 0,
               heading: section.heading,
             });
