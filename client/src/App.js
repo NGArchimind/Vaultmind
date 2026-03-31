@@ -446,9 +446,8 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     };
 
     const dedupe = (headings) => {
-      // Exact title dedup — keep highest page number only
-      // This removes duplicate entries for the same heading title,
-      // preferring the body occurrence over any contents page reference
+      // Exact title dedup only — keep highest page number for identical titles
+      // All other headings are kept, including multiple staircase-related sections
       const map = {};
       for (const h of headings) {
         const key = h.title.toLowerCase().trim();
@@ -507,6 +506,26 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
           }
         } catch (e) {
           console.warn(`${pdfName} chunk ${chunk + 1} failed:`, e.message);
+          // Retry once after a short delay if rate limited
+          if (e.message?.includes("503") || e.message?.includes("UNAVAILABLE")) {
+            try {
+              await new Promise(r => setTimeout(r, 3000));
+              const result2 = await callClaude(
+                [{ role: "user", content: [
+                  { type: "document", source: { type: "base64", media_type: "application/pdf", data: chunkBase64 } },
+                  { type: "text", text: chunkPrompt }
+                ]}],
+                SYSTEM, 65000, 1, "gemini-2.5-flash-lite"
+              );
+              const parsed2 = tryParse(result2);
+              if (parsed2?.headings) {
+                allHeadings.push(...parsed2.headings);
+                console.log(`${pdfName} chunk ${chunk + 1} retry: ${parsed2.headings.length} headings`);
+              }
+            } catch (e2) {
+              console.warn(`${pdfName} chunk ${chunk + 1} retry also failed:`, e2.message);
+            }
+          }
         }
       }
 
@@ -622,8 +641,16 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       };
 
       const indexSummary = (vaultIndex.documents || []).map(doc => {
+        // Identify contents pages — any heading whose title is a variant of "contents"
+        const contentsPages = new Set(
+          (doc.headings || [])
+            .filter(h => /^(contents|table of contents|index)$/i.test(h.title.trim()))
+            .map(h => h.pageHint)
+        );
+
         const headings = (doc.headings || [])
           .filter(h => !isBoilerplate(h.title))
+          .filter(h => !contentsPages.has(h.pageHint)) // exclude headings on contents pages
           .map(h => `  p${h.pageHint || 1}: ${h.title}`)
           .join("\n");
         return `DOCUMENT: ${doc.name}\n${headings}`;
@@ -647,7 +674,7 @@ ${recentHistory.length > 0 ? "NOTE: This may be a follow-up question. Use the co
 
 Analyse the index carefully. For every section that could possibly be relevant — even tangentially — assign a probability score. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections. Be CONSERVATIVE — it is better to include a borderline section than to miss critical information.
 
-NOTE: For large documents, the same section title may appear at a low page number (contents page reference) and a high page number (actual content). Always prefer the higher page number — that is where the real content lives.
+NOTE: Select ALL sections that are relevant to the question — do not limit to just one section if multiple sections are relevant.
 
 Respond ONLY as compact JSON — no other text, no explanations, no reasons:
 {
