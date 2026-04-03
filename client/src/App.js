@@ -946,27 +946,32 @@ CRITICAL TABLE RULE: Reproduce the source table exactly as it appears — same c
 After every table, include as a block quote any qualifying text, footnotes or exceptions that appear immediately before or after the table in the source — these are often critical to correct interpretation. Cite these notes separately.
 
 CITATION FORMAT — inline after each statement:
-*[Document Name] | Page [X] | Section [X.X]*
+*Document Name | Page X | Section X.X*
 
 ---
 
 ## Detailed Analysis
 
-WRITE THIS SECOND. Organise by document and section. For each relevant passage:
+WRITE THIS SECOND. Do NOT repeat what is already in the summary. Instead use this section to:
+- Explain the reasoning and intent behind the requirements — why they exist, what risk they mitigate
+- Provide context from surrounding clauses that affects how the requirement should be applied in practice
+- Flag any cross-references, conditions, or exceptions that qualify the headline figure
+- Include any other content on the same pages that is relevant to the question, even if not directly quoted in the summary
 
-1. 2–3 sentences in plain English explaining what this section establishes, why it is relevant to this specific question, and what practical implication it has for the architect — include context and consequence, not just a summary of the text
+For each relevant passage:
+1. 2–3 sentences explaining the purpose or context of this requirement and its practical implication for the architect — go beyond restating the text, explain what it means and why it matters
 2. The exact quoted passage as a block quote
-3. The citation immediately below
+3. A citation on its own line in italic
 
 QUOTE FORMAT:
-> "[Exact text from document — do not paraphrase or truncate]"
+> Exact text from document — do not paraphrase or truncate
 
-CITATION FORMAT (own line below each quote):
-> *[Document Name] | Page [X] | Section [X.X] — [Heading]*
+CITATION FORMAT — italic, on its own line immediately below each quote:
+*Document Name | Page X | Section X.X — Heading*
 
 Use ### sub-headings matching source document section headings.
-Use **bold** for regulation numbers, defined terms and critical requirements.
-Only include passages that directly answer the question. Where a table is referenced or quoted, always include the surrounding paragraph text and any footnotes or qualifying statements that appear before or after the table in the source — these often contain exceptions, conditions or cross-references essential to correct interpretation. Quote these as block quotes with citations immediately below the table.
+Use **bold** for defined terms and critical requirements.
+Only include passages that directly answer or qualify the question — no padding.
 
 ---
 
