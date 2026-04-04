@@ -963,10 +963,12 @@ WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences directly add
 - Include a table if the source document contains a table relevant to the question. Reproduce it exactly — same columns, same rows. Do NOT wrap tables in > block quote syntax.
 - After any table, include any footnotes or qualifications from the source as plain italic text beneath it.
 
-CITATION FORMAT — italic plain text on its own line, always cite the most specific clause available:
-*Document Name | Page X | Section X.X.X — Exact Clause Heading*
+For each key fact in the summary, include the exact supporting phrase from the document and its source on separate lines:
 
-Never cite just a chapter number (e.g. "Chapter 6.6") — always use the specific subsection (e.g. "6.6.11 Handrails").
+> "Exact short phrase from document — one sentence maximum."
+*Document Name | Page X | Section X.X.X — Clause Heading*
+
+Always cite the most specific clause available — use the subsection number (e.g. 6.6.11) not just the chapter (e.g. 6.6).
 
 ---
 
