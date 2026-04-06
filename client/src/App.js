@@ -67,7 +67,6 @@ async function splitPdfIntoChunks(base64Data, chunkSize) {
 }
 
 async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash") {
-  // 60 second timeout — if Gemini doesn't respond, abort and surface a clean error
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60000);
 
@@ -81,33 +80,26 @@ async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2,
     });
   } catch (e) {
     clearTimeout(timeoutId);
-    if (e.name === "AbortError") {
-      throw new Error("Request timed out — Gemini is experiencing high traffic. Please try again in a moment.");
-    }
+    if (e.name === "AbortError") throw new Error("TIMEOUT");
     throw e;
   }
   clearTimeout(timeoutId);
 
-  // Auto-retry on rate limit with 15 second wait
   if (res.status === 429 && retries > 0) {
     console.log(`Rate limit hit, waiting 15 seconds before retry (${retries} retries left)…`);
     await new Promise(r => setTimeout(r, 15000));
     return callClaude(messages, systemPrompt, maxTokens, retries - 1, model);
   }
-
-  // Retry on timeout/gateway errors
   if ((res.status === 504 || res.status === 502) && retries > 0) {
-    console.log(`Gateway error ${res.status}, retrying in 5 seconds (${retries} retries left)…`);
+    console.log(`Gateway error ${res.status}, retrying in 5 seconds…`);
     await new Promise(r => setTimeout(r, 5000));
     return callClaude(messages, systemPrompt, maxTokens, retries - 1, model);
   }
-
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
     throw new Error(err.error || `API error ${res.status}`);
   }
   const data = await res.json();
-  // Return both text and token usage for accurate cost tracking
   return {
     text: data.content.map(b => b.text || "").join("\n"),
     usage: data.usage || { input_tokens: 0, output_tokens: 0 }
@@ -300,19 +292,25 @@ export default function App() {
   const [conversationHistory, setConversationHistory] = useState([]);
   const [loadingVaults, setLoadingVaults] = useState(true);
   const [uploadingPdf, setUploadingPdf] = useState(false);
-  const [authenticated, setAuthenticated] = useState(false);
+  const [authenticated, setAuthenticated] = useState(null); // null | "user" | "admin"
   const [passwordInput, setPasswordInput] = useState("");
   const [passwordError, setPasswordError] = useState(false);
   const [tempDoc, setTempDoc] = useState(null); // { name, base64 } — in memory only
   const [tempDocDragOver, setTempDocDragOver] = useState(false);
+  const [lastQuestion, setLastQuestion] = useState(""); // for retry on timeout
+  const [timedOut, setTimedOut] = useState(false);
   const fileInputRef = useRef();
   const tempDocInputRef = useRef();
 
-  const CORRECT_PASSWORD = "4Rawbn11";
+  const PASSWORDS = {
+    "4Rawbn11": "user",
+    "H8dh0le": "admin",
+  };
 
   const handleLogin = () => {
-    if (passwordInput === CORRECT_PASSWORD) {
-      setAuthenticated(true);
+    const role = PASSWORDS[passwordInput];
+    if (role) {
+      setAuthenticated(role); // "user" or "admin"
       setPasswordError(false);
     } else {
       setPasswordError(true);
@@ -330,6 +328,7 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
+  const isAdmin = authenticated === "admin";
   const vault = vaults.find(v => v.id === selectedVault);
   const vaultHistory = history.filter(h => h.vaultId === selectedVault);
 
@@ -658,6 +657,8 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     setAnswer(null);
     setCostEst(null);
     setQuestion("");
+    setLastQuestion(q);
+    setTimedOut(false);
     setStage("selecting");
     setProgress({ index: 100, select: 0, read: 0, answer: 0 });
     setStatusMsg("Pass 1/3 · Reading contents pages and scoring sections…");
@@ -866,8 +867,7 @@ Rules:
         const key = section.docName;
         if (!docPageMap[key]) docPageMap[key] = { contentsDoc: section.contentsDoc, pages: new Set() };
 
-        // Add the section page plus the next page — tables and figures
-        // frequently appear on the page immediately after the section heading
+        // Add section page plus next page — tables often appear on the following page
         const pagesToAdd = [];
         section.pages.forEach(p => {
           [0, 1].forEach(offset => {
@@ -1041,19 +1041,21 @@ RULES:
       setHistory(prev => [...prev, { vaultId: vault.id, question: q, answer: finalAnswer, timestamp: new Date() }]);
       setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
 
-      // Gemini 2.5 Flash pricing (update GEMINI_PRICE_* if rates change)
-      const GEMINI_INPUT_PRICE_USD = 0.15;   // per 1M input tokens
-      const GEMINI_OUTPUT_PRICE_USD = 0.60;  // per 1M output tokens
+      const GEMINI_INPUT_PRICE_USD = 0.15;
+      const GEMINI_OUTPUT_PRICE_USD = 0.60;
       const USD_TO_GBP = 0.79;
       const totalInput = (scoringUsage?.input_tokens || 0) + (answerUsage?.input_tokens || 0);
       const totalOutput = (scoringUsage?.output_tokens || 0) + (answerUsage?.output_tokens || 0);
       const costGBP = ((totalInput / 1_000_000) * GEMINI_INPUT_PRICE_USD + (totalOutput / 1_000_000) * GEMINI_OUTPUT_PRICE_USD) * USD_TO_GBP;
       console.log(`Token usage — input: ${totalInput}, output: ${totalOutput}, cost: £${costGBP.toFixed(6)}`);
       setCostEst(costGBP);
-      setStatusMsg(`Answer ready · Est. cost: ${costGBP < 0.01 ? "< 1p" : costGBP.toFixed(2) + "p"}`);
+      setStatusMsg("Answer ready");
     } catch (err) {
       setStage(null);
-      if (err.message && err.message.includes('rate_limit')) {
+      if (err.message === "TIMEOUT") {
+        setTimedOut(true);
+        setStatusMsg("Request timed out — Gemini is experiencing high traffic.");
+      } else if (err.message && err.message.includes('rate_limit')) {
         setStatusMsg('Rate limit reached — retrying automatically in 15 seconds…');
       } else {
         setStatusMsg("Error: " + err.message);
@@ -1081,7 +1083,7 @@ RULES:
   `;
 
   // ── login screen ────────────────────────────────────────────────────────────
-  if (!authenticated) {
+  if (!authenticated) { // Show login screen
     return (
       <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
         <style>{globalStyles}</style>
@@ -1120,7 +1122,12 @@ RULES:
       {/* Architectus top nav */}
       <div style={{ background: ARC_NAVY, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, height: 56 }}>
         <span style={{ color: "#ffffff", fontSize: 20, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif" }}>Architectus</span>
-        <span style={{ color: "#7a9aaa", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase" }}>Document Intelligence</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <span style={{ color: "#7a9aaa", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase" }}>Document Intelligence</span>
+          <span style={{ fontSize: 10, color: isAdmin ? ARC_TERRACOTTA : "#7a9aaa", letterSpacing: "0.1em", textTransform: "uppercase", border: `1px solid ${isAdmin ? ARC_TERRACOTTA : "#3a5a6a"}`, padding: "2px 8px" }}>
+            {isAdmin ? "Admin" : "User"}
+          </span>
+        </div>
       </div>
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden", maxHeight: "calc(100vh - 56px)" }}>
@@ -1143,7 +1150,7 @@ RULES:
             ))}
           </div>
 
-          {creating ? (
+          {isAdmin && (creating ? (
             <div style={{ padding: "16px 24px", borderTop: "1px solid #ddd8d0", background: "#f5f3f0" }}>
               <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", display: "block", marginBottom: 8, letterSpacing: "0.08em", textTransform: "uppercase" }}>Vault Name</label>
               <input value={newVaultName} onChange={e => setNewVaultName(e.target.value)}
@@ -1162,7 +1169,7 @@ RULES:
                 + New Vault
               </button>
             </div>
-          )}
+          ))}
         </div>
 
         {/* main */}
@@ -1210,7 +1217,7 @@ RULES:
                         </div>
                       )}
                     </div>
-                    {pdfs.length > 0 && (
+                    {pdfs.length > 0 && isAdmin && (
                       <button className="btn" onClick={indexVault} disabled={isRunning}
                         style={{ background: vaultIndex ? "transparent" : ARC_NAVY, color: vaultIndex ? ARC_NAVY : "#ffffff", border: `1px solid ${ARC_NAVY}`, padding: "8px 20px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                         {stage === "indexing" ? <><Spinner size={12} /> Indexing…</> : vaultIndex ? "Re-index" : "Index Vault"}
@@ -1224,6 +1231,7 @@ RULES:
 
                 {/* PDF panel */}
                 <div style={{ width: 220, borderRight: "1px solid #e8e0d5", background: "#faf8f5", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+                  {isAdmin && (
                   <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
                     onClick={() => fileInputRef.current.click()}
                     style={{ margin: 12, border: `1px dashed ${dragOver ? AD_GREEN : "#ccc"}`, padding: "14px 10px", textAlign: "center", cursor: "pointer", background: dragOver ? "#f0f5f6" : "transparent" }}>
@@ -1237,6 +1245,7 @@ RULES:
                     )}
                     <input ref={fileInputRef} type="file" multiple accept="application/pdf" style={{ display: "none" }} onChange={e => addPDFs(e.target.files)} />
                   </div>
+                  )}
 
                   <div style={{ flex: 1, overflowY: "auto" }}>
                     {pdfs.length > 0 && (
@@ -1254,6 +1263,7 @@ RULES:
                             <div style={{ fontSize: 11, color: ARC_NAVY, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.01em" }}>{pdf.name}</div>
                             <div style={{ fontSize: 9, color: "#b0a8a0", marginTop: 1 }}>{(pdf.size / 1024).toFixed(0)} KB</div>
                           </div>
+                          {isAdmin && <>
                           <button className="btn" onClick={() => indexSinglePdf(pdf)} disabled={isRunning} title="Re-index"
                             style={{ background: "none", color: "#b0a8a0", fontSize: 11, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
                             onMouseEnter={e => e.target.style.color = AD_GREEN}
@@ -1262,6 +1272,7 @@ RULES:
                             style={{ background: "none", color: "#b0a8a0", fontSize: 14, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
                             onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA}
                             onMouseLeave={e => e.target.style.color = "#b0a8a0"}>×</button>
+                          </>}
                         </div>
                       );
                     })}
@@ -1284,9 +1295,21 @@ RULES:
 
                   {/* Status bar */}
                   {!isRunning && statusMsg && (
-                    <div style={{ padding: "8px 24px", borderBottom: "1px solid #b1b4b6", background: "#ffffff", fontSize: 13, color: "#505a5f", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0 }}>
-                      <span>{statusMsg}</span>
-
+                    <div style={{ padding: "8px 24px", borderBottom: "1px solid #e8e0d5", background: "#ffffff", fontSize: 12, color: "#505a5f", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, gap: 12 }}>
+                      <span style={{ color: timedOut ? ARC_TERRACOTTA : "#505a5f" }}>{statusMsg}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                        {timedOut && lastQuestion && (
+                          <button className="btn" onClick={() => { setTimedOut(false); setQuestion(lastQuestion); askQuestion(); }}
+                            style={{ background: ARC_TERRACOTTA, color: "#fff", padding: "4px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
+                            ↻ Retry
+                          </button>
+                        )}
+                        {costEst !== null && !timedOut && (
+                          <span style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic" }}>
+                            Est. cost: {costEst < 0.01 ? "< 1p" : `${(costEst * 100).toFixed(2)}p`}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   )}
 
