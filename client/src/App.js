@@ -304,7 +304,7 @@ export default function App() {
 
   const PASSWORDS = {
     "4Rawbn11": "user",
-    "H8dh0le": "admin",
+    "H8ndh0le": "admin",
   };
 
   const handleLogin = () => {
