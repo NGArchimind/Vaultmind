@@ -992,6 +992,8 @@ For each key fact in the summary, include the exact supporting phrase from the d
 
 Always cite the most specific clause available — use the subsection number (e.g. 6.6.11) not just the chapter (e.g. 6.6).
 
+IMPORTANT — PAGE NUMBERS IN CITATIONS: Use the printed page number visible on the extracted page itself, NOT the index pageHint. Documents often have front matter (cover, contents, foreword) before the printed page 1 begins, so the PDF position and printed page number will differ. If no printed page number is visible on the page, omit the page number from the citation rather than guessing.
+
 ---
 
 ## Detailed Analysis
