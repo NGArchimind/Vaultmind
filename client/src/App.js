@@ -138,13 +138,12 @@ function formatInline(text) {
   });
 }
 
-// Approved Document green colour
-const AD_GREEN = "#0d6478";        // Architectus teal dark
-const AD_GREEN_LIGHT = "#f0f5f6";    // Architectus light teal tint
-const AD_GREEN_MID = "#b8d4da";      // Architectus mid teal tint
-const ARC_NAVY = "#1e2a35";          // Architectus dark navy
-const ARC_TERRACOTTA = "#c25a45";    // Architectus rust/terracotta
-const ARC_STONE = "#e8e0d5";         // Architectus warm stone
+const AD_GREEN = "#0d6478";
+const AD_GREEN_LIGHT = "#f0f5f6";
+const AD_GREEN_MID = "#b8d4da";
+const ARC_NAVY = "#1e2a35";
+const ARC_TERRACOTTA = "#c25a45";
+const ARC_STONE = "#e8e0d5";
 
 function AnswerRenderer({ text }) {
   if (!text) return null;
@@ -186,7 +185,6 @@ function AnswerRenderer({ text }) {
     if (inTable) flushTable(i);
 
     if (line.startsWith("### ")) {
-      // Sub-headings — green uppercase like AD section headings
       elements.push(
         <h3 key={i} style={{ color: ARC_TERRACOTTA, fontSize: 11, fontWeight: 600, margin: "20px 0 6px", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "Inter, Arial, sans-serif" }}>
           {line.slice(4)}
@@ -196,14 +194,12 @@ function AnswerRenderer({ text }) {
       const text = line.slice(3);
       const isSummary = text.toLowerCase().includes("summary");
       if (isSummary) {
-        // Summary — green requirement box style like D1 requirement box
         elements.push(
           <div key={i} style={{ background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${AD_GREEN}`, padding: "14px 18px", margin: "16px 0 8px" }}>
             <h2 style={{ color: AD_GREEN, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
           </div>
         );
       } else {
-        // Regular section heading — black with green underline rule
         elements.push(
           <div key={i} style={{ borderBottom: `1px solid #e8e0d5`, marginTop: 28, marginBottom: 10, paddingBottom: 6 }}>
             <h2 style={{ color: ARC_NAVY, fontSize: 16, fontWeight: 400, margin: 0, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.02em" }}>{text}</h2>
@@ -241,7 +237,6 @@ function AnswerRenderer({ text }) {
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
       elements.push(<li key={i} style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.7, marginLeft: 20, marginBottom: 4, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(line.slice(2))}</li>);
     } else if (line.match(/^\d+\.\d+ /)) {
-      // Numbered paragraphs like 1.1, 1.2 — AD style
       const numMatch = line.match(/^(\d+\.\d+) (.+)/);
       if (numMatch) {
         elements.push(
@@ -272,11 +267,269 @@ function AnswerRenderer({ text }) {
   return <div>{elements}</div>;
 }
 
+// ── Vault Management Modal ─────────────────────────────────────────────────────
+
+function VaultManagementModal({ vaults, onClose, onRefresh, isAdmin }) {
+  const [mode, setMode] = useState("menu"); // menu | createMaster | createSub | adopt | rename | delete
+  const [targetVault, setTargetVault] = useState(null); // vault being acted on
+  const [inputName, setInputName] = useState("");
+  const [selectedParent, setSelectedParent] = useState("");
+  const [selectedSource, setSelectedSource] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const masterVaults = vaults.filter(v => v.type === "master");
+  const flatVaults = vaults.filter(v => v.type === "vault");
+
+  const reset = () => { setMode("menu"); setTargetVault(null); setInputName(""); setSelectedParent(""); setSelectedSource(""); setError(""); };
+
+  const doCreateMaster = async () => {
+    if (!inputName.trim()) return;
+    setBusy(true); setError("");
+    try {
+      await api("/api/vaults", { method: "POST", body: { name: inputName.trim(), type: "master" } });
+      await onRefresh(); reset();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+
+  const doCreateSub = async () => {
+    if (!inputName.trim() || !selectedParent) return;
+    setBusy(true); setError("");
+    try {
+      await api("/api/vaults", { method: "POST", body: { name: inputName.trim(), parentVault: selectedParent } });
+      await onRefresh(); reset();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+
+  const doAdopt = async () => {
+    if (!selectedSource || !selectedParent) return;
+    setBusy(true); setError("");
+    try {
+      await api(`/api/vaults/${encodeURIComponent(selectedParent)}/adopt`, { method: "POST", body: { sourceVault: selectedSource } });
+      await onRefresh(); reset();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+
+  const doRename = async () => {
+    if (!inputName.trim() || !targetVault) return;
+    setBusy(true); setError("");
+    try {
+      await api(`/api/vaults/${encodeURIComponent(targetVault.id)}`, { method: "PATCH", body: { name: inputName.trim() } });
+      await onRefresh(); reset();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+
+  const doDelete = async () => {
+    if (!targetVault) return;
+    setBusy(true); setError("");
+    try {
+      await api(`/api/vaults/${encodeURIComponent(targetVault.id)}`, { method: "DELETE" });
+      await onRefresh(); reset();
+    } catch (e) { setError(e.message); }
+    setBusy(false);
+  };
+
+  const modalStyle = {
+    position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex",
+    alignItems: "center", justifyContent: "center", zIndex: 1000,
+  };
+  const cardStyle = {
+    background: "#fff", width: 480, maxHeight: "80vh", overflow: "auto",
+    borderTop: `3px solid ${ARC_TERRACOTTA}`, padding: "32px 36px",
+    fontFamily: "Inter, Arial, sans-serif",
+  };
+  const label = (txt) => (
+    <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", display: "block", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>{txt}</label>
+  );
+  const inputEl = (val, set, placeholder, autoFocus = false) => (
+    <input value={val} onChange={e => set(e.target.value)} placeholder={placeholder} autoFocus={autoFocus}
+      className="arc-input"
+      style={{ width: "100%", border: `1px solid #ccc`, padding: "9px 12px", fontSize: 13, color: ARC_NAVY, marginBottom: 14, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }} />
+  );
+  const selectEl = (val, set, options, placeholder) => (
+    <select value={val} onChange={e => set(e.target.value)}
+      style={{ width: "100%", border: `1px solid #ccc`, padding: "9px 12px", fontSize: 13, color: val ? ARC_NAVY : "#9a9088", marginBottom: 14, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }}>
+      <option value="">{placeholder}</option>
+      {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+    </select>
+  );
+  const btn = (label, onClick, variant = "primary") => (
+    <button className="btn" onClick={onClick} disabled={busy}
+      style={{
+        background: variant === "primary" ? ARC_NAVY : variant === "danger" ? ARC_TERRACOTTA : "transparent",
+        color: variant === "ghost" ? "#9a9088" : "#fff",
+        border: variant === "ghost" ? "1px solid #ccc" : "none",
+        padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginRight: 8,
+      }}>{busy ? <Spinner size={12} /> : label}</button>
+  );
+
+  // ── All vault tree for rename/delete picker ─────────────────────────────────
+  const allVaultOptions = [];
+  vaults.forEach(v => {
+    allVaultOptions.push({ id: v.id, label: v.name });
+    if (v.type === "master") {
+      (v.subVaults || []).forEach(sv => {
+        allVaultOptions.push({ id: sv.id, label: `  ↳ ${sv.name} (in ${v.name})` });
+      });
+    }
+  });
+
+  return (
+    <div style={modalStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={cardStyle}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+          <h2 style={{ fontSize: 16, fontWeight: 500, color: ARC_NAVY, letterSpacing: "0.02em" }}>
+            {mode === "menu" ? "Manage Vaults" :
+             mode === "createMaster" ? "New Master Vault" :
+             mode === "createSub" ? "New Sub-Vault" :
+             mode === "adopt" ? "Adopt Vault into Master" :
+             mode === "rename" ? "Rename Vault" :
+             mode === "delete" ? "Delete Vault" : "Manage Vaults"}
+          </h2>
+          <button className="btn" onClick={onClose} style={{ background: "none", color: "#9a9088", fontSize: 20, padding: "0 4px" }}>×</button>
+        </div>
+
+        {error && <div style={{ background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: ARC_TERRACOTTA }}>{error}</div>}
+
+        {/* ── MENU ── */}
+        {mode === "menu" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <MenuOption icon="📁" title="New Master Vault" desc="Create a top-level folder to organise sub-vaults" onClick={() => setMode("createMaster")} />
+            <MenuOption icon="📂" title="New Sub-Vault" desc="Add a sub-vault inside an existing master vault" onClick={() => setMode("createSub")} disabled={masterVaults.length === 0} />
+            <MenuOption icon="📥" title="Adopt Vault into Master" desc="Move an existing flat vault inside a master vault" onClick={() => setMode("adopt")} disabled={masterVaults.length === 0 || flatVaults.length === 0} />
+            <MenuOption icon="✏️" title="Rename Vault" desc="Rename any vault or sub-vault" onClick={() => setMode("rename")} disabled={vaults.length === 0} />
+            <MenuOption icon="🗑" title="Delete Vault" desc="Permanently delete a vault and all its documents" onClick={() => setMode("delete")} disabled={vaults.length === 0} danger />
+          </div>
+        )}
+
+        {/* ── CREATE MASTER ── */}
+        {mode === "createMaster" && (
+          <>
+            {label("Master vault name")}
+            {inputEl(inputName, setInputName, "e.g. British Standards", true)}
+            <div style={{ display: "flex" }}>
+              {btn("Create", doCreateMaster)}
+              {btn("Cancel", reset, "ghost")}
+            </div>
+          </>
+        )}
+
+        {/* ── CREATE SUB ── */}
+        {mode === "createSub" && (
+          <>
+            {label("Parent master vault")}
+            {selectEl(selectedParent, setSelectedParent, masterVaults.map(v => ({ id: v.id, label: v.name })), "Select master vault…")}
+            {label("Sub-vault name")}
+            {inputEl(inputName, setInputName, "e.g. BS 9991:2021")}
+            <div style={{ display: "flex" }}>
+              {btn("Create", doCreateSub)}
+              {btn("Cancel", reset, "ghost")}
+            </div>
+          </>
+        )}
+
+        {/* ── ADOPT ── */}
+        {mode === "adopt" && (
+          <>
+            <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 16, lineHeight: 1.6 }}>
+              This will move all documents and the index from the flat vault into the master vault. The original vault will be removed.
+            </p>
+            {label("Vault to adopt")}
+            {selectEl(selectedSource, setSelectedSource, flatVaults.map(v => ({ id: v.id, label: v.name })), "Select flat vault to move…")}
+            {label("Move into master vault")}
+            {selectEl(selectedParent, setSelectedParent, masterVaults.map(v => ({ id: v.id, label: v.name })), "Select master vault…")}
+            <div style={{ display: "flex" }}>
+              {btn("Adopt", doAdopt)}
+              {btn("Cancel", reset, "ghost")}
+            </div>
+          </>
+        )}
+
+        {/* ── RENAME ── */}
+        {mode === "rename" && (
+          <>
+            {label("Select vault to rename")}
+            {selectEl(
+              targetVault?.id || "",
+              (id) => setTargetVault(allVaultOptions.find(o => o.id === id)),
+              allVaultOptions,
+              "Select vault…"
+            )}
+            {targetVault && (
+              <>
+                {label("New name")}
+                {inputEl(inputName, setInputName, "Enter new name…", true)}
+              </>
+            )}
+            <div style={{ display: "flex" }}>
+              {btn("Rename", doRename)}
+              {btn("Cancel", reset, "ghost")}
+            </div>
+          </>
+        )}
+
+        {/* ── DELETE ── */}
+        {mode === "delete" && (
+          <>
+            <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 16, lineHeight: 1.6 }}>
+              This permanently deletes the vault and <strong>all documents inside it</strong>. This cannot be undone.
+            </p>
+            {label("Select vault to delete")}
+            {selectEl(
+              targetVault?.id || "",
+              (id) => setTargetVault(allVaultOptions.find(o => o.id === id)),
+              allVaultOptions,
+              "Select vault…"
+            )}
+            {targetVault && (
+              <div style={{ background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "12px 16px", marginBottom: 16 }}>
+                <p style={{ fontSize: 12, color: ARC_TERRACOTTA, fontWeight: 600 }}>
+                  Delete "{targetVault.label.trim()}"? This cannot be undone.
+                </p>
+              </div>
+            )}
+            <div style={{ display: "flex" }}>
+              {btn("Delete permanently", doDelete, "danger")}
+              {btn("Cancel", reset, "ghost")}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MenuOption({ icon, title, desc, onClick, disabled, danger }) {
+  return (
+    <button className="btn" onClick={onClick} disabled={disabled}
+      style={{
+        background: "transparent", border: `1px solid ${disabled ? "#eee" : danger ? "#f0d0cb" : ARC_STONE}`,
+        padding: "12px 16px", textAlign: "left", width: "100%",
+        opacity: disabled ? 0.4 : 1, cursor: disabled ? "not-allowed" : "pointer",
+      }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ fontSize: 18 }}>{icon}</span>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: danger ? ARC_TERRACOTTA : ARC_NAVY, letterSpacing: "0.01em" }}>{title}</div>
+          <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>{desc}</div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
 // ── main app ──────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [vaults, setVaults] = useState([]);
   const [selectedVault, setSelectedVault] = useState(null);
+  // queryScope: "single" | "all" — only relevant when vault is a sub-vault
+  const [queryScope, setQueryScope] = useState("single");
+  const [expandedMasters, setExpandedMasters] = useState({});
   const [pdfs, setPdfs] = useState([]);
   const [vaultIndex, setVaultIndex] = useState(null);
   const [question, setQuestion] = useState("");
@@ -292,13 +545,14 @@ export default function App() {
   const [conversationHistory, setConversationHistory] = useState([]);
   const [loadingVaults, setLoadingVaults] = useState(true);
   const [uploadingPdf, setUploadingPdf] = useState(false);
-  const [authenticated, setAuthenticated] = useState(null); // null | "user" | "admin"
+  const [authenticated, setAuthenticated] = useState(null);
   const [passwordInput, setPasswordInput] = useState("");
   const [passwordError, setPasswordError] = useState(false);
-  const [tempDoc, setTempDoc] = useState(null); // { name, base64 } — in memory only
+  const [tempDoc, setTempDoc] = useState(null);
   const [tempDocDragOver, setTempDocDragOver] = useState(false);
-  const [lastQuestion, setLastQuestion] = useState(""); // for retry on timeout
+  const [lastQuestion, setLastQuestion] = useState("");
   const [timedOut, setTimedOut] = useState(false);
+  const [showManageModal, setShowManageModal] = useState(false);
   const fileInputRef = useRef();
   const tempDocInputRef = useRef();
 
@@ -310,7 +564,7 @@ export default function App() {
   const handleLogin = () => {
     const role = PASSWORDS[passwordInput];
     if (role) {
-      setAuthenticated(role); // "user" or "admin"
+      setAuthenticated(role);
       setPasswordError(false);
     } else {
       setPasswordError(true);
@@ -329,13 +583,26 @@ export default function App() {
   };
 
   const isAdmin = authenticated === "admin";
-  const vault = vaults.find(v => v.id === selectedVault);
+
+  // Find selected vault object — search both flat vaults and sub-vaults
+  const vault = (() => {
+    for (const v of vaults) {
+      if (v.id === selectedVault) return v;
+      if (v.type === "master") {
+        const sub = (v.subVaults || []).find(sv => sv.id === selectedVault);
+        if (sub) return sub;
+      }
+    }
+    return null;
+  })();
+
+  // Find parent master vault if selected vault is a sub-vault
+  const parentMaster = vaults.find(v => v.type === "master" && (v.subVaults || []).some(sv => sv.id === selectedVault));
+
   const vaultHistory = history.filter(h => h.vaultId === selectedVault);
 
   // ── load vaults on mount ────────────────────────────────────────────────────
-  useEffect(() => {
-    loadVaults();
-  }, []);
+  useEffect(() => { loadVaults(); }, []);
 
   const loadVaults = async () => {
     setLoadingVaults(true);
@@ -364,8 +631,8 @@ export default function App() {
 
     try {
       const [pdfsData, indexData] = await Promise.all([
-        api(`/api/vaults/${vaultId}/pdfs`),
-        api(`/api/vaults/${vaultId}/index`).catch(() => null),
+        api(`/api/vaults/${encodeURIComponent(vaultId)}/pdfs`),
+        api(`/api/vaults/${encodeURIComponent(vaultId)}/index`).catch(() => null),
       ]);
       setPdfs(pdfsData.pdfs || []);
       setVaultIndex(indexData);
@@ -380,12 +647,12 @@ export default function App() {
     }
   };
 
-  // ── vault creation ──────────────────────────────────────────────────────────
+  // ── vault creation (flat) ───────────────────────────────────────────────────
   const createVault = async () => {
     if (!newVaultName.trim()) return;
     try {
       const v = await api("/api/vaults", { method: "POST", body: { name: newVaultName.trim() } });
-      setVaults(prev => [...prev, v]);
+      await loadVaults();
       setSelectedVault(v.id);
       setNewVaultName("");
       setCreating(false);
@@ -404,7 +671,7 @@ export default function App() {
       setStatusMsg(`Uploading ${file.name}…`);
       try {
         const base64 = await fileToBase64(file);
-        await api(`/api/vaults/${vault.id}/pdfs`, { method: "POST", body: { name: file.name, base64 } });
+        await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs`, { method: "POST", body: { name: file.name, base64 } });
       } catch (e) {
         console.error("Upload failed:", e);
         setStatusMsg(`Failed to upload ${file.name}: ${e.message}`);
@@ -412,7 +679,7 @@ export default function App() {
     }
     setUploadingPdf(false);
     await loadVaultContents(vault.id);
-    setVaultIndex(null); // index is now stale
+    setVaultIndex(null);
     setStatusMsg("Upload complete — click Index Vault to update the index.");
   }, [vault]);
 
@@ -422,7 +689,7 @@ export default function App() {
     if (!window.confirm(`Remove "${pdf.name}" from this vault? This cannot be undone.`)) return;
     try {
       await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`, { method: "DELETE" });
-      setVaultIndex(null); // index is now stale
+      setVaultIndex(null);
       await loadVaultContents(vault.id);
       setStatusMsg(`"${pdf.name}" removed — re-index the vault to update.`);
     } catch (e) {
@@ -455,11 +722,6 @@ export default function App() {
   };
 
   // ── shared indexing helper ────────────────────────────────────────────────────
-  // Indexes headings with their absolute PDF page positions.
-  // For small docs: sends full PDF to Gemini in one pass.
-  // For large docs (>60 pages): chunks into 60-page segments, merges results.
-  // Deduplicates on title — keeps the highest page number to prefer body
-  // occurrences over table of contents references.
   const indexOnePdf = async (pdfName, base64) => {
     const SYSTEM = "You are a document indexer. Extract only structural metadata. Return pure JSON only, no markdown, no explanation.";
     const INDEX_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), and named sub-sections. Do not extract body text, bullet points, figure captions, or table content — only headings that introduce a section of content.
@@ -477,8 +739,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     };
 
     const dedupe = (headings) => {
-      // Exact title dedup only — keep highest page number for identical titles
-      // All other headings are kept, including multiple staircase-related sections
       const map = {};
       for (const h of headings) {
         const key = h.title.toLowerCase().trim();
@@ -487,7 +747,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       return Object.values(map);
     };
 
-    // First attempt — full PDF in one pass (works for most docs)
     try {
       const { text: result } = await callClaude(
         [{ role: "user", content: [
@@ -508,7 +767,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       console.warn(`${pdfName}: full-PDF indexing failed (${e.message}), trying chunked…`);
     }
 
-    // Chunked fallback — 60 pages at a time, absolute page positions
     try {
       const { pageCount } = await extractPdfPages(base64, [0]);
       const CHUNK_SIZE = 60;
@@ -536,8 +794,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
           );
           const parsed = tryParse(result);
           if (parsed?.headings) {
-            // Always recalculate absolute page position ourselves —
-            // Gemini returns chunk-relative page (1-60), we add startPage
             const offsetHeadings = parsed.headings.map(h => ({
               ...h,
               pageHint: Math.max(1, (h.pageHint || 1) + startPage)
@@ -547,7 +803,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
           }
         } catch (e) {
           console.warn(`${pdfName} chunk ${chunk + 1} failed:`, e.message);
-          // Retry once after a short delay if rate limited
           if (e.message?.includes("503") || e.message?.includes("UNAVAILABLE")) {
             try {
               await new Promise(r => setTimeout(r, 3000));
@@ -594,8 +849,7 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
         const pdf = pdfs[i];
         setStatusMsg(`Fetching document ${i + 1} of ${pdfs.length}: ${pdf.name}…`);
 
-        // Load PDF from R2
-        const pdfData = await api(`/api/vaults/${vault.id}/pdfs/${encodeURIComponent(pdf.name)}`);
+        const pdfData = await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
         const base64 = pdfData.base64;
 
         setStatusMsg(`Scanning ${pdf.name}…`);
@@ -609,9 +863,8 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
 
       const indexData = { documents: allDocuments, indexedAt: new Date().toISOString() };
 
-      // Save index permanently to R2
       setStatusMsg("Saving index…");
-      await api(`/api/vaults/${vault.id}/index`, { method: "POST", body: indexData });
+      await api(`/api/vaults/${encodeURIComponent(vault.id)}/index`, { method: "POST", body: indexData });
 
       setVaultIndex(indexData);
       setStage("done-index");
@@ -630,16 +883,15 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     setStatusMsg(`Re-indexing ${pdf.name}…`);
     setAnswer(null);
     try {
-      const pdfData = await api(`/api/vaults/${vault.id}/pdfs/${encodeURIComponent(pdf.name)}`);
+      const pdfData = await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
       const base64 = pdfData.base64;
       const { headings } = await indexOnePdf(pdf.name, base64);
       if (!headings.length) throw new Error("No headings found — document may be too large or unreadable");
 
-      // Merge with existing index — replace this doc's entry
       const existingDocs = (vaultIndex?.documents || []).filter(d => d.name !== pdf.name);
       const newIndex = { documents: [...existingDocs, { name: pdf.name, headings }], indexedAt: new Date().toISOString() };
 
-      await api(`/api/vaults/${vault.id}/index`, { method: "POST", body: newIndex });
+      await api(`/api/vaults/${encodeURIComponent(vault.id)}/index`, { method: "POST", body: newIndex });
       setVaultIndex(newIndex);
       setStage("done-index");
       const total = newIndex.documents.reduce((s, d) => s + (d.headings?.length || 0), 0);
@@ -648,6 +900,25 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       setStage(null);
       setStatusMsg(`Re-index failed for ${pdf.name}: ${e.message}`);
     }
+  };
+
+  // ── Build combined index for "query all sub-vaults" mode ──────────────────
+  const buildCombinedIndex = async () => {
+    if (!parentMaster) return vaultIndex;
+    const subVaults = parentMaster.subVaults || [];
+    const combinedDocs = [];
+    for (const sv of subVaults) {
+      try {
+        const idx = await api(`/api/vaults/${encodeURIComponent(sv.id)}/index`).catch(() => null);
+        if (idx?.documents) {
+          // Prefix each doc name with the sub-vault name so citations are clear
+          idx.documents.forEach(doc => {
+            combinedDocs.push({ ...doc, name: `[${sv.name}] ${doc.name}`, vaultId: sv.id, originalName: doc.name });
+          });
+        }
+      } catch (_) {}
+    }
+    return combinedDocs.length > 0 ? { documents: combinedDocs } : vaultIndex;
   };
 
   // ── question answering — 3-pass pipeline ────────────────────────────────────
@@ -664,14 +935,13 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     setStatusMsg("Pass 1/3 · Reading contents pages and scoring sections…");
 
     try {
-      // ── PASS 1: Score index only — NO PDFs sent, pure text, very cheap ────────
+      // Determine which index to use
+      const useAllSubVaults = queryScope === "all" && parentMaster;
+      const activeIndex = useAllSubVaults ? await buildCombinedIndex() : vaultIndex;
+
+      // ── PASS 1: Score index ──────────────────────────────────────────────────
       setStatusMsg("Pass 1/3 · Scoring index — identifying relevant sections…");
 
-      // Compress index into compact plain text — far more efficient than raw JSON
-      // Format: "DOCUMENT: filename\n  p14: Section heading\n  p22: Another section"
-      // This reduces token usage by ~70% vs JSON, allowing 20+ documents to fit
-      // Filter out boilerplate headings that appear in every AD and would
-      // pollute scoring by matching generic questions about "approved documents"
       const BOILERPLATE_HEADINGS = [
         "the approved documents", "what is an approved document", "approved documents",
         "list of approved documents", "use of guidance", "how to use this approved document",
@@ -683,8 +953,7 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
         return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
       };
 
-      const indexSummary = (vaultIndex.documents || []).map(doc => {
-        // Identify contents pages — any heading whose title is a variant of "contents"
+      const indexSummary = (activeIndex.documents || []).map(doc => {
         const contentsPages = new Set(
           (doc.headings || [])
             .filter(h => /^(contents|table of contents|index)$/i.test(h.title.trim()))
@@ -693,14 +962,14 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
 
         const headings = (doc.headings || [])
           .filter(h => !isBoilerplate(h.title))
-          .filter(h => !contentsPages.has(h.pageHint)) // exclude headings on contents pages
+          .filter(h => !contentsPages.has(h.pageHint))
           .map(h => `  p${h.pageHint || 1}: ${h.title}`)
           .join("\n");
         return `DOCUMENT: ${doc.name}\n${headings}`;
       }).join("\n\n");
+
       setProgress(p => ({ ...p, select: 30 }));
 
-      // Build full conversation context — keep all exchanges in session
       const recentHistory = conversationHistory.slice(-5);
       const conversationContext = recentHistory.length > 0
         ? `\n\nCONVERSATION HISTORY (this is a continuing conversation — the current question may be a follow-up to earlier questions):\n${recentHistory.map((h, i) => `Q${i+1}: ${h.question}\nA${i+1}: ${h.answer.slice(0, 600)}…`).join("\n\n")}`
@@ -746,7 +1015,7 @@ Rules:
 
       setProgress(p => ({ ...p, select: 100 }));
 
-      let scoring = { selectedDocs: [], styleNotes: "" };
+      let scoring = { selectedDocs: [] };
       try {
         const clean = scoringText.replace(/```json|```/g, "").trim();
         scoring = JSON.parse(clean);
@@ -754,83 +1023,84 @@ Rules:
         const m = scoringText.match(/\{[\s\S]*\}/);
         if (m) try { scoring = JSON.parse(m[0]); } catch {}
       }
-      // If scoring came back empty, log the raw response for debugging
+
       if (!scoring.selectedDocs || scoring.selectedDocs.length === 0) {
         console.warn("Scoring returned empty — raw response:", scoringText.slice(0, 500));
       }
-      // Debug: log scoring result
-      console.log("Scoring result:", JSON.stringify(scoring).slice(0, 500));
-      console.log("Selected docs:", (scoring.selectedDocs || []).length);
-      (scoring.selectedDocs || []).forEach(d => {
-        console.log("Doc:", d.docName, "Sections:", (d.sections || []).length);
-        (d.sections || []).slice(0, 3).forEach(s => {
-          console.log("  Section:", s.heading?.slice(0,30), "pageHint:", JSON.stringify(s.pageHint), typeof s.pageHint);
-        });
-      });
 
-      // Pre-load all PDFs needed for page extraction (done after scoring, not before)
+      // ── PASS 2: Load PDFs and extract pages ──────────────────────────────────
       setStatusMsg("Pass 1/3 · Loading documents for page extraction…");
+
+      // When querying all sub-vaults, we need to fetch PDFs from the correct sub-vault
+      // The doc name is prefixed "[SubVaultName] filename.pdf" — we strip the prefix to find the right vault+file
       const contentsData = [];
       const selectedDocNames = (scoring.selectedDocs || []).map(d => d.docName);
-      const docsNeeded = pdfs.filter(p =>
-        selectedDocNames.some(n => p.name.includes(n) || n.includes(p.name))
-      );
-      const docsToFetch = docsNeeded.length > 0 ? docsNeeded : pdfs.slice(0, 2);
 
-      for (const pdf of docsToFetch) {
-        try {
-          const pdfData = await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
-          contentsData.push({ pdf, base64: pdfData.base64 });
-        } catch (e) {
-          console.warn(`Could not load ${pdf.name}:`, e);
+      if (useAllSubVaults) {
+        // Resolve each selected doc to its sub-vault and file
+        for (const docName of selectedDocNames) {
+          const match = docName.match(/^\[(.+?)\] (.+)$/);
+          if (!match) continue;
+          const [, subVaultName, fileName] = match;
+          const subVault = (parentMaster.subVaults || []).find(sv => sv.name === subVaultName);
+          if (!subVault) continue;
+
+          // Check if we already fetched this file
+          if (contentsData.find(c => c.pdf.name === docName)) continue;
+
+          try {
+            const pdfData = await api(`/api/vaults/${encodeURIComponent(subVault.id)}/pdfs/${encodeURIComponent(fileName)}`);
+            contentsData.push({ pdf: { name: docName, size: 0 }, base64: pdfData.base64 });
+          } catch (e) {
+            console.warn(`Could not load ${fileName} from ${subVaultName}:`, e);
+          }
+        }
+      } else {
+        // Standard single-vault fetch
+        const docsNeeded = pdfs.filter(p =>
+          selectedDocNames.some(n => p.name.includes(n) || n.includes(p.name))
+        );
+        const docsToFetch = docsNeeded.length > 0 ? docsNeeded : pdfs.slice(0, 2);
+
+        for (const pdf of docsToFetch) {
+          try {
+            const pdfData = await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
+            contentsData.push({ pdf, base64: pdfData.base64 });
+          } catch (e) {
+            console.warn(`Could not load ${pdf.name}:`, e);
+          }
         }
       }
 
-      // ── PASS 2: Extract ONLY the specific pages identified in Pass 1 ─────────
       setStage("reading");
       setStatusMsg("Pass 2/3 · Extracting specific relevant pages only…");
 
-      // Helper to parse page hints in ANY format — very aggressive extraction
       const parsePageNums = (hint) => {
         const pages = new Set();
         if (hint === null || hint === undefined) return pages;
-
-        // Handle plain numbers directly (most common case after prompt fix)
         if (typeof hint === "number") {
           if (hint > 0 && hint < 9999) pages.add(Math.round(hint));
           return pages;
         }
-
         const str = String(hint).trim();
         if (!str) return pages;
-
-        // Try direct integer parse first
         const directInt = parseInt(str);
         if (!isNaN(directInt) && directInt > 0 && directInt < 9999) {
           pages.add(directInt);
           return pages;
         }
-
-        // Extract all numbers from the string
         const allNums = str.match(/\d+/g);
         if (!allNums) return pages;
-
         const nums = allNums.map(n => parseInt(n)).filter(n => n > 0 && n < 9999);
         if (nums.length === 0) return pages;
-
-        // Two close numbers = range
         if (nums.length >= 2 && nums[1] > nums[0] && nums[1] <= nums[0] + 30) {
           for (let i = nums[0]; i <= nums[1]; i++) pages.add(i);
           return pages;
         }
-
-        // Otherwise each number is a page
         nums.forEach(n => pages.add(n));
         return pages;
       };
 
-      // Build a ranked list of all sections across all docs, sorted by probability (highest first)
-      // This ensures the 90-page budget is spent on the MOST relevant pages first
       const HARD_PAGE_BUDGET = 80;
       const allScoredSections = [];
 
@@ -854,20 +1124,16 @@ Rules:
         });
       });
 
-      // Sort by probability descending — highest relevance first
       allScoredSections.sort((a, b) => b.probability - a.probability);
 
-      // Fill page budget from highest probability sections downward
       const docPageMap = {};
       let budgetRemaining = HARD_PAGE_BUDGET;
 
       for (const section of allScoredSections) {
         if (budgetRemaining <= 0) break;
-
         const key = section.docName;
         if (!docPageMap[key]) docPageMap[key] = { contentsDoc: section.contentsDoc, pages: new Set() };
 
-        // Add section page plus next page — tables often appear on the following page
         const pagesToAdd = [];
         section.pages.forEach(p => {
           [0, 1].forEach(offset => {
@@ -883,7 +1149,6 @@ Rules:
         }
       }
 
-      // Fallback 1: if no docs matched at all, use first 5 pages of top 2 docs
       if (Object.keys(docPageMap).length === 0 && contentsData.length > 0) {
         contentsData.slice(0, 2).forEach(d => {
           docPageMap[d.pdf.name] = { contentsDoc: d, pages: new Set() };
@@ -891,7 +1156,6 @@ Rules:
         });
       }
 
-      // Fallback 2: if docs matched but pages are empty (page hint parsing failed), use first 5 pages
       Object.entries(docPageMap).forEach(([key, val]) => {
         if (val.pages.size === 0) {
           for (let i = 1; i <= 5; i++) val.pages.add(i);
@@ -900,17 +1164,7 @@ Rules:
 
       const pagesUsed = HARD_PAGE_BUDGET - budgetRemaining;
       console.log(`Page budget used: ${pagesUsed}/${HARD_PAGE_BUDGET} pages across ${Object.keys(docPageMap).length} documents`);
-      if (pagesUsed === 0) {
-        console.warn("WARNING: No pages selected — page hint format may not be parseable");
-        // Log what page hints look like for debugging
-        (scoring.selectedDocs || []).forEach(d => {
-          (d.sections || []).forEach(s => {
-            console.log("pageHint sample:", JSON.stringify(s.pageHint), "heading:", s.heading?.slice(0,40));
-          });
-        });
-      }
 
-      // Extract specific pages server-side (reliable binary handling)
       const docBlocks = [];
       let totalPagesExtracted = 0;
 
@@ -920,7 +1174,6 @@ Rules:
         if (pageList.length === 0) continue;
 
         try {
-          // Try server-side page extraction first
           const result = await api("/api/extract-pages", {
             method: "POST",
             body: { base64: contentsDoc.base64, pages: pageList }
@@ -933,13 +1186,10 @@ Rules:
           });
           console.log(`Extracted ${result.pagesExtracted} pages from ${docName}`);
         } catch (e) {
-          // Page extraction failed — skip this document rather than sending full PDF
-          // Full PDFs would be too large and slow to send to Gemini
           console.warn(`Page extraction failed for ${docName}, skipping:`, e.message);
         }
       }
 
-      // Add temp doc to context if one is loaded — sent in full, not page-extracted
       if (tempDoc) {
         docBlocks.push({
           type: "document",
@@ -952,7 +1202,7 @@ Rules:
       setStatusMsg(`Pass 2/3 · ${totalPagesExtracted} specific pages extracted across ${docBlocks.length} document${docBlocks.length !== 1 ? "s" : ""}…`);
       setProgress(p => ({ ...p, read: 100 }));
 
-      // ── PASS 3: Deep read extracted pages + answer ─────────────────────────
+      // ── PASS 3: Answer synthesis ───────────────────────────────────────────
       setStage("answering");
       setStatusMsg("Pass 3/3 · Deep reading selected pages and synthesising answer…");
 
@@ -1067,6 +1317,19 @@ RULES:
 
   const isRunning = ["indexing", "selecting", "reading", "answering"].includes(stage);
 
+  // ── toggle master vault expanded/collapsed ──────────────────────────────────
+  const toggleMaster = (masterId) => {
+    setExpandedMasters(prev => ({ ...prev, [masterId]: !prev[masterId] }));
+  };
+
+  const selectVault = (vaultId) => {
+    setSelectedVault(vaultId);
+    setAnswer(null);
+    setStage(null);
+    setCostEst(null);
+    setQueryScope("single");
+  };
+
   // ── render ─────────────────────────────────────────────────────────────────
 
   const globalStyles = `
@@ -1077,6 +1340,8 @@ RULES:
     @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
     .vault-item { cursor: pointer; transition: all 0.2s; }
     .vault-item:hover { background: #f0f5f6 !important; }
+    .master-item { cursor: pointer; transition: all 0.2s; }
+    .master-item:hover { background: rgba(0,0,0,0.04) !important; }
     .btn { cursor: pointer; transition: all 0.2s; border: none; font-family: Inter, Arial, sans-serif; letter-spacing: 0.01em; }
     .btn:hover { opacity: 0.85; }
     .btn:disabled { cursor: not-allowed; opacity: 0.35; }
@@ -1085,7 +1350,7 @@ RULES:
   `;
 
   // ── login screen ────────────────────────────────────────────────────────────
-  if (!authenticated) { // Show login screen
+  if (!authenticated) {
     return (
       <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
         <style>{globalStyles}</style>
@@ -1117,9 +1382,19 @@ RULES:
     );
   }
 
+  // ── main UI ─────────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", color: "#0b0c0c", display: "flex", flexDirection: "column" }}>
       <style>{globalStyles}</style>
+
+      {showManageModal && (
+        <VaultManagementModal
+          vaults={vaults}
+          onClose={() => setShowManageModal(false)}
+          onRefresh={async () => { await loadVaults(); }}
+          isAdmin={isAdmin}
+        />
+      )}
 
       {/* Architectus top nav */}
       <div style={{ background: ARC_NAVY, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, height: 56 }}>
@@ -1137,22 +1412,60 @@ RULES:
         {/* sidebar */}
         <div style={{ width: 260, borderRight: "1px solid #e8e0d5", background: ARC_STONE, display: "flex", flexDirection: "column", flexShrink: 0 }}>
 
-          {/* Vault list */}
           <div style={{ padding: "20px 24px 8px", fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: "1px solid #ddd8d0" }}>Vaults</div>
 
+          {/* Vault tree */}
           <div style={{ flex: 1, overflowY: "auto" }}>
             {loadingVaults ? (
               <div style={{ padding: 16, display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}><Spinner size={12} /> Loading…</div>
-            ) : vaults.map(v => (
-              <div key={v.id} className="vault-item"
-                onClick={() => { setSelectedVault(v.id); setAnswer(null); setStage(null); setCostEst(null); }}
-                style={{ padding: "12px 24px", background: selectedVault === v.id ? "#ffffff" : "transparent", borderLeft: selectedVault === v.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent" }}>
-                <div style={{ fontSize: 13, color: ARC_NAVY, fontWeight: selectedVault === v.id ? 600 : 400, letterSpacing: "0.01em" }}>{v.name}</div>
-              </div>
-            ))}
+            ) : vaults.map(v => {
+              if (v.type === "master") {
+                const isExpanded = !!expandedMasters[v.id];
+                return (
+                  <div key={v.id}>
+                    {/* Master vault row */}
+                    <div className="master-item"
+                      onClick={() => toggleMaster(v.id)}
+                      style={{ padding: "10px 24px", display: "flex", alignItems: "center", gap: 8, borderLeft: "3px solid transparent" }}>
+                      <span style={{ fontSize: 10, color: "#9a9088", transition: "transform 0.15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>▶</span>
+                      <span style={{ fontSize: 11, color: "#9a9088", marginRight: 4 }}>📁</span>
+                      <span style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500, letterSpacing: "0.01em", flex: 1 }}>{v.name}</span>
+                      <span style={{ fontSize: 10, color: "#b0a8a0" }}>{(v.subVaults || []).length}</span>
+                    </div>
+
+                    {/* Sub-vault rows */}
+                    {isExpanded && (v.subVaults || []).map(sv => (
+                      <div key={sv.id} className="vault-item"
+                        onClick={() => selectVault(sv.id)}
+                        style={{
+                          padding: "9px 24px 9px 44px",
+                          background: selectedVault === sv.id ? "#ffffff" : "transparent",
+                          borderLeft: selectedVault === sv.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent",
+                          display: "flex", alignItems: "center", gap: 6,
+                        }}>
+                        <span style={{ fontSize: 10, color: "#b0a8a0" }}>📄</span>
+                        <span style={{ fontSize: 12, color: ARC_NAVY, fontWeight: selectedVault === sv.id ? 600 : 400, letterSpacing: "0.01em" }}>{sv.name}</span>
+                      </div>
+                    ))}
+                    {isExpanded && (v.subVaults || []).length === 0 && (
+                      <div style={{ padding: "6px 24px 6px 44px", fontSize: 11, color: "#b0a8a0", fontStyle: "italic" }}>No sub-vaults yet</div>
+                    )}
+                  </div>
+                );
+              } else {
+                // Regular flat vault
+                return (
+                  <div key={v.id} className="vault-item"
+                    onClick={() => selectVault(v.id)}
+                    style={{ padding: "12px 24px", background: selectedVault === v.id ? "#ffffff" : "transparent", borderLeft: selectedVault === v.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent" }}>
+                    <div style={{ fontSize: 13, color: ARC_NAVY, fontWeight: selectedVault === v.id ? 600 : 400, letterSpacing: "0.01em" }}>{v.name}</div>
+                  </div>
+                );
+              }
+            })}
           </div>
 
-          {/* Temporary document upload — available to all roles */}
+          {/* Temp doc upload */}
           <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px" }}>
             {tempDoc ? (
               <div style={{ padding: "10px 0" }}>
@@ -1162,7 +1475,7 @@ RULES:
                   <button className="btn" onClick={() => setTempDoc(null)} title="Remove"
                     style={{ background: "none", color: ARC_TERRACOTTA, fontSize: 14, padding: "0 2px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
                 </div>
-                <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>This document is temporary and will not be saved. It will be included when answering questions.</p>
+                <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Temporary — will not be saved. Included in all questions.</p>
               </div>
             ) : (
               <div
@@ -1182,29 +1495,36 @@ RULES:
             )}
           </div>
 
-          {isAdmin && (creating ? (
-            <div style={{ padding: "16px 24px", borderTop: "1px solid #ddd8d0", background: "#f5f3f0" }}>
-              <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", display: "block", marginBottom: 8, letterSpacing: "0.08em", textTransform: "uppercase" }}>Vault Name</label>
-              <input value={newVaultName} onChange={e => setNewVaultName(e.target.value)}
-                onKeyDown={e => e.key === "Enter" && createVault()}
-                placeholder="Name" autoFocus className="arc-input"
-                style={{ width: "100%", border: `1px solid #ccc`, padding: "8px 10px", fontSize: 13, color: ARC_NAVY, marginBottom: 10, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }} />
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn" onClick={createVault} style={{ background: ARC_NAVY, color: "#ffffff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Create</button>
-                <button className="btn" onClick={() => setCreating(false)} style={{ background: "transparent", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #ccc" }}>Cancel</button>
-              </div>
-            </div>
-          ) : (
-            <div style={{ padding: "16px 24px", borderTop: "1px solid #ddd8d0" }}>
-              <button className="btn" onClick={() => setCreating(true)}
-                style={{ width: "100%", background: "transparent", color: ARC_NAVY, padding: "9px 0", fontSize: 11, fontWeight: 600, textAlign: "center", border: `1px solid ${ARC_NAVY}`, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                + New Vault
+          {/* Admin controls */}
+          {isAdmin && (
+            <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px", display: "flex", flexDirection: "column", gap: 8 }}>
+              {creating ? (
+                <div style={{ background: "#f5f3f0", padding: "12px" }}>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", display: "block", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>New Vault Name</label>
+                  <input value={newVaultName} onChange={e => setNewVaultName(e.target.value)}
+                    onKeyDown={e => e.key === "Enter" && createVault()}
+                    placeholder="Name" autoFocus className="arc-input"
+                    style={{ width: "100%", border: `1px solid #ccc`, padding: "7px 10px", fontSize: 13, color: ARC_NAVY, marginBottom: 8, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }} />
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button className="btn" onClick={createVault} style={{ background: ARC_NAVY, color: "#fff", padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Create</button>
+                    <button className="btn" onClick={() => setCreating(false)} style={{ background: "transparent", color: "#9a9088", padding: "6px 10px", fontSize: 11, border: "1px solid #ccc" }}>Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <button className="btn" onClick={() => setCreating(true)}
+                  style={{ width: "100%", background: "transparent", color: ARC_NAVY, padding: "8px 0", fontSize: 11, fontWeight: 600, textAlign: "center", border: `1px solid ${ARC_NAVY}`, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  + New Vault
+                </button>
+              )}
+              <button className="btn" onClick={() => setShowManageModal(true)}
+                style={{ width: "100%", background: "transparent", color: "#9a9088", padding: "7px 0", fontSize: 11, fontWeight: 500, textAlign: "center", border: "1px solid #ccc", letterSpacing: "0.04em" }}>
+                Manage Vaults
               </button>
             </div>
-          ))}
+          )}
         </div>
 
-        {/* main */}
+        {/* main panel */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
           {!vault ? (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
@@ -1217,6 +1537,11 @@ RULES:
               <div style={{ borderBottom: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
                 <div style={{ padding: "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <div>
+                    {parentMaster && (
+                      <div style={{ fontSize: 10, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>
+                        📁 {parentMaster.name}
+                      </div>
+                    )}
                     <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>{vault.name}</h1>
                     <p style={{ fontSize: 11, color: "#9a9088", marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
                       {pdfs.length} document{pdfs.length !== 1 ? "s" : ""} &nbsp;·&nbsp;
@@ -1226,7 +1551,19 @@ RULES:
                     </p>
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-
+                    {/* Query scope toggle — only shown when inside a master vault */}
+                    {parentMaster && (
+                      <div style={{ display: "flex", border: `1px solid ${ARC_STONE}`, overflow: "hidden" }}>
+                        <button className="btn" onClick={() => setQueryScope("single")}
+                          style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "single" ? ARC_NAVY : "transparent", color: queryScope === "single" ? "#fff" : "#9a9088", border: "none" }}>
+                          This vault
+                        </button>
+                        <button className="btn" onClick={() => setQueryScope("all")}
+                          style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "all" ? ARC_NAVY : "transparent", color: queryScope === "all" ? "#fff" : "#9a9088", border: "none", borderLeft: `1px solid ${ARC_STONE}` }}>
+                          All in {parentMaster.name}
+                        </button>
+                      </div>
+                    )}
                     {pdfs.length > 0 && isAdmin && (
                       <button className="btn" onClick={indexVault} disabled={isRunning}
                         style={{ background: vaultIndex ? "transparent" : ARC_NAVY, color: vaultIndex ? ARC_NAVY : "#ffffff", border: `1px solid ${ARC_NAVY}`, padding: "8px 20px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, letterSpacing: "0.06em", textTransform: "uppercase" }}>
@@ -1242,19 +1579,19 @@ RULES:
                 {/* PDF panel */}
                 <div style={{ width: 220, borderRight: "1px solid #e8e0d5", background: "#faf8f5", display: "flex", flexDirection: "column", flexShrink: 0 }}>
                   {isAdmin && (
-                  <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
-                    onClick={() => fileInputRef.current.click()}
-                    style={{ margin: 12, border: `1px dashed ${dragOver ? AD_GREEN : "#ccc"}`, padding: "14px 10px", textAlign: "center", cursor: "pointer", background: dragOver ? "#f0f5f6" : "transparent" }}>
-                    {uploadingPdf ? (
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: AD_GREEN, fontSize: 12 }}><Spinner size={12} /> Uploading…</div>
-                    ) : (
-                      <>
-                        <div style={{ fontSize: 18, marginBottom: 4, opacity: 0.4 }}>📄</div>
-                        <p style={{ fontSize: 11, color: "#9a9088", lineHeight: 1.6, letterSpacing: "0.02em" }}>Drop PDFs here<br />or click to browse</p>
-                      </>
-                    )}
-                    <input ref={fileInputRef} type="file" multiple accept="application/pdf" style={{ display: "none" }} onChange={e => addPDFs(e.target.files)} />
-                  </div>
+                    <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
+                      onClick={() => fileInputRef.current.click()}
+                      style={{ margin: 12, border: `1px dashed ${dragOver ? AD_GREEN : "#ccc"}`, padding: "14px 10px", textAlign: "center", cursor: "pointer", background: dragOver ? "#f0f5f6" : "transparent" }}>
+                      {uploadingPdf ? (
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: AD_GREEN, fontSize: 12 }}><Spinner size={12} /> Uploading…</div>
+                      ) : (
+                        <>
+                          <div style={{ fontSize: 18, marginBottom: 4, opacity: 0.4 }}>📄</div>
+                          <p style={{ fontSize: 11, color: "#9a9088", lineHeight: 1.6, letterSpacing: "0.02em" }}>Drop PDFs here<br />or click to browse</p>
+                        </>
+                      )}
+                      <input ref={fileInputRef} type="file" multiple accept="application/pdf" style={{ display: "none" }} onChange={e => addPDFs(e.target.files)} />
+                    </div>
                   )}
 
                   <div style={{ flex: 1, overflowY: "auto" }}>
@@ -1274,14 +1611,14 @@ RULES:
                             <div style={{ fontSize: 9, color: "#b0a8a0", marginTop: 1 }}>{(pdf.size / 1024).toFixed(0)} KB</div>
                           </div>
                           {isAdmin && <>
-                          <button className="btn" onClick={() => indexSinglePdf(pdf)} disabled={isRunning} title="Re-index"
-                            style={{ background: "none", color: "#b0a8a0", fontSize: 11, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
-                            onMouseEnter={e => e.target.style.color = AD_GREEN}
-                            onMouseLeave={e => e.target.style.color = "#b0a8a0"}>↻</button>
-                          <button className="btn" onClick={() => deletePdf(pdf)} disabled={isRunning} title="Remove"
-                            style={{ background: "none", color: "#b0a8a0", fontSize: 14, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
-                            onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA}
-                            onMouseLeave={e => e.target.style.color = "#b0a8a0"}>×</button>
+                            <button className="btn" onClick={() => indexSinglePdf(pdf)} disabled={isRunning} title="Re-index"
+                              style={{ background: "none", color: "#b0a8a0", fontSize: 11, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
+                              onMouseEnter={e => e.target.style.color = AD_GREEN}
+                              onMouseLeave={e => e.target.style.color = "#b0a8a0"}>↻</button>
+                            <button className="btn" onClick={() => deletePdf(pdf)} disabled={isRunning} title="Remove"
+                              style={{ background: "none", color: "#b0a8a0", fontSize: 14, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
+                              onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA}
+                              onMouseLeave={e => e.target.style.color = "#b0a8a0"}>×</button>
                           </>}
                         </div>
                       );
@@ -1323,6 +1660,14 @@ RULES:
                     </div>
                   )}
 
+                  {/* Scope notice when querying all */}
+                  {queryScope === "all" && parentMaster && (
+                    <div style={{ padding: "8px 28px", background: "#f0f5f6", borderBottom: `1px solid ${AD_GREEN_MID}`, fontSize: 11, color: AD_GREEN, display: "flex", alignItems: "center", gap: 8 }}>
+                      <span>🔍</span>
+                      <span>Searching across all {(parentMaster.subVaults || []).length} vaults in <strong>{parentMaster.name}</strong></span>
+                    </div>
+                  )}
+
                   {/* Answer area */}
                   <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px" }}>
 
@@ -1346,7 +1691,7 @@ RULES:
                       <div style={{ animation: "fadeIn 0.4s ease" }}>
                         <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #4a7c20", padding: "24px 28px" }}>
                           <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                            Response — {vault.name}
+                            Response — {queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name}
                           </p>
                           <AnswerRenderer text={answer} />
                         </div>
@@ -1376,8 +1721,8 @@ RULES:
                     )}
                   </div>
 
-                  {/* Question input */}
-                  {vaultIndex && (
+                  {/* Question input — show if either single vault is indexed OR all-scope is selected */}
+                  {(vaultIndex || (queryScope === "all" && parentMaster)) && (
                     <div style={{ padding: "16px 32px 20px", borderTop: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
                       <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
                         <textarea value={question} onChange={e => setQuestion(e.target.value)}
