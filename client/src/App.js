@@ -1250,13 +1250,18 @@ IMPORTANT — PAGE NUMBERS IN CITATIONS: Use the printed page number visible on 
 
 WRITE THIS SECOND — only include content that genuinely adds value beyond the summary. Do not repeat figures or tables already shown above.
 
-Two cases only:
+Before deciding whether to write Case 1 or Case 2, you MUST check ALL of the following. If ANY apply, write Case 2:
+- Does the question ask about a specific location, junction type, building type, or scenario? If so, are there location-specific or scenario-specific requirements beyond the general rule given in the summary?
+- Are there exceptions, exemptions, or conditions under which the summary rule does NOT apply?
+- Are there construction or specification requirements (materials, fixings, installation method) beyond the fire rating itself?
+- Are there cross-references to other clauses, standards, or Approved Documents that an architect would need to follow up?
+- If multiple documents were consulted, does each one say something different or add something the others don't? If so, summarise the differences.
+- Are there inspection, testing, or third-party certification requirements?
 
-CASE 1 — If the summary fully covers the answer and there is nothing meaningful to add:
+CASE 1 — Only use this if ALL of the above checks come back negative and the summary genuinely contains everything an architect needs to act:
 Write exactly: "The summary above fully addresses this question."
 
-CASE 2 — If there is additional context, conditions, exceptions or cross-references not already covered in the summary:
-Write concise bullet points in plain English. Each bullet is one sentence. If a bullet references a table from the document, reproduce that table immediately below the bullet (same columns and rows, no restructuring). Citation on its own italic line immediately after each bullet or table.
+CASE 2 — Write concise bullet points in plain English. Each bullet is one sentence. If a bullet references a table from the document, reproduce that table immediately below the bullet (same columns and rows, no restructuring). Citation on its own italic line immediately after each bullet or table.
 
 RULES:
 - Do not repeat anything already in the summary
