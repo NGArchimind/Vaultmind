@@ -977,15 +977,30 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       };
 
       const indexSummary = (activeIndex.documents || []).map(doc => {
+        // Identify contents pages — any page where a "Contents" heading appears
         const contentsPages = new Set(
           (doc.headings || [])
             .filter(h => /^(contents|table of contents|index)$/i.test(h.title.trim()))
             .map(h => h.pageHint)
         );
 
+        // Also identify pages that appear suspiciously often (>8 headings on same page)
+        // — these are almost always contents/index pages
+        const pageFrequency = {};
+        (doc.headings || []).forEach(h => {
+          const p = h.pageHint || 1;
+          pageFrequency[p] = (pageFrequency[p] || 0) + 1;
+        });
+        const crowdedPages = new Set(
+          Object.entries(pageFrequency)
+            .filter(([, count]) => count > 8)
+            .map(([page]) => Number(page))
+        );
+
         const headings = (doc.headings || [])
           .filter(h => !isBoilerplate(h.title))
           .filter(h => !contentsPages.has(h.pageHint))
+          .filter(h => !crowdedPages.has(h.pageHint))
           .map(h => `  p${h.pageHint || 1}: ${h.title}`)
           .join("\n");
         return `DOCUMENT: ${doc.name}\n${headings}`;
@@ -1010,6 +1025,8 @@ ${recentHistory.length > 0 ? "NOTE: This may be a follow-up question. Use the co
 Analyse the index carefully. For every section that could possibly be relevant — even tangentially — assign a probability score. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections. Be CONSERVATIVE — it is better to include a borderline section than to miss critical information.
 
 NOTE: Select ALL sections that are relevant to the question — do not limit to just one section if multiple sections are relevant.
+
+TABLES AND FIGURES: If the question relates to a requirement that is likely defined or quantified in a table or figure (e.g. fire resistance ratings, dimensions, classifications), you MUST also select any table or figure entries in the index that are likely to contain that data. For example, if the index contains "Table 3 — Fire resistance of cavity barriers" or "Table 5 — Minimum fire resistance", select those entries with high probability. Never rely solely on clause text pages when the actual values are in a table.
 
 Respond ONLY as compact JSON — no other text, no explanations, no reasons:
 {
@@ -1382,12 +1399,15 @@ RULES:
 - Summary MUST come first, Detailed Analysis second, Regulatory Context third, Contradictions last — do not change this order
 - Use ONLY the provided document pages — no external knowledge
 - Every factual statement must have a citation
+- ALL citations in every section must be wrapped in asterisks: *Document Name | Page X | X.X Clause Title (Parent Section)*
+- Never write a bare citation without asterisk wrapping — this is critical for correct rendering
+- Draw from ALL provided documents — if multiple standards are provided, cite each one where relevant, do not rely on just one
 - Omit citations rather than guess page numbers
 - If pages do not contain enough to answer definitively, state exactly what is missing`;
 
       const { text: finalAnswer, usage: answerUsage } = await callClaude(
         [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-        `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Build on prior conversation context where relevant.`,
+        `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Build on prior conversation context where relevant. Every citation MUST be wrapped in asterisks: *Document | Page X | Clause (Section)*. Never write a citation without asterisks.`,
         65536
       );
 
