@@ -1440,13 +1440,13 @@ When multiple documents contain tables that are near-identical in structure and 
 
 For the one table you reproduce:
 1. Output the table title on its own line in bold: **Table X — Title of table**
-2. Reproduce the full table as a standard markdown pipe table — every row starts and ends with | pipe characters, including the header row
+2. Reproduce the COMPLETE table — EVERY row, EVERY column, NO exceptions. Do not extract only the relevant row. Do not summarise. If the table has 30 rows, output all 30 rows. Every row starts and ends with | pipe characters.
 3. After the header row output a separator row: | --- | --- | --- |
-4. For any row(s) that directly answer the question, prefix the ENTIRE ROW with >> ONCE at the start only: >> | cell | cell | cell |
-   Do NOT put >> before each individual cell — only ONE >> at the very start of the row.
+4. For the specific row(s) that directly answer the question, prefix that ENTIRE ROW with >> ONCE at the very start, before the first pipe: >> | cell | cell | cell |
+   CRITICAL: The >> prefix appears ONCE at the start of the row only. Do NOT put >> before each cell.
 5. Do NOT wrap tables in > block quote syntax
 6. Place the citation immediately below the table, then the equivalence note
-7. If the table spans multiple pages, combine all parts into one complete table
+7. If the table spans multiple pages, combine ALL parts into one complete table — do not stop at the first page
 
 If only one table is referenced, reproduce it in full without any equivalence note.
 
