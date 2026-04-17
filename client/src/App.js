@@ -1050,6 +1050,15 @@ Rules:
       if (!scoring.selectedDocs || scoring.selectedDocs.length === 0) {
         console.warn("Scoring returned empty — raw response:", scoringText.slice(0, 500));
       }
+      // Debug: log scoring result
+      console.log("Scoring result:", JSON.stringify(scoring).slice(0, 1000));
+      console.log("Selected docs:", (scoring.selectedDocs || []).length);
+      (scoring.selectedDocs || []).forEach(d => {
+        console.log("Doc:", d.docName, "Sections:", (d.sections || []).length);
+        (d.sections || []).forEach(s => {
+          console.log("  Section:", s.heading?.slice(0, 50), "pageHint:", s.pageHint, "prob:", s.probability);
+        });
+      });
 
       // ── PASS 2: Load PDFs and extract pages ──────────────────────────────────
       setStatusMsg("Pass 1/3 · Loading documents for page extraction…");
