@@ -1404,156 +1404,116 @@ Rules:
 
       setStatusMsg(`Pass 2/3 · ${totalPagesExtracted} specific pages extracted across ${docBlocks.length} document${docBlocks.length !== 1 ? "s" : ""}…`);
       setProgress(p => ({ ...p, read: 100 }));
-      setProgress(p => ({ ...p, answer: 20 }));
 
-      // ── PASS 3a: Table extraction ──────────────────────────────────────────────
+      // ── PASS 3: Answer synthesis ───────────────────────────────────────────────
       setStage("answering");
-      setStatusMsg("Pass 3/3 · Extracting tables…");
+      setStatusMsg("Pass 3/3 · Deep reading selected pages and synthesising answer…");
 
       const focusSections = (scoring.selectedDocs || [])
         .flatMap(d => (d.sections || []).map(s => `${d.docName}: ${s.heading} (p.${s.pageHint})`))
         .join("; ");
-
-      // Identify which tables were scored so we can tell the extractor exactly which ones to find
-      const scoredTableNames = (scoring.selectedDocs || [])
-        .flatMap(d => (d.sections || [])
-          .filter(s => /^(table|figure)\s+\d+/i.test(s.heading.trim()))
-          .map(s => `${d.docName}: ${s.heading}`)
-        );
-
-      let tableContext = "";
-      if (scoredTableNames.length > 0) {
-        const tablePrompt = `You are a document analyst. Your only task is to reproduce tables in full from the provided document pages.
-
-TABLES TO EXTRACT:
-${scoredTableNames.map((t, i) => `${i + 1}. ${t}`).join("\n")}
-
-CRITICAL RULES — you must follow these exactly:
-1. Output the table title in bold on its own line: **Table X — Full title**
-2. Reproduce EVERY SINGLE ROW of the table as a markdown pipe table. Do not skip any rows. Do not summarise. Do not truncate. If the table has 30 rows, output all 30 rows.
-3. Every row MUST start and end with a pipe character: | cell | cell | cell |
-4. The header row must also start and end with pipe characters: | Column 1 | Column 2 | Column 3 |
-5. After the header row, output a separator row: | --- | --- | --- |
-6. For the row(s) that contain data directly relevant to the question "${q}", prefix that row with >> followed by a space before the first pipe: >> | cell | cell | cell |
-7. All other data rows output normally starting with a pipe: | cell | cell | cell |
-5. Output the citation on its own line below the table: *Document | Page X | Table title*
-6. If a table spans multiple pages in the document, combine all parts into one single complete table output.
-7. Output ONLY the tables and their citations. No introduction, no commentary, no explanation.
-
-You are a copying machine. Your job is to reproduce tables exactly. Every row must appear in your output.`;
-
-        try {
-          const { text: tableText, usage: tableUsage } = await callClaude(
-            [{ role: "user", content: [...docBlocks, { type: "text", text: tablePrompt }] }],
-            "You are a document analyst. Extract and reproduce tables exactly as they appear in the source documents. Output only the tables, nothing else.",
-            32000,
-            2,
-            "gemini-2.5-flash"
-          );
-          tableContext = tableText;
-          console.log("Table extraction complete, length:", tableText.length);
-        } catch (e) {
-          console.warn("Table extraction failed, proceeding without pre-extracted tables:", e.message);
-        }
-      }
-
-      // ── PASS 3b: Answer synthesis ──────────────────────────────────────────────
-      setStatusMsg("Pass 3/3 · Synthesising answer…");
 
       const priorContext = conversationHistory.slice(-5);
       const contextBlock = priorContext.length > 0
         ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
         : "";
 
-      const tableSection = tableContext ? `PRE-EXTRACTED TABLES — use these exact tables in your response when referencing table data. Do not re-extract or modify them:\n\n${tableContext}\n\n---\n\n` : "";
-
       const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `\n\nNOTE: A temporary document has been included for reference: "${tempDoc.name}". This is not part of the permanent vault — treat it as an additional reference document when answering.` : ""}
 
-${contextBlock}${tableSection}CURRENT QUESTION: ${q}
+${contextBlock}CURRENT QUESTION: ${q}
 
 PRIORITY SECTIONS: ${focusSections || "all sections"}
 
 ---
 
-TABLES — GLOBAL RULE:
-All relevant tables have been pre-extracted above. When your response references a table, insert the pre-extracted version verbatim at that point. Do not reproduce tables from scratch — use the pre-extracted versions exactly as provided. If a table is not in the pre-extracted set, reproduce it in full from the document pages.
+TABLES — GLOBAL RULE (applies to every section):
+Whenever your response references or draws data from a table in the source document, you MUST reproduce that table in full at the point of reference. This applies to EVERY table referenced — if you cite Table 3, reproduce Table 3. If you cite Table 5, reproduce Table 5. If you cite Table 22, reproduce Table 22. Do not reproduce only one table when multiple are referenced.
+
+Table reproduction rules:
+1. Output the table title on its own line in bold immediately before the table: **Table X — Title of table**
+2. Reproduce the full table as a standard markdown pipe table — every row starts and ends with | pipe characters, including the header row
+3. After the header row output a separator row: | --- | --- | --- |
+4. For any row(s) that directly answer the question, prefix with >> before the first pipe: >> | cell | cell | cell |
+5. Do NOT wrap tables in > block quote syntax
+6. Place the citation immediately below the table
+7. If a table spans multiple pages, combine all parts into one complete table
+
+IMPORTANT: Every table mentioned by name MUST be reproduced in full. Never reference a table without reproducing it.
 
 RESPONSE FORMAT — output in this exact order every time:
 
 ## Summary
 
-WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences directly addressing the current question. Must:
+WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences. Must:
 - Open with a direct answer in plain English
-- Reference the key evidence, citing ALL relevant documents provided — not just one
-- Build logically on any prior questions in the conversation where relevant
-- Insert any pre-extracted table that is directly relevant to the summary answer
-- After any table include any footnotes or qualifications from the source as plain italic text.
+- Cite ALL relevant documents provided — not just one
+- Build on any prior conversation context where relevant
+- Reproduce any table directly relevant to the answer
+- After any table include footnotes/qualifications as plain italic text
 
-For each key fact in the summary, include the exact supporting phrase from the document and its source. These MUST appear as a consecutive pair with no blank line between them — quoted phrase first, citation immediately below:
+For each key fact, include the exact supporting phrase and citation as a consecutive pair:
 
-> "Exact short phrase from document — one sentence maximum."
+> "Exact short phrase from document."
 *Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
 
-Both lines are mandatory — never write a citation without the quoted phrase above it, and never write a quoted phrase without the citation immediately below it.
-
 CITATION FORMAT: *Document | Page X | Clause number and title (Parent section title)*
-CRITICAL: The citation MUST start AND end with an asterisk * — both opening and closing asterisk are required.
+CRITICAL: Citation MUST start AND end with * asterisk.
 
-PAGE NUMBERS — CRITICAL RULE: Use the printed page number visible on the page, NOT the PDF position. Omit if not visible.
+PAGE NUMBERS: Use the printed page number visible on the extracted page. Do NOT count from the start of the PDF file — British Standards have front matter so PDF position ≠ printed page number. Omit if not clearly visible.
 
 ---
 
 ## Detailed Analysis
 
-WRITE THIS SECOND — only include content that genuinely adds value beyond the summary. Do not repeat figures or tables already shown above.
+WRITE THIS SECOND. Only content that adds value beyond the summary.
 
-Before deciding whether to write Case 1 or Case 2, you MUST check ALL of the following. If ANY apply, write Case 2:
-- Are there location-specific or scenario-specific requirements beyond the general rule?
-- Are there exceptions or conditions under which the summary rule does NOT apply?
-- Are there construction or specification requirements beyond the fire rating itself?
-- Are there cross-references to other clauses, standards, or Approved Documents?
-- Do the multiple documents say something different or add something the others don't?
-- Are there inspection, testing, or certification requirements?
+Check ALL of the following — if ANY apply, write Case 2:
+- Location/scenario-specific requirements beyond the general rule?
+- Exceptions or conditions where the rule does NOT apply?
+- Construction/specification requirements beyond the fire rating?
+- Cross-references to other clauses, standards, or ADs?
+- Do the multiple documents differ or add to each other?
+- Inspection, testing, or certification requirements?
 
-CASE 1 — Only if ALL checks above are negative: Write exactly: "The summary above fully addresses this question."
+CASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."
 
-CASE 2 — Concise bullet points in plain English. Insert any pre-extracted table that is referenced. Citation on its own line after each bullet or table:
+CASE 2 — Concise bullet points. One sentence each. Reproduce any referenced table in full below the bullet. Citation after each bullet or table:
 *Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
 
 RULES:
-- Do not repeat anything already in the summary
-- Citations must start AND end with asterisk — opening * and closing * both required
-- Page numbers: printed page number only, never PDF position
-- Draw from ALL provided documents — cite each one where relevant
+- No repetition of summary content
+- Citations: opening AND closing * required
+- Page numbers: printed page only, never PDF position
+- Cite ALL documents where relevant — never rely on just one
 - Maximum 6 bullets
 
 ---
 
 ## Regulatory Context
 
-WRITE THIS THIRD. Broader regulatory background tightly scoped to the question. 2–4 bullet points maximum. Citation after each bullet:
-*Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
-
-If nothing meaningful to add: "No additional context required."
+WRITE THIS THIRD. Broader background tightly scoped to the question. 2–4 bullets maximum.
+Citation after each bullet: *Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
+If nothing to add: "No additional context required."
 
 ---
 
 ## Contradictions & Conflicts
 
-WRITE THIS LAST. If conflicts exist: state the conflict, quote both sides with citations, give a practical conclusion. If none: "No contradictions identified."
+WRITE THIS LAST. Conflicts: state conflict, quote both sides with citations, give practical conclusion.
+No conflicts: "No contradictions identified."
 
 ---
 
 RULES:
-- Section order is fixed: Summary, Detailed Analysis, Regulatory Context, Contradictions
-- Use ONLY the provided document pages and pre-extracted tables — no external knowledge
-- Every factual statement must have a citation with opening and closing asterisks
+- Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions
+- Use ONLY the provided document pages — no external knowledge
+- Every factual statement needs a citation with opening AND closing asterisks
 - Draw from ALL provided documents — never rely on just one
 - Omit citations rather than guess page numbers`;
 
       const { text: finalAnswer, usage: answerUsage } = await callClaude(
         [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-        `You are an expert building regulations consultant. Answer using ONLY the provided document pages and pre-extracted tables. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Page X | Clause (Section)*.`,
+        `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Page X | Clause (Section)*. Draw from ALL provided documents.`,
         65536
       );
 
