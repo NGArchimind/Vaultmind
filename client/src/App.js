@@ -189,6 +189,17 @@ function AnswerRenderer({ text }) {
   };
 
   lines.forEach((line, i) => {
+    // Detect highlighted table row — must check before blockquote handler
+    // Model outputs: ">> | cell | cell |" for relevant rows
+    if (line.startsWith(">> |") || (inTable && line.startsWith(">> "))) {
+      inTable = true;
+      if (tableBuffer._pendingTitle) {
+        tableBuffer._title = tableBuffer._pendingTitle;
+        delete tableBuffer._pendingTitle;
+      }
+      tableBuffer.push(line); // keep the >> prefix — flushTable strips it
+      return;
+    }
     if (line.startsWith("|")) {
       inTable = true;
       if (tableBuffer._pendingTitle) {
@@ -1392,7 +1403,7 @@ Table reproduction rules:
 5. Do NOT wrap tables in > block quote syntax
 6. Place the citation immediately below the table
 
-IMPORTANT: Every table you mention by name (e.g. "as in Table 3", "see Table 5") MUST be reproduced in full at that point. Never reference a table by name without reproducing it.
+IMPORTANT: Every table you mention by name (e.g. "as in Table 3", "see Table 5") MUST be reproduced in full at that point. Never reference a table by name without reproducing it. If a figure caption says "as in Table 3", reproduce Table 3 at that point — do not skip it because the figure caption is not the table itself.
 
 RESPONSE FORMAT — output in this exact order every time:
 
