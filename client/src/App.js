@@ -200,13 +200,16 @@ function AnswerRenderer({ text }) {
   lines.forEach((line, i) => {
     // Detect highlighted table row — must check before blockquote handler
     // Model outputs: ">> | cell | cell |" for relevant rows
-    if (line.startsWith(">> |") || (inTable && line.startsWith(">> "))) {
+    if (line.startsWith(">> ")) {
       inTable = true;
       if (tableBuffer._pendingTitle) {
         tableBuffer._title = tableBuffer._pendingTitle;
         delete tableBuffer._pendingTitle;
       }
-      tableBuffer.push(line); // keep the >> prefix — flushTable strips it
+      // Normalise: ensure the row has proper pipe format
+      const chevronContent = line.slice(3).trim();
+      const normalised = chevronContent.startsWith("|") ? `>> ${chevronContent}` : `>> | ${chevronContent} |`;
+      tableBuffer.push(normalised);
       return;
     }
     if (line.startsWith("|")) {
@@ -220,11 +223,29 @@ function AnswerRenderer({ text }) {
     }
     if (inTable) flushTable(i);
 
-    // Detect table title — a bold line immediately before a table
-    const isTableTitle = (line.startsWith("**") && line.endsWith("**") && /table|figure/i.test(line));
-    if (isTableTitle) {
-      // Store as pending title — will be attached to next table
-      tableBuffer._pendingTitle = line.replace(/\*\*/g, "").trim();
+    // Detect table title — bold **Table X** or plain "Table X — title" line before a table
+    const trimmedLine = line.trim();
+    const isBoldTitle = (trimmedLine.startsWith("**") && trimmedLine.endsWith("**") && /table|figure/i.test(trimmedLine));
+    const isPlainTitle = (!trimmedLine.startsWith("|") && !trimmedLine.startsWith(">") && !trimmedLine.startsWith("*") && /^(table|figure)\s+\d+/i.test(trimmedLine) && !trimmedLine.includes("  "));
+    if (isBoldTitle || isPlainTitle) {
+      tableBuffer._pendingTitle = trimmedLine.replace(/\*\*/g, "").trim();
+      return;
+    }
+
+    // Detect header rows that use | as separator but don't start with | 
+    // e.g. "Part of building | Minimum provisions | Method of exposure"
+    // Only treat as table row if we already have a pending title (i.e. we're about to start a table)
+    if (!trimmedLine.startsWith("|") && !trimmedLine.startsWith(">") && trimmedLine.includes(" | ") && tableBuffer._pendingTitle && !inTable) {
+      inTable = true;
+      if (tableBuffer._pendingTitle) {
+        tableBuffer._title = tableBuffer._pendingTitle;
+        delete tableBuffer._pendingTitle;
+      }
+      // Add leading/trailing pipes to normalise
+      tableBuffer.push(`| ${trimmedLine} |`);
+      // Auto-generate separator row
+      const colCount = trimmedLine.split(" | ").length;
+      tableBuffer.push(`|${Array(colCount).fill("---").join("|")}|`);
       return;
     }
 
@@ -1402,19 +1423,24 @@ Rules:
 
       let tableContext = "";
       if (scoredTableNames.length > 0) {
-        const tablePrompt = `You are a document analyst. Extract and reproduce the following tables in full from the provided document pages.
+        const tablePrompt = `You are a document analyst. Your only task is to reproduce tables in full from the provided document pages.
 
 TABLES TO EXTRACT:
 ${scoredTableNames.map((t, i) => `${i + 1}. ${t}`).join("\n")}
 
-For each table found:
-1. Output the table title on its own line in bold: **Table X — Full title**
-2. Reproduce the COMPLETE table as a markdown pipe table — every column, every row, no truncation
-3. Mark any row directly relevant to the question "${q}" by prefixing it with >> (e.g. >> | cell | cell |)
-4. Output the source citation below each table: *Document | Page X | Table title*
+CRITICAL RULES — you must follow these exactly:
+1. Output the table title in bold on its own line: **Table X — Full title**
+2. Reproduce EVERY SINGLE ROW of the table as a markdown pipe table. Do not skip any rows. Do not summarise. Do not truncate. If the table has 30 rows, output all 30 rows.
+3. Every row MUST start and end with a pipe character: | cell | cell | cell |
+4. The header row must also start and end with pipe characters: | Column 1 | Column 2 | Column 3 |
+5. After the header row, output a separator row: | --- | --- | --- |
+6. For the row(s) that contain data directly relevant to the question "${q}", prefix that row with >> followed by a space before the first pipe: >> | cell | cell | cell |
+7. All other data rows output normally starting with a pipe: | cell | cell | cell |
+5. Output the citation on its own line below the table: *Document | Page X | Table title*
+6. If a table spans multiple pages in the document, combine all parts into one single complete table output.
+7. Output ONLY the tables and their citations. No introduction, no commentary, no explanation.
 
-Output ONLY the tables. No introduction, no commentary, no other text.
-If a table spans multiple pages, combine all parts into one complete table.`;
+You are a copying machine. Your job is to reproduce tables exactly. Every row must appear in your output.`;
 
         try {
           const { text: tableText, usage: tableUsage } = await callClaude(
