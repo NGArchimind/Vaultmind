@@ -1037,24 +1037,66 @@ Rules:
       const selectedDocNames = (scoring.selectedDocs || []).map(d => d.docName);
 
       if (useAllSubVaults) {
-        // Resolve each selected doc to its sub-vault and file
-        for (const docName of selectedDocNames) {
-          const match = docName.match(/^\[(.+?)\] (.+)$/);
-          if (!match) continue;
-          const [, subVaultName, fileName] = match;
-          const subVault = (parentMaster.subVaults || []).find(sv => sv.name === subVaultName);
-          if (!subVault) continue;
+        console.log("All-subvaults mode — selectedDocNames from scoring:", selectedDocNames);
 
-          // Check if we already fetched this file
-          if (contentsData.find(c => c.pdf.name === docName)) continue;
-
+        // Build a flat lookup of every PDF across all sub-vaults
+        const allSubVaultPdfs = [];
+        for (const sv of (parentMaster.subVaults || [])) {
           try {
-            const pdfData = await api(`/api/vaults/${encodeURIComponent(subVault.id)}/pdfs/${encodeURIComponent(fileName)}`);
-            contentsData.push({ pdf: { name: docName, size: 0 }, base64: pdfData.base64 });
+            const pdfsData = await api(`/api/vaults/${encodeURIComponent(sv.id)}/pdfs`);
+            for (const pdf of (pdfsData.pdfs || [])) {
+              allSubVaultPdfs.push({
+                prefixedName: `[${sv.name}] ${pdf.name}`,
+                subVault: sv,
+                fileName: pdf.name,
+              });
+            }
           } catch (e) {
-            console.warn(`Could not load ${fileName} from ${subVaultName}:`, e);
+            console.warn(`Could not list PDFs for sub-vault ${sv.name}:`, e);
           }
         }
+        console.log("All sub-vault PDFs available:", allSubVaultPdfs.map(p => p.prefixedName));
+
+        // Match each selected doc name to a real PDF — try exact first, then fuzzy
+        for (const docName of selectedDocNames) {
+          if (contentsData.find(c => c.pdf.name === docName)) continue;
+
+          // 1. Exact match on prefixed name
+          let found = allSubVaultPdfs.find(p => p.prefixedName === docName);
+
+          // 2. Gemini may have dropped the [SubVault] prefix — match just on filename
+          if (!found) {
+            found = allSubVaultPdfs.find(p =>
+              p.fileName === docName ||
+              p.fileName.includes(docName) ||
+              docName.includes(p.fileName)
+            );
+          }
+
+          // 3. Fuzzy: match on longest common substring
+          if (!found) {
+            const lower = docName.toLowerCase();
+            found = allSubVaultPdfs.find(p =>
+              p.prefixedName.toLowerCase().includes(lower) ||
+              lower.includes(p.fileName.toLowerCase().replace(/\.pdf$/i, ""))
+            );
+          }
+
+          if (!found) {
+            console.warn(`Could not match scoring docName "${docName}" to any sub-vault PDF`);
+            continue;
+          }
+
+          console.log(`Matched "${docName}" to ${found.subVault.name}/${found.fileName}`);
+
+          try {
+            const pdfData = await api(`/api/vaults/${encodeURIComponent(found.subVault.id)}/pdfs/${encodeURIComponent(found.fileName)}`);
+            contentsData.push({ pdf: { name: found.prefixedName, size: 0 }, base64: pdfData.base64 });
+          } catch (e) {
+            console.warn(`Could not load ${found.fileName} from ${found.subVault.name}:`, e);
+          }
+        }
+        console.log("contentsData loaded:", contentsData.map(c => c.pdf.name));
       } else {
         // Standard single-vault fetch
         const docsNeeded = pdfs.filter(p =>
