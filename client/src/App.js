@@ -193,10 +193,17 @@ function AnswerRenderer({ text }) {
     } else if (line.startsWith("## ")) {
       const text = line.slice(3);
       const isSummary = text.toLowerCase().includes("summary");
+      const isContext = text.toLowerCase().includes("regulatory context");
       if (isSummary) {
         elements.push(
           <div key={i} style={{ background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${AD_GREEN}`, padding: "14px 18px", margin: "16px 0 8px" }}>
             <h2 style={{ color: AD_GREEN, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
+          </div>
+        );
+      } else if (isContext) {
+        elements.push(
+          <div key={i} style={{ background: "#faf6f0", border: `1px solid #e0d5c5`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 18px", margin: "24px 0 8px" }}>
+            <h2 style={{ color: ARC_TERRACOTTA, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
           </div>
         );
       } else {
@@ -1290,9 +1297,9 @@ WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences directly add
 For each key fact in the summary, include the exact supporting phrase from the document and its source on separate lines:
 
 > "Exact short phrase from document — one sentence maximum."
-*Document Name | Page X | Parent Section — Sub-section X.X.X — Clause Heading*
+*Document Name | Page X | X.X.X Clause Heading (Parent Section Title)*
 
-CITATION HEADING FORMAT: Always include the full heading hierarchy in citations, from the parent section down to the most specific sub-clause. For example: "Section 25 — Cavity Barriers > 25.2 Construction and fixings" not just "25.2 Construction and fixings". This helps the reader navigate to the correct location in the document.
+CITATION FORMAT: Use the sub-clause number and title first, then the parent section in brackets. For example: "25.2 Construction and fixings for cavity barriers (Section 25 — Concealed spaces)" not "Section 25 — Concealed spaces — 25.2 Construction and fixings". Keep it concise — clause number, clause title, parent section only.
 
 PAGE NUMBERS — CRITICAL RULE: The page number in every citation MUST be the printed page number physically visible on that page (e.g. "130", "iv", "A-3"). Do NOT use the PDF position (i.e. do not count pages from the start of the file). British Standards and other technical documents have front matter, contents pages, and appendices that mean the PDF page position and the printed page number are always different. If you cannot see a printed page number on the extracted page, omit the page number entirely rather than guessing or using the PDF position.
 
@@ -1314,16 +1321,34 @@ CASE 1 — Only use this if ALL of the above checks come back negative and the s
 Write exactly: "The summary above fully addresses this question."
 
 CASE 2 — Write concise bullet points in plain English. Each bullet is one sentence. If a bullet references a table from the document, reproduce that table immediately below the bullet (same columns and rows, no restructuring). Citation on its own line immediately after each bullet or table, formatted exactly as:
-*Document Name | Page X | Parent Section — Sub-section X.X.X — Clause Heading*
+*Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
 
 RULES:
 - Do not repeat anything already in the summary
 - No coloured boxes — plain bullets and plain tables only
 - Summarise in your own words, do not quote large passages
-- Citations: always include the full heading hierarchy (parent section > sub-section), never just the sub-clause number alone
+- Citations: *Document Name | Page X | X.X.X Clause Title (Parent Section Title)* — sub-clause number first, parent section in brackets
 - Page numbers: always use the printed page number visible on the page, never the PDF position. Omit if not visible.
 - Plain language an architect can act on immediately
 - Maximum 6 bullets
+
+---
+
+## Regulatory Context
+
+WRITE THIS THIRD. Provide the broader regulatory background that helps an architect understand WHY the rule exists and WHAT ELSE they need to consider. This section must be tightly scoped — only include context that is directly relevant to the specific question asked. Do not pad with generic information.
+
+Ask yourself: what does an architect need to know beyond the specific requirement to apply it correctly on a real project? Relevant context includes:
+- The purpose or intent behind the requirement (e.g. why cavity barriers are required at this location)
+- Definitions of key terms used in the requirement (e.g. what counts as a compartment wall, what is a concealed space)
+- Interactions with other parts of the same document (e.g. this clause only applies if another condition is met)
+- References to other standards or Approved Documents the architect must also consult
+- Scope limitations (e.g. this standard applies to buildings of a certain occupancy type only)
+
+Format: 2–4 concise bullet points maximum. Each bullet one sentence. Citation after each bullet:
+*Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
+
+If there is no meaningful context beyond what is already in the summary and detailed analysis, write exactly: "No additional context required."
 
 ---
 
@@ -1334,7 +1359,7 @@ WRITE THIS LAST. If conflicts exist: one sentence stating the conflict, quotes f
 ---
 
 RULES:
-- Summary MUST come first, Detailed Analysis second, Contradictions last — do not change this order
+- Summary MUST come first, Detailed Analysis second, Regulatory Context third, Contradictions last — do not change this order
 - Use ONLY the provided document pages — no external knowledge
 - Every factual statement must have a citation
 - Omit citations rather than guess page numbers
@@ -1342,7 +1367,7 @@ RULES:
 
       const { text: finalAnswer, usage: answerUsage } = await callClaude(
         [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-        `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output: (1) ## Summary first, (2) ## Detailed Analysis second, (3) ## Contradictions & Conflicts last. Never change this order. Build on prior conversation context where relevant.`,
+        `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Build on prior conversation context where relevant.`,
         65536
       );
 
