@@ -1469,6 +1469,16 @@ For each key fact, include the exact supporting phrase and citation as a consecu
 CITATION FORMAT: *Document | Page X | Clause number and title (Parent section title)*
 CRITICAL: Citation MUST start AND end with * asterisk.
 
+CITATION PLACEMENT — strictly follow these rules:
+- Every citation goes on its OWN LINE, never embedded within a sentence
+- Never write: "Quote." *Citation* and more text continues here.
+- Never chain citations with "and": *Citation A* and *Citation B* — WRONG
+- If multiple documents support the same fact, each citation goes on its own separate line:
+  > "Quote."
+  *Document A | Page X | Clause*
+  *Document B | Page Y | Clause*
+- A citation always ends a paragraph, never appears mid-sentence
+
 PAGE NUMBERS: Use the printed page number visible on the extracted page. Do NOT count from the start of the PDF file — British Standards have front matter so PDF position ≠ printed page number. Omit if not clearly visible.
 
 ---
