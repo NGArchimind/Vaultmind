@@ -1283,6 +1283,9 @@ PRIORITY SECTIONS: ${focusSections || "all sections"}
 
 ---
 
+TABLES — GLOBAL RULE (applies to every section):
+Whenever your response references, cites, or draws data from a table in the source document, you MUST reproduce that table in full immediately at the point of reference. Same columns, same rows, same data — no summarising, no restructuring, no omitting rows. Do NOT wrap tables in > block quote syntax. Reproduce the table as a standard markdown table using | pipe syntax. Place the citation immediately below the table.
+
 RESPONSE FORMAT — output in this exact order every time:
 
 ## Summary
@@ -1291,7 +1294,7 @@ WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences directly add
 - Open with a direct answer in plain English
 - Reference the key evidence briefly
 - Build logically on any prior questions in the conversation where relevant
-- Include a table if the source document contains a table relevant to the question. Reproduce it exactly — same columns, same rows, no restructuring. Do NOT wrap tables in > block quote syntax.
+- If the source document contains a table relevant to the question, reproduce it in full — same columns, same rows, no omitting rows, no restructuring. Do NOT wrap tables in > block quote syntax. Use standard markdown pipe table syntax.
 - After any table include any footnotes or qualifications from the source as plain italic text.
 
 For each key fact in the summary, include the exact supporting phrase from the document and its source on separate lines:
@@ -1320,7 +1323,7 @@ Before deciding whether to write Case 1 or Case 2, you MUST check ALL of the fol
 CASE 1 — Only use this if ALL of the above checks come back negative and the summary genuinely contains everything an architect needs to act:
 Write exactly: "The summary above fully addresses this question."
 
-CASE 2 — Write concise bullet points in plain English. Each bullet is one sentence. If a bullet references a table from the document, reproduce that table immediately below the bullet (same columns and rows, no restructuring). Citation on its own line immediately after each bullet or table, formatted exactly as:
+CASE 2 — Write concise bullet points in plain English. Each bullet is one sentence. If a bullet references or draws data from a table in the source document, reproduce that table in full immediately below the bullet — same columns, same rows, no omitting rows, no restructuring, plain markdown pipe syntax. Citation on its own line immediately after each bullet or table, formatted exactly as:
 *Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
 
 RULES:
@@ -1345,7 +1348,7 @@ Ask yourself: what does an architect need to know beyond the specific requiremen
 - References to other standards or Approved Documents the architect must also consult
 - Scope limitations (e.g. this standard applies to buildings of a certain occupancy type only)
 
-Format: 2–4 concise bullet points maximum. Each bullet one sentence. Citation after each bullet:
+Format: 2–4 concise bullet points maximum. Each bullet one sentence. If a bullet references a table, reproduce it in full immediately below the bullet using markdown pipe syntax. Citation after each bullet or table:
 *Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
 
 If there is no meaningful context beyond what is already in the summary and detailed analysis, write exactly: "No additional context required."
