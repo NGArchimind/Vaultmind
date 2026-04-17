@@ -243,11 +243,12 @@ function AnswerRenderer({ text }) {
       }
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
       // Check if this is actually a standalone citation (*text*) before treating as a bullet
-      const isBulletCitation = line.startsWith("*") && line.endsWith("*") && line.length > 2 && !line.startsWith("**");
+      const trimmedBullet = line.trim();
+      const isBulletCitation = trimmedBullet.startsWith("*") && trimmedBullet.endsWith("*") && trimmedBullet.length > 2 && !trimmedBullet.startsWith("**");
       if (isBulletCitation) {
         elements.push(
           <p key={i} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif" }}>
-            {line.slice(1, -1)}
+            {trimmedBullet.slice(1, -1)}
           </p>
         );
       } else {
@@ -268,11 +269,12 @@ function AnswerRenderer({ text }) {
     } else if (line === "") {
       elements.push(<div key={i} style={{ height: 10 }} />);
     } else {
-      const isStandaloneCitation = line.startsWith("*") && line.endsWith("*") && line.length > 2 && !line.startsWith("**");
+      const trimmed = line.trim();
+      const isStandaloneCitation = trimmed.startsWith("*") && trimmed.endsWith("*") && trimmed.length > 2 && !trimmed.startsWith("**");
       if (isStandaloneCitation) {
         elements.push(
           <p key={i} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif" }}>
-            {line.slice(1, -1)}
+            {trimmed.slice(1, -1)}
           </p>
         );
       } else {
@@ -741,7 +743,9 @@ export default function App() {
   // ── shared indexing helper ────────────────────────────────────────────────────
   const indexOnePdf = async (pdfName, base64) => {
     const SYSTEM = "You are a document indexer. Extract only structural metadata. Return pure JSON only, no markdown, no explanation.";
-    const INDEX_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), and named sub-sections. Do not extract body text, bullet points, figure captions, or table content — only headings that introduce a section of content.
+    const INDEX_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.
+
+Do not extract body text or bullet points.
 
 For pageHint, use only the position of the page within this PDF file — page 1 is the first page of this file, page 2 is the second, etc. Ignore all printed page numbers on the pages.
 
@@ -797,7 +801,9 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
         setStatusMsg(`Indexing ${pdfName} — pages ${startPage + 1}–${endPage} of ${pageCount}…`);
         const { base64: chunkBase64 } = await extractPdfPages(base64, Array.from({ length: endPage - startPage }, (_, i) => startPage + i));
         try {
-          const chunkPrompt = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), and named sub-sections. Do not extract body text, bullet points, or table content.
+          const chunkPrompt = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.
+
+Do not extract body text or bullet points.
 
 For pageHint, use only the page number within this chunk — page 1 is the first page of this chunk, page 2 is the second, up to page ${endPage - startPage}. Ignore all printed page numbers on the pages completely.
 
@@ -1297,12 +1303,14 @@ WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences directly add
 - If the source document contains a table relevant to the question, reproduce it in full — same columns, same rows, no omitting rows, no restructuring. Do NOT wrap tables in > block quote syntax. Use standard markdown pipe table syntax.
 - After any table include any footnotes or qualifications from the source as plain italic text.
 
-For each key fact in the summary, include the exact supporting phrase from the document and its source on separate lines:
+For each key fact in the summary, include the exact supporting phrase from the document and its source. These MUST appear as a consecutive pair with no blank line between them — quoted phrase first, citation immediately below:
 
 > "Exact short phrase from document — one sentence maximum."
-*Document Name | Page X | X.X.X Clause Heading (Parent Section Title)*
+*Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
 
-CITATION FORMAT: Use the sub-clause number and title first, then the parent section in brackets. For example: "25.2 Construction and fixings for cavity barriers (Section 25 — Concealed spaces)" not "Section 25 — Concealed spaces — 25.2 Construction and fixings". Keep it concise — clause number, clause title, parent section only.
+Both lines are mandatory — never write a citation without the quoted phrase above it, and never write a quoted phrase without the citation immediately below it.
+
+CITATION FORMAT: Sub-clause number and title first, parent section in brackets. Example: *BS 9991:2024 | Page 130 | 25.2 Construction and fixings for cavity barriers (Section 25 — Concealed spaces)*. Keep it concise — clause number, clause title, parent section only.
 
 PAGE NUMBERS — CRITICAL RULE: The page number in every citation MUST be the printed page number physically visible on that page (e.g. "130", "iv", "A-3"). Do NOT use the PDF position (i.e. do not count pages from the start of the file). British Standards and other technical documents have front matter, contents pages, and appendices that mean the PDF page position and the printed page number are always different. If you cannot see a printed page number on the extracted page, omit the page number entirely rather than guessing or using the PDF position.
 
@@ -1515,7 +1523,6 @@ RULES:
                       onClick={() => toggleMaster(v.id)}
                       style={{ padding: "10px 24px", display: "flex", alignItems: "center", gap: 8, borderLeft: "3px solid transparent" }}>
                       <span style={{ fontSize: 10, color: "#9a9088", transition: "transform 0.15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>▶</span>
-                      <span style={{ fontSize: 11, color: "#9a9088", marginRight: 4 }}>📁</span>
                       <span style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500, letterSpacing: "0.01em", flex: 1 }}>{v.name}</span>
                       <span style={{ fontSize: 10, color: "#b0a8a0" }}>{(v.subVaults || []).length}</span>
                     </div>
