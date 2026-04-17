@@ -154,13 +154,22 @@ function AnswerRenderer({ text }) {
 
   const flushTable = (key) => {
     if (tableBuffer.length === 0) return;
-    const rows = tableBuffer.map(r => {
+    const parseRow = (r) => {
       const highlighted = r.startsWith(">> ");
       const clean = highlighted ? r.slice(3) : r;
-      return { cells: clean.split("|").map(c => c.trim()).filter(c => c !== ""), highlighted };
-    });
+      // Split on | but keep empty cells — only strip leading/trailing pipe
+      const stripped = clean.replace(/^\s*\|/, "").replace(/\|\s*$/, "");
+      const cells = stripped.split("|").map(c => c.trim());
+      return { cells, highlighted };
+    };
+    const rows = tableBuffer.map(parseRow);
     const header = rows[0].cells;
-    const body = rows.slice(2);
+    const colCount = header.length;
+    // Pad all rows to header length so highlighted rows don't lose trailing cells
+    const body = rows.slice(2).map(row => ({
+      ...row,
+      cells: Array.from({ length: colCount }, (_, i) => row.cells[i] ?? "")
+    }));
     const tableTitle = tableBuffer._title || null;
     elements.push(
       <div key={`tbl-${key}`} style={{ overflowX: "auto", margin: "16px 0", border: "1px solid #aaa" }}>
@@ -279,11 +288,13 @@ function AnswerRenderer({ text }) {
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
       // Check if this is actually a standalone citation (*text*) before treating as a bullet
       const trimmedBullet = line.trim();
-      const isBulletCitation = trimmedBullet.startsWith("*") && trimmedBullet.endsWith("*") && trimmedBullet.length > 2 && !trimmedBullet.startsWith("**");
-      if (isBulletCitation) {
+      const isBulletCitationWrapped = trimmedBullet.startsWith("*") && trimmedBullet.endsWith("*") && trimmedBullet.length > 2 && !trimmedBullet.startsWith("**");
+      const isBulletCitationUnwrapped = trimmedBullet.startsWith("*") && !trimmedBullet.startsWith("**") && trimmedBullet.includes("|") && trimmedBullet.length > 10;
+      if (isBulletCitationWrapped || isBulletCitationUnwrapped) {
+        const citationText = isBulletCitationWrapped ? trimmedBullet.slice(1, -1) : trimmedBullet.slice(1).trim();
         elements.push(
           <p key={i} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif" }}>
-            {trimmedBullet.slice(1, -1)}
+            {citationText}
           </p>
         );
       } else {
@@ -305,11 +316,14 @@ function AnswerRenderer({ text }) {
       elements.push(<div key={i} style={{ height: 10 }} />);
     } else {
       const trimmed = line.trim();
-      const isStandaloneCitation = trimmed.startsWith("*") && trimmed.endsWith("*") && trimmed.length > 2 && !trimmed.startsWith("**");
-      if (isStandaloneCitation) {
+      // Match properly wrapped citations *text* OR lines starting with * containing | (citation pattern)
+      const isWrappedCitation = trimmed.startsWith("*") && trimmed.endsWith("*") && trimmed.length > 2 && !trimmed.startsWith("**");
+      const isUnwrappedCitation = trimmed.startsWith("*") && !trimmed.startsWith("**") && trimmed.includes("|") && trimmed.length > 10;
+      if (isWrappedCitation || isUnwrappedCitation) {
+        const citationText = isWrappedCitation ? trimmed.slice(1, -1) : trimmed.slice(1).trim();
         elements.push(
           <p key={i} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif" }}>
-            {trimmed.slice(1, -1)}
+            {citationText}
           </p>
         );
       } else {
@@ -1411,7 +1425,7 @@ RESPONSE FORMAT — output in this exact order every time:
 
 WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences directly addressing the current question. Must:
 - Open with a direct answer in plain English
-- Reference the key evidence briefly
+- Reference the key evidence briefly, citing ALL relevant documents provided — not just one
 - Build logically on any prior questions in the conversation where relevant
 - If the source document contains a table relevant to the question, reproduce it in full — same columns, same rows, no omitting rows, no restructuring. Do NOT wrap tables in > block quote syntax. Use standard markdown pipe table syntax.
 - After any table include any footnotes or qualifications from the source as plain italic text.
@@ -1423,7 +1437,9 @@ For each key fact in the summary, include the exact supporting phrase from the d
 
 Both lines are mandatory — never write a citation without the quoted phrase above it, and never write a quoted phrase without the citation immediately below it.
 
-CITATION FORMAT: Sub-clause number and title first, parent section in brackets. Example: *BS 9991:2024 | Page 130 | 25.2 Construction and fixings for cavity barriers (Section 25 — Concealed spaces)*. Keep it concise — clause number, clause title, parent section only.
+CITATION FORMAT: *Document | Page X | Clause number and title (Parent section title)*
+Example: *BS 9991:2024 | Page 130 | 25.2 Construction and fixings for cavity barriers (Section 25 — Concealed spaces)*
+CRITICAL: The citation MUST start AND end with an asterisk * — both opening and closing asterisk are required.
 
 PAGE NUMBERS — CRITICAL RULE: The page number in every citation MUST be the printed page number physically visible on that page (e.g. "130", "iv", "A-3"). Do NOT use the PDF position (i.e. do not count pages from the start of the file). British Standards and other technical documents have front matter, contents pages, and appendices that mean the PDF page position and the printed page number are always different. If you cannot see a printed page number on the extracted page, omit the page number entirely rather than guessing or using the PDF position.
 
@@ -1451,7 +1467,7 @@ RULES:
 - Do not repeat anything already in the summary
 - No coloured boxes — plain bullets and plain tables only
 - Summarise in your own words, do not quote large passages
-- Citations: *Document Name | Page X | X.X.X Clause Title (Parent Section Title)* — sub-clause number first, parent section in brackets
+- Citations must start AND end with asterisk: *Document Name | Page X | X.X.X Clause Title (Parent Section Title)* — opening * and closing * are both required
 - Page numbers: always use the printed page number visible on the page, never the PDF position. Omit if not visible.
 - Plain language an architect can act on immediately
 - Maximum 6 bullets
