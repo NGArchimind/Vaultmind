@@ -157,8 +157,12 @@ function AnswerRenderer({ text }) {
     const rows = tableBuffer.map(r => r.split("|").map(c => c.trim()).filter(c => c !== ""));
     const header = rows[0];
     const body = rows.slice(2);
+    const tableTitle = tableBuffer._title || null;
     elements.push(
       <div key={`tbl-${key}`} style={{ overflowX: "auto", margin: "16px 0", border: "1px solid #aaa" }}>
+        {tableTitle && (
+          <div style={{ background: "#f5f3f0", borderBottom: "1px solid #ccc", padding: "7px 14px", fontSize: 11, fontWeight: 600, color: ARC_NAVY, letterSpacing: "0.03em" }}>{tableTitle}</div>
+        )}
         <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
           <thead>
             <tr>{header.map((h, i) => (
@@ -181,8 +185,24 @@ function AnswerRenderer({ text }) {
   };
 
   lines.forEach((line, i) => {
-    if (line.startsWith("|")) { inTable = true; tableBuffer.push(line); return; }
+    if (line.startsWith("|")) {
+      inTable = true;
+      if (tableBuffer._pendingTitle) {
+        tableBuffer._title = tableBuffer._pendingTitle;
+        delete tableBuffer._pendingTitle;
+      }
+      tableBuffer.push(line);
+      return;
+    }
     if (inTable) flushTable(i);
+
+    // Detect table title — a bold line immediately before a table
+    const isTableTitle = (line.startsWith("**") && line.endsWith("**") && /table|figure/i.test(line));
+    if (isTableTitle) {
+      // Store as pending title — will be attached to next table
+      tableBuffer._pendingTitle = line.replace(/\*\*/g, "").trim();
+      return;
+    }
 
     if (line.startsWith("### ")) {
       elements.push(
@@ -1220,23 +1240,61 @@ Rules:
       const docPageMap = {};
       let budgetRemaining = HARD_PAGE_BUDGET;
 
-      for (const section of allScoredSections) {
-        if (budgetRemaining <= 0) break;
-        const key = section.docName;
-        if (!docPageMap[key]) docPageMap[key] = { contentsDoc: section.contentsDoc, pages: new Set() };
+      // When multiple documents are present, allocate budget fairly across them
+      // so no single document dominates. Each doc gets an equal share of the budget,
+      // with any unused share redistributed to others.
+      const uniqueDocs = [...new Set(allScoredSections.map(s => s.docName))];
+      const numDocs = Math.max(uniqueDocs.length, 1);
+      const perDocBudget = Math.floor(HARD_PAGE_BUDGET / numDocs);
 
-        const pagesToAdd = [];
-        section.pages.forEach(p => {
-          [0, 1].forEach(offset => {
-            const pg = p + offset;
-            if (pg > 0 && !docPageMap[key].pages.has(pg)) pagesToAdd.push(pg);
+      // First pass: fill each doc up to its per-doc budget using highest-probability sections
+      for (const docName of uniqueDocs) {
+        const docSections = allScoredSections.filter(s => s.docName === docName);
+        let docBudget = perDocBudget;
+
+        for (const section of docSections) {
+          if (docBudget <= 0 || budgetRemaining <= 0) break;
+          if (!docPageMap[docName]) docPageMap[docName] = { contentsDoc: section.contentsDoc, pages: new Set() };
+
+          const pagesToAdd = [];
+          section.pages.forEach(p => {
+            [0, 1].forEach(offset => {
+              const pg = p + offset;
+              if (pg > 0 && !docPageMap[docName].pages.has(pg)) pagesToAdd.push(pg);
+            });
           });
-        });
-        pagesToAdd.sort((a, b) => a - b);
-        for (const p of pagesToAdd) {
+          pagesToAdd.sort((a, b) => a - b);
+          for (const p of pagesToAdd) {
+            if (docBudget <= 0 || budgetRemaining <= 0) break;
+            docPageMap[docName].pages.add(p);
+            docBudget--;
+            budgetRemaining--;
+          }
+        }
+      }
+
+      // Second pass: use any remaining budget on highest-probability sections across all docs
+      if (budgetRemaining > 0) {
+        for (const section of allScoredSections) {
           if (budgetRemaining <= 0) break;
-          docPageMap[key].pages.add(p);
-          budgetRemaining--;
+          const key = section.docName;
+          if (!docPageMap[key]) docPageMap[key] = { contentsDoc: section.contentsDoc, pages: new Set() };
+
+          const pagesToAdd = [];
+          section.pages.forEach(p => {
+            [0, 1].forEach(offset => {
+              const pg = p + offset;
+              if (pg > 0 && !docPageMap[key].pages.has(pg)) pagesToAdd.push(pg);
+            });
+          });
+          pagesToAdd.sort((a, b) => a - b);
+          for (const p of pagesToAdd) {
+            if (budgetRemaining <= 0) break;
+            if (!docPageMap[key].pages.has(p)) {
+              docPageMap[key].pages.add(p);
+              budgetRemaining--;
+            }
+          }
         }
       }
 
@@ -1316,7 +1374,9 @@ PRIORITY SECTIONS: ${focusSections || "all sections"}
 ---
 
 TABLES — GLOBAL RULE (applies to every section):
-Whenever your response references, cites, or draws data from a table in the source document, you MUST reproduce that table in full immediately at the point of reference. Same columns, same rows, same data — no summarising, no restructuring, no omitting rows. Do NOT wrap tables in > block quote syntax. Reproduce the table as a standard markdown table using | pipe syntax. Place the citation immediately below the table.
+Whenever your response references, cites, or draws data from a table in the source document, you MUST reproduce that table in full immediately at the point of reference. Same columns, same rows, same data — no summarising, no restructuring, no omitting rows. Do NOT wrap tables in > block quote syntax. Reproduce the table as a standard markdown table using | pipe syntax.
+Before the table, output the table title on its own line in bold: **Table X — Title of table**
+Place the citation immediately below the table.
 
 RESPONSE FORMAT — output in this exact order every time:
 
