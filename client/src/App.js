@@ -1434,19 +1434,21 @@ PRIORITY SECTIONS: ${focusSections || "all sections"}
 ---
 
 TABLES — GLOBAL RULE (applies to every section):
-Whenever your response references or draws data from a table in the source document, you MUST reproduce that table in full at the point of reference. This applies to EVERY table referenced — if you cite Table 3, reproduce Table 3. If you cite Table 5, reproduce Table 5. If you cite Table 22, reproduce Table 22. Do not reproduce only one table when multiple are referenced.
+When multiple documents contain tables that are near-identical in structure and content (e.g. minimum fire resistance performance tables across different versions of the same standard), do NOT reproduce each one separately. Instead:
+1. Reproduce the single most complete and relevant version in full
+2. After the citation, add a plain italic note: *Note: [Other Document] [Table X] contains equivalent/near-identical data. [Note any meaningful differences, e.g. if one table lacks a cavity barrier row.]*
 
-Table reproduction rules:
-1. Output the table title on its own line in bold immediately before the table: **Table X — Title of table**
+For the one table you reproduce:
+1. Output the table title on its own line in bold: **Table X — Title of table**
 2. Reproduce the full table as a standard markdown pipe table — every row starts and ends with | pipe characters, including the header row
 3. After the header row output a separator row: | --- | --- | --- |
-4. For any row(s) that directly answer the question, prefix the ENTIRE ROW with >> and a space before the first pipe character. The >> appears ONCE at the start of the line only: >> | cell | cell | cell |
-   Do NOT put >> before each individual cell. Only one >> at the very start of the row.
+4. For any row(s) that directly answer the question, prefix the ENTIRE ROW with >> ONCE at the start only: >> | cell | cell | cell |
+   Do NOT put >> before each individual cell — only ONE >> at the very start of the row.
 5. Do NOT wrap tables in > block quote syntax
-6. Place the citation immediately below the table
-7. If a table spans multiple pages, combine all parts into one complete table
+6. Place the citation immediately below the table, then the equivalence note
+7. If the table spans multiple pages, combine all parts into one complete table
 
-IMPORTANT: Every table mentioned by name MUST be reproduced in full. Never reference a table without reproducing it.
+If only one table is referenced, reproduce it in full without any equivalence note.
 
 RESPONSE FORMAT — output in this exact order every time:
 
