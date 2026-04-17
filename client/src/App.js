@@ -235,7 +235,17 @@ function AnswerRenderer({ text }) {
         );
       }
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
-      elements.push(<li key={i} style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.7, marginLeft: 20, marginBottom: 4, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(line.slice(2))}</li>);
+      // Check if this is actually a standalone citation (*text*) before treating as a bullet
+      const isBulletCitation = line.startsWith("*") && line.endsWith("*") && line.length > 2 && !line.startsWith("**");
+      if (isBulletCitation) {
+        elements.push(
+          <p key={i} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif" }}>
+            {line.slice(1, -1)}
+          </p>
+        );
+      } else {
+        elements.push(<li key={i} style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.7, marginLeft: 20, marginBottom: 4, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(line.slice(2))}</li>);
+      }
     } else if (line.match(/^\d+\.\d+ /)) {
       const numMatch = line.match(/^(\d+\.\d+) (.+)/);
       if (numMatch) {
@@ -1280,11 +1290,11 @@ WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences directly add
 For each key fact in the summary, include the exact supporting phrase from the document and its source on separate lines:
 
 > "Exact short phrase from document — one sentence maximum."
-*Document Name | Page X | Section X.X.X — Clause Heading*
+*Document Name | Page X | Parent Section — Sub-section X.X.X — Clause Heading*
 
-Always cite the most specific clause available — use the subsection number (e.g. 6.6.11) not just the chapter (e.g. 6.6).
+CITATION HEADING FORMAT: Always include the full heading hierarchy in citations, from the parent section down to the most specific sub-clause. For example: "Section 25 — Cavity Barriers > 25.2 Construction and fixings" not just "25.2 Construction and fixings". This helps the reader navigate to the correct location in the document.
 
-IMPORTANT — PAGE NUMBERS IN CITATIONS: Use the printed page number visible on the extracted page itself, NOT the index pageHint. Documents often have front matter (cover, contents, foreword) before the printed page 1 begins, so the PDF position and printed page number will differ. If no printed page number is visible on the page, omit the page number from the citation rather than guessing.
+PAGE NUMBERS — CRITICAL RULE: The page number in every citation MUST be the printed page number physically visible on that page (e.g. "130", "iv", "A-3"). Do NOT use the PDF position (i.e. do not count pages from the start of the file). British Standards and other technical documents have front matter, contents pages, and appendices that mean the PDF page position and the printed page number are always different. If you cannot see a printed page number on the extracted page, omit the page number entirely rather than guessing or using the PDF position.
 
 ---
 
@@ -1303,13 +1313,15 @@ Before deciding whether to write Case 1 or Case 2, you MUST check ALL of the fol
 CASE 1 — Only use this if ALL of the above checks come back negative and the summary genuinely contains everything an architect needs to act:
 Write exactly: "The summary above fully addresses this question."
 
-CASE 2 — Write concise bullet points in plain English. Each bullet is one sentence. If a bullet references a table from the document, reproduce that table immediately below the bullet (same columns and rows, no restructuring). Citation on its own italic line immediately after each bullet or table.
+CASE 2 — Write concise bullet points in plain English. Each bullet is one sentence. If a bullet references a table from the document, reproduce that table immediately below the bullet (same columns and rows, no restructuring). Citation on its own line immediately after each bullet or table, formatted exactly as:
+*Document Name | Page X | Parent Section — Sub-section X.X.X — Clause Heading*
 
 RULES:
 - Do not repeat anything already in the summary
 - No coloured boxes — plain bullets and plain tables only
 - Summarise in your own words, do not quote large passages
-- Citations: *Document | Page X | Section X.X.X — Clause* on their own line
+- Citations: always include the full heading hierarchy (parent section > sub-section), never just the sub-clause number alone
+- Page numbers: always use the printed page number visible on the page, never the PDF position. Omit if not visible.
 - Plain language an architect can act on immediately
 - Maximum 6 bullets
 
