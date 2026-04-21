@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 
 const IS_DEMO = false;
-const API_BASE = "https://archimind.up.railway.app";
+const API_BASE = process.env.REACT_APP_API_URL || "https://archimind.up.railway.app";
 const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 const MAX_PAGES_PER_CHUNK = 90;
 
