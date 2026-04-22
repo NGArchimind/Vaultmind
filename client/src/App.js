@@ -608,7 +608,7 @@ function CompareSection({ vaults, isAdmin }) {
 
   // Compliance check state
   const [showVaultPicker, setShowVaultPicker] = useState(false);
-  const [selectedVaultIds, setSelectedVaultIds] = useState([]);
+  const [selectedVaultId, setSelectedVaultId] = useState("");
   const [complianceRunning, setComplianceRunning] = useState(false);
   const [complianceStatus, setComplianceStatus] = useState("");
   const [complianceProgress, setComplianceProgress] = useState({ select: 0, read: 0, answer: 0 });
@@ -639,6 +639,7 @@ function CompareSection({ vaults, isAdmin }) {
     setShowVaultPicker(false);
     setSuggestedQuestions([]);
     setSelectedQuestion("");
+    setSelectedVaultId("");
     setQuestionsLoading(false);
     setCompareStatus("Analysing both documents…");
 
@@ -791,274 +792,234 @@ Return ONLY a JSON array of 3 strings, no other text:
 
   // ── Compliance check against vaults ──────────────────────────────────────────
   const runComplianceCheck = async () => {
-    if (selectedVaultIds.length === 0 || !compareAnswer) return;
+    if (!selectedVaultId || !compareAnswer) return;
     setShowVaultPicker(false);
     setComplianceRunning(true);
     setComplianceAnswer(null);
     setComplianceProgress({ select: 0, read: 0, answer: 0 });
 
-    // Build a summary of what was compared for the compliance question
-    const complianceSummary = `The following two products/systems have been compared:\n- Document A: ${docA.name}\n- Document B: ${docB.name}\n\nComparison findings summary:\n${compareAnswer.slice(0, 1500)}`;
-    const complianceQuestion = selectedQuestion || `Based on the comparison of ${docA.name.replace(".pdf", "")} and ${docB.name.replace(".pdf", "")}, are these products/systems compliant with the relevant requirements in this vault?`;
+    const complianceQuestion = selectedQuestion || `Are these products compliant with the relevant requirements in this vault?`;
 
     try {
-      // For each selected vault, load its index and run the 3-pass pipeline
-      const allResults = [];
-
-      for (const vaultId of selectedVaultIds) {
-        const vaultObj = (() => {
-          for (const v of vaults) {
-            if (v.id === vaultId) return v;
-            if (v.type === "master") {
-              const sub = (v.subVaults || []).find(sv => sv.id === vaultId);
-              if (sub) return sub;
-            }
+      // Resolve vault object
+      const vaultObj = (() => {
+        for (const v of vaults) {
+          if (v.id === selectedVaultId) return v;
+          if (v.type === "master") {
+            const sub = (v.subVaults || []).find(sv => sv.id === selectedVaultId);
+            if (sub) return sub;
           }
-          return null;
-        })();
-        if (!vaultObj) continue;
-
-        setComplianceStatus(`Checking ${vaultObj.name}…`);
-
-        let vaultIndex = null;
-        try {
-          vaultIndex = await api(`/api/vaults/${encodeURIComponent(vaultId)}/index`);
-        } catch (_) {}
-
-        if (!vaultIndex?.documents?.length) {
-          allResults.push({ vaultName: vaultObj.name, answer: "Vault has no index — cannot check compliance. Please index this vault first." });
-          continue;
         }
+        return null;
+      })();
+      if (!vaultObj) throw new Error("Vault not found");
 
-        // ── PASS 1: Score index ──────────────────────────────────────────────
-        setComplianceStatus(`Pass 1/3 · Scoring ${vaultObj.name} index…`);
-        setComplianceProgress({ select: 20, read: 0, answer: 0 });
+      // Load vault index
+      let vaultIndex = null;
+      try { vaultIndex = await api(`/api/vaults/${encodeURIComponent(selectedVaultId)}/index`); } catch (_) {}
+      if (!vaultIndex?.documents?.length) {
+        setComplianceStatus("Vault has no index — please index this vault first.");
+        setComplianceRunning(false);
+        return;
+      }
 
-        const BOILERPLATE_HEADINGS = [
-          "the approved documents", "what is an approved document", "approved documents",
-          "list of approved documents", "use of guidance", "how to use this approved document",
-          "other guidance", "the building regulations", "online version", "hm government",
-          "main changes", "approved document", "list of approved documents"
-        ];
-        const isBoilerplate = (title) => {
-          const t = title.toLowerCase().trim();
-          return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
-        };
+      // ── PASS 1: Score index (flash-lite for speed) ───────────────────────────
+      setComplianceStatus(`Pass 1/3 · Scoring index…`);
+      setComplianceProgress({ select: 20, read: 0, answer: 0 });
 
-        const indexSummary = (vaultIndex.documents || []).map(doc => {
-          const pageFrequency = {};
-          (doc.headings || []).forEach(h => {
-            const p = h.pageHint || 1;
-            pageFrequency[p] = (pageFrequency[p] || 0) + 1;
-          });
-          const crowdedPages = new Set(
-            Object.entries(pageFrequency).filter(([, count]) => count > 8).map(([page]) => Number(page))
-          );
-          const headings = (doc.headings || [])
-            .filter(h => !isBoilerplate(h.title))
-            .filter(h => !crowdedPages.has(h.pageHint))
-            .map(h => `  p${h.pageHint || 1}: ${h.title}`)
-            .join("\n");
-          return `DOCUMENT: ${doc.name}\n${headings}`;
-        }).join("\n\n");
+      const BOILERPLATE_HEADINGS = [
+        "the approved documents", "what is an approved document", "approved documents",
+        "list of approved documents", "use of guidance", "how to use this approved document",
+        "other guidance", "the building regulations", "online version", "hm government",
+        "main changes", "approved document", "list of approved documents"
+      ];
+      const isBoilerplate = (title) => {
+        const t = title.toLowerCase().trim();
+        return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
+      };
 
-        const scoringPrompt = `You are an expert technical document analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain requirements relevant to the compliance question.
+      const indexSummary = (vaultIndex.documents || []).map(doc => {
+        const pageFrequency = {};
+        (doc.headings || []).forEach(h => {
+          const p = h.pageHint || 1;
+          pageFrequency[p] = (pageFrequency[p] || 0) + 1;
+        });
+        const crowdedPages = new Set(
+          Object.entries(pageFrequency).filter(([, count]) => count > 8).map(([page]) => Number(page))
+        );
+        const headings = (doc.headings || [])
+          .filter(h => !isBoilerplate(h.title))
+          .filter(h => !crowdedPages.has(h.pageHint))
+          .map(h => `  p${h.pageHint || 1}: ${h.title}`)
+          .join("\n");
+        return `DOCUMENT: ${doc.name}\n${headings}`;
+      }).join("\n\n");
+
+      const productContext = `Products being assessed:\n- ${docA.name.replace(".pdf","")}\n- ${docB.name.replace(".pdf","")}\n\nKey differences:\n${compareAnswer.slice(0, 600)}`;
+
+      const scoringPrompt = `You are a technical document analyst. Using ONLY the index below, identify sections most likely to contain requirements relevant to this compliance question.
 
 DOCUMENT INDEX:
 ${indexSummary}
 
 COMPLIANCE QUESTION: ${complianceQuestion}
 
-CONTEXT — what is being checked for compliance:
-${complianceSummary.slice(0, 800)}
+PRODUCT CONTEXT:
+${productContext}
 
-Identify all sections that could contain relevant performance requirements, specifications, classifications, installation requirements, or testing standards. Be conservative — include borderline sections.
+Return ONLY compact JSON:
+{"selectedDocs":[{"docName":"exact filename","sections":[{"heading":"exact heading","pageHint":42,"probability":0.95}]}]}
 
-Respond ONLY as compact JSON:
-{
-  "selectedDocs": [
-    {
-      "docName": "exact filename from index",
-      "sections": [
-        {"heading": "exact heading from index", "pageHint": 42, "probability": 0.95}
-      ]
-    }
-  ]
-}
+Rules: probability > 0.5 only, pageHint must be integer, pure JSON only.`;
 
-Rules:
-- Include sections with probability > 0.5
-- pageHint MUST be a plain integer
-- Return pure JSON only`;
+      let scoring = { selectedDocs: [] };
+      try {
+        const { text: scoringText } = await callClaude(
+          [{ role: "user", content: scoringPrompt }],
+          "You are a technical document analyst. Return pure JSON only.",
+          8000, 2, "gemini-2.5-flash-lite"
+        );
+        const clean = scoringText.replace(/\`\`\`json|\`\`\`/g, "").trim();
+        try { scoring = JSON.parse(clean); }
+        catch { const m = clean.match(/\{[\s\S]*\}/); if (m) try { scoring = JSON.parse(m[0]); } catch {} }
+      } catch (e) { console.warn("Compliance scoring failed:", e); }
 
-        let scoring = { selectedDocs: [] };
+      setComplianceProgress({ select: 100, read: 20, answer: 0 });
+
+      // ── PASS 2: Load and extract relevant pages ───────────────────────────────
+      setComplianceStatus(`Pass 2/3 · Extracting relevant pages…`);
+
+      let pdfsInVault = [];
+      try {
+        const pdfsData = await api(`/api/vaults/${encodeURIComponent(selectedVaultId)}/pdfs`);
+        pdfsInVault = pdfsData.pdfs || [];
+      } catch (_) {}
+
+      const selectedDocNames = (scoring.selectedDocs || []).map(d => d.docName);
+      const contentsData = [];
+
+      for (const docName of selectedDocNames) {
+        const matchedPdf = pdfsInVault.find(p =>
+          p.name === docName || p.name.includes(docName) || docName.includes(p.name)
+        );
+        if (!matchedPdf) continue;
         try {
-          const { text: scoringText } = await callClaude(
-            [{ role: "user", content: scoringPrompt }],
-            "You are a technical document analyst. Score document sections for relevance. Return pure JSON only.",
-            65000, 2, "gemini-2.5-flash"
-          );
-          const clean = scoringText.replace(/```json|```/g, "").trim();
-          try { scoring = JSON.parse(clean); }
-          catch { const m = clean.match(/\{[\s\S]*\}/); if (m) try { scoring = JSON.parse(m[0]); } catch {} }
-        } catch (e) {
-          console.warn("Compliance scoring failed:", e);
-        }
-
-        setComplianceProgress({ select: 100, read: 20, answer: 0 });
-
-        // ── PASS 2: Load PDFs and extract relevant pages ───────────────────────
-        setComplianceStatus(`Pass 2/3 · Extracting pages from ${vaultObj.name}…`);
-
-        let pdfsInVault = [];
-        try {
-          const pdfsData = await api(`/api/vaults/${encodeURIComponent(vaultId)}/pdfs`);
-          pdfsInVault = pdfsData.pdfs || [];
+          const pdfData = await api(`/api/vaults/${encodeURIComponent(selectedVaultId)}/pdfs/${encodeURIComponent(matchedPdf.name)}`);
+          contentsData.push({ pdf: matchedPdf, base64: pdfData.base64 });
         } catch (_) {}
+      }
 
-        const selectedDocNames = (scoring.selectedDocs || []).map(d => d.docName);
-        const contentsData = [];
-
-        for (const docName of selectedDocNames) {
-          const matchedPdf = pdfsInVault.find(p =>
-            p.name === docName || p.name.includes(docName) || docName.includes(p.name)
-          );
-          if (!matchedPdf) continue;
+      if (contentsData.length === 0 && pdfsInVault.length > 0) {
+        for (const pdf of pdfsInVault.slice(0, 2)) {
           try {
-            const pdfData = await api(`/api/vaults/${encodeURIComponent(vaultId)}/pdfs/${encodeURIComponent(matchedPdf.name)}`);
-            contentsData.push({ pdf: matchedPdf, base64: pdfData.base64 });
+            const pdfData = await api(`/api/vaults/${encodeURIComponent(selectedVaultId)}/pdfs/${encodeURIComponent(pdf.name)}`);
+            contentsData.push({ pdf, base64: pdfData.base64 });
           } catch (_) {}
         }
+      }
 
-        // Fallback: fetch first 2 PDFs if scoring returned nothing useful
-        if (contentsData.length === 0 && pdfsInVault.length > 0) {
-          for (const pdf of pdfsInVault.slice(0, 2)) {
-            try {
-              const pdfData = await api(`/api/vaults/${encodeURIComponent(vaultId)}/pdfs/${encodeURIComponent(pdf.name)}`);
-              contentsData.push({ pdf, base64: pdfData.base64 });
-            } catch (_) {}
-          }
-        }
+      const docPageMap = {};
+      const HARD_PAGE_BUDGET = 60;
+      let budgetRemaining = HARD_PAGE_BUDGET;
 
-        // Build page map from scoring
-        const docPageMap = {};
-        const HARD_PAGE_BUDGET = 60;
-        let budgetRemaining = HARD_PAGE_BUDGET;
-
-        (scoring.selectedDocs || []).forEach(selectedDoc => {
-          const matchedDoc = contentsData.find(d =>
-            d.pdf.name.includes(selectedDoc.docName) || selectedDoc.docName.includes(d.pdf.name)
-          );
-          if (!matchedDoc) return;
-          (selectedDoc.sections || []).sort((a, b) => (b.probability || 0) - (a.probability || 0)).forEach(section => {
-            if (budgetRemaining <= 0) return;
-            const pageHint = typeof section.pageHint === "number" ? section.pageHint : parseInt(String(section.pageHint)) || 1;
-            const key = matchedDoc.pdf.name;
-            if (!docPageMap[key]) docPageMap[key] = { contentsDoc: matchedDoc, pages: new Set() };
-            [0, 1].forEach(offset => {
-              const pg = pageHint + offset;
-              if (pg > 0 && !docPageMap[key].pages.has(pg) && budgetRemaining > 0) {
-                docPageMap[key].pages.add(pg);
-                budgetRemaining--;
-              }
-            });
+      (scoring.selectedDocs || []).forEach(selectedDoc => {
+        const matchedDoc = contentsData.find(d =>
+          d.pdf.name.includes(selectedDoc.docName) || selectedDoc.docName.includes(d.pdf.name)
+        );
+        if (!matchedDoc) return;
+        (selectedDoc.sections || []).sort((a, b) => (b.probability || 0) - (a.probability || 0)).forEach(section => {
+          if (budgetRemaining <= 0) return;
+          const pageHint = typeof section.pageHint === "number" ? section.pageHint : parseInt(String(section.pageHint)) || 1;
+          const key = matchedDoc.pdf.name;
+          if (!docPageMap[key]) docPageMap[key] = { contentsDoc: matchedDoc, pages: new Set() };
+          [0, 1].forEach(offset => {
+            const pg = pageHint + offset;
+            if (pg > 0 && !docPageMap[key].pages.has(pg) && budgetRemaining > 0) {
+              docPageMap[key].pages.add(pg);
+              budgetRemaining--;
+            }
           });
         });
+      });
 
-        // Fallback pages if nothing selected
-        if (Object.keys(docPageMap).length === 0 && contentsData.length > 0) {
-          contentsData.slice(0, 2).forEach(d => {
-            docPageMap[d.pdf.name] = { contentsDoc: d, pages: new Set([1, 2, 3, 4, 5]) };
+      if (Object.keys(docPageMap).length === 0 && contentsData.length > 0) {
+        contentsData.slice(0, 2).forEach(d => {
+          docPageMap[d.pdf.name] = { contentsDoc: d, pages: new Set([1, 2, 3, 4, 5]) };
+        });
+      }
+
+      const docBlocks = [];
+      for (const [docName, { contentsDoc, pages }] of Object.entries(docPageMap)) {
+        const pageList = Array.from(pages).sort((a, b) => a - b);
+        if (pageList.length === 0) continue;
+        try {
+          const result = await api("/api/extract-pages", {
+            method: "POST",
+            body: { base64: contentsDoc.base64, pages: pageList }
           });
-        }
+          docBlocks.push({
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: result.base64 },
+            title: `${docName} — pages ${result.pageNumbers.join(", ")}`,
+          });
+        } catch (_) {}
+      }
 
-        // Extract pages
-        const docBlocks = [];
-        for (const [docName, { contentsDoc, pages }] of Object.entries(docPageMap)) {
-          const pageList = Array.from(pages).sort((a, b) => a - b);
-          if (pageList.length === 0) continue;
-          try {
-            const result = await api("/api/extract-pages", {
-              method: "POST",
-              body: { base64: contentsDoc.base64, pages: pageList }
-            });
-            docBlocks.push({
-              type: "document",
-              source: { type: "base64", media_type: "application/pdf", data: result.base64 },
-              title: `${docName} — pages ${result.pageNumbers.join(", ")}`,
-            });
-          } catch (_) {}
-        }
+      setComplianceProgress({ select: 100, read: 100, answer: 20 });
 
-        setComplianceProgress({ select: 100, read: 100, answer: 20 });
+      if (docBlocks.length === 0) {
+        setComplianceStatus("Could not extract relevant pages from this vault.");
+        setComplianceRunning(false);
+        return;
+      }
 
-        // ── PASS 3: Compliance synthesis ──────────────────────────────────────
-        setComplianceStatus(`Pass 3/3 · Assessing compliance against ${vaultObj.name}…`);
+      // ── PASS 3: Compliance synthesis ──────────────────────────────────────────
+      setComplianceStatus(`Pass 3/3 · Assessing compliance…`);
 
-        if (docBlocks.length === 0) {
-          allResults.push({ vaultName: vaultObj.name, answer: "Could not extract relevant pages from this vault for comparison." });
-          continue;
-        }
+      const compliancePrompt = `You are a building regulations consultant assessing two products for compliance.
 
-        const compliancePrompt = `You are an expert building regulations consultant. You are assessing whether two products/systems are compliant with the requirements in the provided regulatory documents.
+PRODUCTS: ${docA.name.replace(".pdf","")} vs ${docB.name.replace(".pdf","")}
+QUESTION: ${complianceQuestion}
 
-PRODUCTS BEING ASSESSED:
-- Product A: ${docA.name}
-- Product B: ${docB.name}
+KEY PRODUCT DIFFERENCES:
+${compareAnswer.slice(0, 800)}
 
-KEY COMPARISON FINDINGS (from product comparison):
-${compareAnswer.slice(0, 1200)}
-
-COMPLIANCE QUESTION: ${complianceQuestion}
-
-Using ONLY the provided regulatory document pages, assess compliance for both products. Structure your response as follows:
+Using ONLY the provided document pages, give a concise compliance assessment:
 
 ## Compliance Assessment — ${vaultObj.name}
 
-### Overall Verdict
-A brief statement on whether each product appears compliant, non-compliant, or where compliance is uncertain based on the available evidence.
+### Verdict
+One or two sentences per product — compliant, non-compliant, or uncertain, and why.
 
-### Compliance Analysis
-For each relevant requirement found in the documents, assess both products against it. Use a table where helpful:
+### Key Findings
+A table of the most relevant requirements and how each product meets them:
 
-| Requirement | ${docA.name.replace(".pdf", "")} | ${docB.name.replace(".pdf", "")} | Assessment |
-|---|---|---|---|
+| Requirement | ${docA.name.replace(".pdf", "")} | ${docB.name.replace(".pdf", "")} |
+|---|---|---|
 
-### Non-Compliances or Concerns
-List any specific areas where either product may not meet requirements. Be precise — quote the requirement and explain the gap.
+### Concerns
+Bullet points only. Any specific gaps or non-compliances. If none, state "No concerns identified."
 
-### Areas Requiring Further Information
-Any compliance questions that cannot be answered from the available documents.
-
-### Regulatory References
-Key clauses and sections from the vault documents that are most relevant to this assessment.
+### References
 *Document | Page X | Clause title*
 
-PAGE NUMBERS: Use the printed page number visible on the extracted page itself — not the position within the extracted subset. British Standards and Approved Documents have front matter, so the printed page number will be much higher than the page's position in the extracted set. If the printed page number is not clearly visible, use the page numbers listed in the document title block (e.g. "BS 9991:2024 — pages 101, 102, 103") to identify the correct number. Never use the sequential position within the extracted pages.
+PAGE NUMBERS: Use the printed page number on the page, not its position in the extracted set. If unclear, use the numbers in the document title block.
 
-Use only the document pages provided. Do not assume compliance where evidence is absent. Be direct and specific.`;
+Be concise. Do not repeat information. Do not speculate beyond what the documents state.`;
 
-        try {
-          const { text: complianceText } = await callClaude(
-            [{ role: "user", content: [...docBlocks, { type: "text", text: compliancePrompt }] }],
-            "You are an expert building regulations consultant. Assess compliance using only the provided document pages. Be direct and specific.",
-            65536, 2, "gemini-2.5-flash"
-          );
-          allResults.push({ vaultName: vaultObj.name, answer: complianceText });
-        } catch (e) {
-          allResults.push({ vaultName: vaultObj.name, answer: `Error running compliance check: ${e.message}` });
-        }
-
-        setComplianceProgress({ select: 100, read: 100, answer: 100 });
+      try {
+        const { text: complianceText } = await callClaude(
+          [{ role: "user", content: [...docBlocks, { type: "text", text: compliancePrompt }] }],
+          "You are a building regulations consultant. Be concise and direct. Use only the provided document pages.",
+          16000, 2, "gemini-2.5-flash"
+        );
+        setComplianceAnswer(complianceText);
+        setComplianceStatus("Compliance check complete.");
+      } catch (e) {
+        setComplianceStatus("Error: " + e.message);
       }
 
-      // Combine results from all selected vaults
-      const combinedAnswer = allResults.map(r =>
-        `# Compliance Check — ${r.vaultName}\n\n${r.answer}`
-      ).join("\n\n---\n\n");
-
-      setComplianceAnswer(combinedAnswer);
-      setComplianceStatus("Compliance check complete.");
+      setComplianceProgress({ select: 100, read: 100, answer: 100 });
     } catch (e) {
       setComplianceStatus("Error: " + e.message);
     }
@@ -1077,10 +1038,8 @@ Use only the document pages provided. Do not assume compliance where evidence is
     }
   });
 
-  const toggleVaultSelection = (id) => {
-    setSelectedVaultIds(prev =>
-      prev.includes(id) ? prev.filter(v => v !== id) : [...prev, id]
-    );
+  const selectVaultForCompliance = (id) => {
+    setSelectedVaultId(id);
   };
 
   const DropZone = ({ doc, setDoc, label, dragOver, setDragOver, inputRef }) => (
@@ -1251,7 +1210,7 @@ Use only the document pages provided. Do not assume compliance where evidence is
                     )}
 
                     {/* Vault picker */}
-                    <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Select vaults to check against</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Select a vault to check against</div>
                     <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 12, lineHeight: 1.6 }}>
                       Only indexed vaults can be used.
                     </p>
@@ -1260,17 +1219,17 @@ Use only the document pages provided. Do not assume compliance where evidence is
                         <p style={{ fontSize: 12, color: "#9a9088", fontStyle: "italic" }}>No vaults available.</p>
                       )}
                       {vaultOptions.map(v => (
-                        <label key={v.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 12px", background: selectedVaultIds.includes(v.id) ? "#f0f5f6" : "transparent", border: `1px solid ${selectedVaultIds.includes(v.id) ? AD_GREEN : "#e8e0d5"}` }}>
-                          <input type="checkbox" checked={selectedVaultIds.includes(v.id)} onChange={() => toggleVaultSelection(v.id)}
+                        <label key={v.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 12px", background: selectedVaultId === v.id ? "#f0f5f6" : "transparent", border: `1px solid ${selectedVaultId === v.id ? AD_GREEN : "#e8e0d5"}` }}>
+                          <input type="radio" name="vaultSelect" checked={selectedVaultId === v.id} onChange={() => selectVaultForCompliance(v.id)}
                             style={{ accentColor: AD_GREEN }} />
                           <span style={{ fontSize: 13, color: ARC_NAVY }}>{v.name}</span>
                         </label>
                       ))}
                     </div>
                     <div style={{ display: "flex", gap: 10 }}>
-                      <button className="btn" onClick={runComplianceCheck} disabled={selectedVaultIds.length === 0 || !selectedQuestion.trim()}
-                        style={{ background: selectedVaultIds.length > 0 && selectedQuestion.trim() ? ARC_TERRACOTTA : "#c8c0b8", color: "#ffffff", padding: "10px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                        Run Compliance Check ({selectedVaultIds.length} vault{selectedVaultIds.length !== 1 ? "s" : ""})
+                      <button className="btn" onClick={runComplianceCheck} disabled={!selectedVaultId || !selectedQuestion.trim()}
+                        style={{ background: selectedVaultId && selectedQuestion.trim() ? ARC_TERRACOTTA : "#c8c0b8", color: "#ffffff", padding: "10px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                        Run Compliance Check
                       </button>
                       <button className="btn" onClick={() => setShowVaultPicker(false)}
                         style={{ background: "transparent", color: "#9a9088", padding: "10px 16px", fontSize: 11, border: "1px solid #ccc" }}>
@@ -1304,7 +1263,7 @@ Use only the document pages provided. Do not assume compliance where evidence is
                   <AnswerRenderer text={complianceAnswer} />
                 </div>
                 {/* Option to run another compliance check against different vaults */}
-                <button className="btn" onClick={() => { setComplianceAnswer(null); setComplianceStatus(""); setSelectedVaultIds([]); setShowVaultPicker(true); }}
+                <button className="btn" onClick={() => { setComplianceAnswer(null); setComplianceStatus(""); setSelectedVaultId(""); setShowVaultPicker(true); }}
                   style={{ background: "transparent", color: AD_GREEN, padding: "8px 0", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", border: "none", textDecoration: "underline" }}>
                   Check against different vaults
                 </button>
