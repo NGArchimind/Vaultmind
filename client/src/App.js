@@ -693,7 +693,12 @@ export default function App() {
   const parentMaster = vaults.find(v => v.type === "master" && (v.subVaults || []).some(sv => sv.id === selectedVault));
 
   const vaultHistory = history.filter(h => h.vaultId === selectedVault);
-
+  
+useEffect(() => {
+  const isStaging = process.env.REACT_APP_API_URL?.includes("staging");
+  document.title = isStaging ? "Archimind [Staging]" : "Archimind";
+}, []);
+  
   // ── load vaults on mount ────────────────────────────────────────────────────
   useEffect(() => { loadVaults(); }, []);
 

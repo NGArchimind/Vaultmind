@@ -24,13 +24,6 @@ const r2 = new S3Client({
 
 const BUCKET = process.env.R2_BUCKET || "vaultmind-docs";
 
-// ── DEBUG — remove after confirming credentials ───────────────────────────────
-console.log("R2 ENDPOINT:", process.env.R2_ENDPOINT);
-console.log("R2 BUCKET:", process.env.R2_BUCKET);
-console.log("R2 ACCESS KEY (first 8):", process.env.R2_ACCESS_KEY_ID?.slice(0, 8));
-console.log("R2 SECRET KEY (first 8):", process.env.R2_SECRET_ACCESS_KEY?.slice(0, 8));
-// ─────────────────────────────────────────────────────────────────────────────
-
 async function streamToBuffer(stream) {
   const chunks = [];
   for await (const chunk of stream) chunks.push(chunk);
