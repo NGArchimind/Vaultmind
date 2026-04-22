@@ -634,29 +634,26 @@ function CompareSection({ vaults, isAdmin }) {
     setShowVaultPicker(false);
     setCompareStatus("Analysing both documents…");
 
-    const prompt = `You are a technical product comparison specialist. You have been given two product datasheets or technical documents. Compare them thoroughly and identify all key differences.
+    const prompt = `You are a technical product comparison specialist. You have been given two product datasheets or technical documents.
 
-Your response must cover:
+Respond in this exact structure:
 
 ## Overview
-A brief one-paragraph summary of what each document describes (product type, manufacturer if visible, key purpose).
+One sentence describing each product — what it is, who makes it, and its primary purpose. Nothing more.
+
+## Specifications
+A table comparing all quantifiable properties present in both documents side by side. Only include rows where a value exists for at least one product. Use this format:
+
+| Property | ${docA.name.replace(".pdf", "")} | ${docB.name.replace(".pdf", "")} |
+|---|---|---|
+
+Include: dimensions, thickness options, fire ratings, density, thermal conductivity, weight, compliance standards, edge types, colour, and any other measurable specification.
 
 ## Key Differences
-A comprehensive table showing the most important differences between the two products/systems. Use this format:
-
-| Feature | ${docA.name.replace(".pdf", "")} | ${docB.name.replace(".pdf", "")} | Notes |
-|---|---|---|---|
-
-Include all technically significant differences: performance ratings, dimensions, materials, certifications, installation requirements, compatibility, limitations, and any other specification differences.
-
-## Highlighted Differences
-After the table, write 3–6 bullet points calling out the most significant differences that a specifier or designer would need to be aware of. Be specific and technical.
-
-## Similarities
-Briefly note any key areas where the two products are equivalent or interchangeable.
+An analysis of the most significant differences between the two products — what those differences mean in practice for a specifier or designer. Focus on performance, application suitability, and installation. Do not repeat the table — interpret and analyse the differences. 4–6 paragraphs maximum, each focused on one key area of difference.
 
 ## Specifier Notes
-Any practical notes about choosing between these two products for a project — including any scenarios where one is clearly more suitable than the other.`;
+Concise guidance on when to use each product. Include any scenarios where one is clearly more suitable than the other, and any limitations or restrictions to be aware of.`;
 
     try {
       // Attempt text extraction for both PDFs first
