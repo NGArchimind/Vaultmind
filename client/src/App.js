@@ -66,9 +66,9 @@ async function splitPdfIntoChunks(base64Data, chunkSize) {
   }
 }
 
-async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash") {
+async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash", timeoutMs = 240000) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   let res;
   try {
@@ -88,12 +88,12 @@ async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2,
   if (res.status === 429 && retries > 0) {
     console.log(`Rate limit hit, waiting 15 seconds before retry (${retries} retries left)…`);
     await new Promise(r => setTimeout(r, 15000));
-    return callClaude(messages, systemPrompt, maxTokens, retries - 1, model);
+    return callClaude(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs);
   }
   if ((res.status === 504 || res.status === 502) && retries > 0) {
     console.log(`Gateway error ${res.status}, retrying in 5 seconds…`);
     await new Promise(r => setTimeout(r, 5000));
-    return callClaude(messages, systemPrompt, maxTokens, retries - 1, model);
+    return callClaude(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs);
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -659,15 +659,44 @@ Briefly note any key areas where the two products are equivalent or interchangea
 Any practical notes about choosing between these two products for a project — including any scenarios where one is clearly more suitable than the other.`;
 
     try {
+      // Attempt text extraction for both PDFs first
+      setCompareStatus("Extracting document content…");
+      const [extractA, extractB] = await Promise.all([
+        api("/api/extract-text", { method: "POST", body: { base64: docA.base64 } }).catch(() => ({ hasText: false, text: "" })),
+        api("/api/extract-text", { method: "POST", body: { base64: docB.base64 } }).catch(() => ({ hasText: false, text: "" })),
+      ]);
+
+      const useTextA = extractA.hasText;
+      const useTextB = extractB.hasText;
+      console.log(`Doc A text extraction: hasText=${useTextA}, chars=${extractA.text?.length}`);
+      console.log(`Doc B text extraction: hasText=${useTextB}, chars=${extractB.text?.length}`);
+
+      // Build message content — use extracted text where available, fall back to PDF
+      let messageContent;
+      if (useTextA && useTextB) {
+        // Both have text — send as plain text, fast path
+        setCompareStatus("Analysing both documents…");
+        messageContent = [
+          { type: "text", text: `DOCUMENT A: ${docA.name}\n\n${extractA.text}` },
+          { type: "text", text: `DOCUMENT B: ${docB.name}\n\n${extractB.text}` },
+          { type: "text", text: prompt },
+        ];
+      } else {
+        // One or both are image-based — send as PDF
+        setCompareStatus("Analysing both documents (image-based PDFs)…");
+        messageContent = [
+          useTextA
+            ? { type: "text", text: `DOCUMENT A: ${docA.name}\n\n${extractA.text}` }
+            : { type: "document", source: { type: "base64", media_type: "application/pdf", data: docA.base64 }, title: docA.name },
+          useTextB
+            ? { type: "text", text: `DOCUMENT B: ${docB.name}\n\n${extractB.text}` }
+            : { type: "document", source: { type: "base64", media_type: "application/pdf", data: docB.base64 }, title: docB.name },
+          { type: "text", text: prompt },
+        ];
+      }
+
       const { text } = await callClaude(
-        [{
-          role: "user",
-          content: [
-            { type: "document", source: { type: "base64", media_type: "application/pdf", data: docA.base64 }, title: docA.name },
-            { type: "document", source: { type: "base64", media_type: "application/pdf", data: docB.base64 }, title: docB.name },
-            { type: "text", text: prompt }
-          ]
-        }],
+        [{ role: "user", content: messageContent }],
         "You are a technical product comparison specialist. Provide detailed, structured comparisons using tables where appropriate.",
         65000,
         2,
@@ -709,7 +738,8 @@ Any practical notes about choosing between these two products for a project — 
         "You are a technical product comparison specialist. You are continuing a conversation about two documents the user has uploaded. Be specific, use tables where helpful.",
         65000,
         2,
-        "gemini-2.5-flash"
+        "gemini-2.5-flash",
+        240000
       );
       setCompareAnswer(text);
       setCompareHistory(prev => [...prev, { role: "user", content: q }, { role: "assistant", content: text }]);
