@@ -1026,6 +1026,8 @@ Any compliance questions that cannot be answered from the available documents.
 Key clauses and sections from the vault documents that are most relevant to this assessment.
 *Document | Page X | Clause title*
 
+PAGE NUMBERS: Use the printed page number visible on the extracted page itself — not the position within the extracted subset. British Standards and Approved Documents have front matter, so the printed page number will be much higher than the page's position in the extracted set. If the printed page number is not clearly visible, use the page numbers listed in the document title block (e.g. "BS 9991:2024 — pages 101, 102, 103") to identify the correct number. Never use the sequential position within the extracted pages.
+
 Use only the document pages provided. Do not assume compliance where evidence is absent. Be direct and specific.`;
 
         try {
