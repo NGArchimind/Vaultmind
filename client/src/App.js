@@ -676,19 +676,27 @@ Concise guidance on when to use each product. Include any scenarios where one is
       console.log(`Doc A text extraction: hasText=${useTextA}, chars=${extractA.text?.length}`);
       console.log(`Doc B text extraction: hasText=${useTextB}, chars=${extractB.text?.length}`);
 
-      // Build message content — single combined text block (same pattern as vault pipeline)
+      // Require text extraction to succeed with meaningful content — no PDF fallback
+      const MIN_CHARS = 200;
+      const thinA = useTextA && extractA.text.replace(/\s/g, "").length < MIN_CHARS;
+      const thinB = useTextB && extractB.text.replace(/\s/g, "").length < MIN_CHARS;
+
+      if (!useTextA || !useTextB || thinA || thinB) {
+        const failedDocs = [
+          (!useTextA || thinA) && docA.name,
+          (!useTextB || thinB) && docB.name,
+        ].filter(Boolean).join(" and ");
+        setCompareStatus(`Unable to extract sufficient text from ${failedDocs}. This document may be image-based or scanned with no text layer — try printing to PDF first to embed a text layer, then re-upload.`);
+        setCompareRunning(false);
+        return;
+      }
+
+      // Send as single combined text block
       setCompareStatus("Analysing both documents…");
-      const messageContent = (useTextA && useTextB)
-        ? [{ type: "text", text: `DOCUMENT A: ${docA.name}\n\n${extractA.text}\n\n---\n\nDOCUMENT B: ${docB.name}\n\n${extractB.text}\n\n---\n\n${prompt}` }]
-        : [
-            useTextA
-              ? { type: "text", text: `DOCUMENT A: ${docA.name}\n\n${extractA.text}` }
-              : { type: "document", source: { type: "base64", media_type: "application/pdf", data: docA.base64 }, title: docA.name },
-            useTextB
-              ? { type: "text", text: `DOCUMENT B: ${docB.name}\n\n${extractB.text}` }
-              : { type: "document", source: { type: "base64", media_type: "application/pdf", data: docB.base64 }, title: docB.name },
-            { type: "text", text: prompt },
-          ];
+      const messageContent = [{
+        type: "text",
+        text: `DOCUMENT A: ${docA.name}\n\n${extractA.text}\n\n---\n\nDOCUMENT B: ${docB.name}\n\n${extractB.text}\n\n---\n\n${prompt}`
+      }];
 
       const { text } = await callClaude(
         [{ role: "user", content: messageContent }],
