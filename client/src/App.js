@@ -671,29 +671,19 @@ Any practical notes about choosing between these two products for a project — 
       console.log(`Doc A text extraction: hasText=${useTextA}, chars=${extractA.text?.length}`);
       console.log(`Doc B text extraction: hasText=${useTextB}, chars=${extractB.text?.length}`);
 
-      // Build message content — use extracted text where available, fall back to PDF
-      let messageContent;
-      if (useTextA && useTextB) {
-        // Both have text — send as plain text, fast path
-        setCompareStatus("Analysing both documents…");
-        messageContent = [
-          { type: "text", text: `DOCUMENT A: ${docA.name}\n\n${extractA.text}` },
-          { type: "text", text: `DOCUMENT B: ${docB.name}\n\n${extractB.text}` },
-          { type: "text", text: prompt },
-        ];
-      } else {
-        // One or both are image-based — send as PDF
-        setCompareStatus("Analysing both documents (image-based PDFs)…");
-        messageContent = [
-          useTextA
-            ? { type: "text", text: `DOCUMENT A: ${docA.name}\n\n${extractA.text}` }
-            : { type: "document", source: { type: "base64", media_type: "application/pdf", data: docA.base64 }, title: docA.name },
-          useTextB
-            ? { type: "text", text: `DOCUMENT B: ${docB.name}\n\n${extractB.text}` }
-            : { type: "document", source: { type: "base64", media_type: "application/pdf", data: docB.base64 }, title: docB.name },
-          { type: "text", text: prompt },
-        ];
-      }
+      // Build message content — single combined text block (same pattern as vault pipeline)
+      setCompareStatus("Analysing both documents…");
+      const messageContent = (useTextA && useTextB)
+        ? [{ type: "text", text: `DOCUMENT A: ${docA.name}\n\n${extractA.text}\n\n---\n\nDOCUMENT B: ${docB.name}\n\n${extractB.text}\n\n---\n\n${prompt}` }]
+        : [
+            useTextA
+              ? { type: "text", text: `DOCUMENT A: ${docA.name}\n\n${extractA.text}` }
+              : { type: "document", source: { type: "base64", media_type: "application/pdf", data: docA.base64 }, title: docA.name },
+            useTextB
+              ? { type: "text", text: `DOCUMENT B: ${docB.name}\n\n${extractB.text}` }
+              : { type: "document", source: { type: "base64", media_type: "application/pdf", data: docB.base64 }, title: docB.name },
+            { type: "text", text: prompt },
+          ];
 
       const { text } = await callClaude(
         [{ role: "user", content: messageContent }],
