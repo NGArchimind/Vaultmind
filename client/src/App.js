@@ -614,6 +614,11 @@ function CompareSection({ vaults, isAdmin }) {
   const [complianceProgress, setComplianceProgress] = useState({ select: 0, read: 0, answer: 0 });
   const [complianceAnswer, setComplianceAnswer] = useState(null);
 
+  // Suggested compliance questions state
+  const [suggestedQuestions, setSuggestedQuestions] = useState([]);
+  const [selectedQuestion, setSelectedQuestion] = useState("");
+  const [questionsLoading, setQuestionsLoading] = useState(false);
+
   const inputARef = useRef();
   const inputBRef = useRef();
 
@@ -632,6 +637,9 @@ function CompareSection({ vaults, isAdmin }) {
     setComplianceAnswer(null);
     setComplianceStatus("");
     setShowVaultPicker(false);
+    setSuggestedQuestions([]);
+    setSelectedQuestion("");
+    setQuestionsLoading(false);
     setCompareStatus("Analysing both documents…");
 
     const prompt = `You are a technical product comparison specialist. You have been given two product datasheets or technical documents.
@@ -692,6 +700,42 @@ Concise guidance on when to use each product. Include any scenarios where one is
       setCompareAnswer(text);
       setCompareHistory([{ role: "user", content: `Compare ${docA.name} and ${docB.name}`, isInitial: true }, { role: "assistant", content: text }]);
       setCompareStatus("Comparison complete.");
+
+      // Auto-generate suggested compliance questions
+      setQuestionsLoading(true);
+      setSuggestedQuestions([]);
+      setSelectedQuestion("");
+      try {
+        const questionPrompt = `Based on the following product comparison, generate exactly 3 specific compliance question suggestions that a building regulations specialist might want to check against regulatory documents.
+
+COMPARISON:
+${text.slice(0, 1500)}
+
+Rules:
+- Each question must be specific to these exact products and their key differences
+- Each question must reference a specific aspect of compliance (fire performance, installation, structural, etc.)
+- Questions should be different from each other — cover different aspects
+- Keep each question to one sentence
+- Do not number them
+
+Return ONLY a JSON array of 3 strings, no other text:
+["question 1", "question 2", "question 3"]`;
+
+        const { text: qText } = await callClaude(
+          [{ role: "user", content: questionPrompt }],
+          "You are a building regulations specialist. Return pure JSON only.",
+          1000, 1, "gemini-2.5-flash-lite"
+        );
+        const clean = qText.replace(/```json|```/g, "").trim();
+        const questions = JSON.parse(clean);
+        if (Array.isArray(questions) && questions.length > 0) {
+          setSuggestedQuestions(questions);
+          setSelectedQuestion(questions[0]);
+        }
+      } catch (e) {
+        console.warn("Failed to generate suggested questions:", e.message);
+      }
+      setQuestionsLoading(false);
     } catch (e) {
       setCompareStatus("Error: " + e.message);
     }
@@ -747,7 +791,7 @@ Concise guidance on when to use each product. Include any scenarios where one is
 
     // Build a summary of what was compared for the compliance question
     const complianceSummary = `The following two products/systems have been compared:\n- Document A: ${docA.name}\n- Document B: ${docB.name}\n\nComparison findings summary:\n${compareAnswer.slice(0, 1500)}`;
-    const complianceQuestion = `Based on the comparison of ${docA.name.replace(".pdf", "")} and ${docB.name.replace(".pdf", "")}, are these products/systems compliant with the relevant requirements in this vault? Identify any areas where either product may not meet the required standards, and flag any specification differences that are relevant to compliance.`;
+    const complianceQuestion = selectedQuestion || `Based on the comparison of ${docA.name.replace(".pdf", "")} and ${docB.name.replace(".pdf", "")}, are these products/systems compliant with the relevant requirements in this vault?`;
 
     try {
       // For each selected vault, load its index and run the 3-pass pipeline
@@ -1152,15 +1196,54 @@ Use only the document pages provided. Do not assume compliance where evidence is
             {!complianceRunning && !complianceAnswer && (
               <div style={{ marginBottom: 20 }}>
                 {!showVaultPicker ? (
-                  <button className="btn" onClick={() => setShowVaultPicker(true)}
-                    style={{ background: ARC_TERRACOTTA, color: "#ffffff", padding: "12px 28px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8 }}>
-                    🔍 Check Compliance Against Vaults
-                  </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <button className="btn" onClick={() => setShowVaultPicker(true)}
+                      style={{ background: ARC_TERRACOTTA, color: "#ffffff", padding: "12px 28px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8 }}>
+                      🔍 Check Compliance Against Vaults
+                    </button>
+                    {questionsLoading && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#9a9088" }}>
+                        <Spinner size={11} /> Generating compliance questions…
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div style={{ background: "#ffffff", border: `1px solid #e8e0d5`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "20px 24px" }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Select vaults to check compliance against</div>
-                    <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 16, lineHeight: 1.6 }}>
-                      The comparison findings will be assessed against the selected vaults. Only indexed vaults can be used.
+
+                    {/* Suggested questions */}
+                    {suggestedQuestions.length > 0 && (
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Select a compliance question</div>
+                        <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 12, lineHeight: 1.6 }}>
+                          Choose one of the suggested questions or write your own below.
+                        </p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+                          {suggestedQuestions.map((q, i) => (
+                            <label key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 14px", background: selectedQuestion === q ? "#f0f5f6" : "transparent", border: `1px solid ${selectedQuestion === q ? AD_GREEN : "#e8e0d5"}`, transition: "all 0.15s" }}>
+                              <input type="radio" name="complianceQ" checked={selectedQuestion === q} onChange={() => setSelectedQuestion(q)}
+                                style={{ accentColor: AD_GREEN, marginTop: 2, flexShrink: 0 }} />
+                              <span style={{ fontSize: 12, color: ARC_NAVY, lineHeight: 1.6 }}>{q}</span>
+                            </label>
+                          ))}
+                          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 14px", background: !suggestedQuestions.includes(selectedQuestion) ? "#f0f5f6" : "transparent", border: `1px solid ${!suggestedQuestions.includes(selectedQuestion) ? AD_GREEN : "#e8e0d5"}`, transition: "all 0.15s" }}>
+                            <input type="radio" name="complianceQ" checked={!suggestedQuestions.includes(selectedQuestion)} onChange={() => setSelectedQuestion("")}
+                              style={{ accentColor: AD_GREEN, marginTop: 2, flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, color: "#9a9088", lineHeight: 1.6 }}>Write my own question…</span>
+                          </label>
+                        </div>
+                        {!suggestedQuestions.includes(selectedQuestion) && (
+                          <textarea value={selectedQuestion} onChange={e => setSelectedQuestion(e.target.value)}
+                            placeholder="Type your compliance question here…"
+                            rows={2} className="arc-input"
+                            style={{ width: "100%", border: `1px solid #ddd8d0`, padding: "10px 14px", fontSize: 12, color: ARC_NAVY, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", marginBottom: 12 }} />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Vault picker */}
+                    <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Select vaults to check against</div>
+                    <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 12, lineHeight: 1.6 }}>
+                      Only indexed vaults can be used.
                     </p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16, maxHeight: 200, overflowY: "auto" }}>
                       {vaultOptions.length === 0 && (
@@ -1175,8 +1258,8 @@ Use only the document pages provided. Do not assume compliance where evidence is
                       ))}
                     </div>
                     <div style={{ display: "flex", gap: 10 }}>
-                      <button className="btn" onClick={runComplianceCheck} disabled={selectedVaultIds.length === 0}
-                        style={{ background: selectedVaultIds.length > 0 ? ARC_TERRACOTTA : "#c8c0b8", color: "#ffffff", padding: "10px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                      <button className="btn" onClick={runComplianceCheck} disabled={selectedVaultIds.length === 0 || !selectedQuestion.trim()}
+                        style={{ background: selectedVaultIds.length > 0 && selectedQuestion.trim() ? ARC_TERRACOTTA : "#c8c0b8", color: "#ffffff", padding: "10px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                         Run Compliance Check ({selectedVaultIds.length} vault{selectedVaultIds.length !== 1 ? "s" : ""})
                       </button>
                       <button className="btn" onClick={() => setShowVaultPicker(false)}
