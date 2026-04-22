@@ -155,13 +155,10 @@ function AnswerRenderer({ text }) {
   const flushTable = (key) => {
     if (tableBuffer.length === 0) return;
     const parseRow = (r) => {
-      // Detect >> at start of row OR >> appearing in most cells (Gemini sometimes prefixes each cell)
       const startsWithChevron = r.startsWith(">> ");
       const hasPerCellChevron = (r.match(/>> /g) || []).length >= 2;
       const highlighted = startsWithChevron || hasPerCellChevron;
-      // Strip >> prefix from start of row or from each cell
       const clean = startsWithChevron ? r.slice(3) : r.replace(/>> /g, "");
-      // Split on | but keep empty cells — only strip leading/trailing pipe
       const stripped = clean.replace(/^\s*\|/, "").replace(/\|\s*$/, "");
       const cells = stripped.split("|").map(c => c.trim());
       return { cells, highlighted };
@@ -169,7 +166,6 @@ function AnswerRenderer({ text }) {
     const rows = tableBuffer.map(parseRow);
     const header = rows[0].cells;
     const colCount = header.length;
-    // Pad all rows to header length so highlighted rows don't lose trailing cells
     const body = rows.slice(2).map(row => ({
       ...row,
       cells: Array.from({ length: colCount }, (_, i) => row.cells[i] ?? "")
@@ -202,15 +198,12 @@ function AnswerRenderer({ text }) {
   };
 
   lines.forEach((line, i) => {
-    // Detect highlighted table row — must check before blockquote handler
-    // Model outputs: ">> | cell | cell |" for relevant rows
     if (line.startsWith(">> ")) {
       inTable = true;
       if (tableBuffer._pendingTitle) {
         tableBuffer._title = tableBuffer._pendingTitle;
         delete tableBuffer._pendingTitle;
       }
-      // Normalise: ensure the row has proper pipe format
       const chevronContent = line.slice(3).trim();
       const normalised = chevronContent.startsWith("|") ? `>> ${chevronContent}` : `>> | ${chevronContent} |`;
       tableBuffer.push(normalised);
@@ -227,7 +220,6 @@ function AnswerRenderer({ text }) {
     }
     if (inTable) flushTable(i);
 
-    // Detect table title — bold **Table X** or plain "Table X — title" line before a table
     const trimmedLine = line.trim();
     const isBoldTitle = (trimmedLine.startsWith("**") && trimmedLine.endsWith("**") && /table|figure/i.test(trimmedLine));
     const isPlainTitle = (!trimmedLine.startsWith("|") && !trimmedLine.startsWith(">") && !trimmedLine.startsWith("*") && /^(table|figure)\s+\d+/i.test(trimmedLine) && !trimmedLine.includes("  "));
@@ -236,18 +228,13 @@ function AnswerRenderer({ text }) {
       return;
     }
 
-    // Detect header rows that use | as separator but don't start with | 
-    // e.g. "Part of building | Minimum provisions | Method of exposure"
-    // Only treat as table row if we already have a pending title (i.e. we're about to start a table)
     if (!trimmedLine.startsWith("|") && !trimmedLine.startsWith(">") && trimmedLine.includes(" | ") && tableBuffer._pendingTitle && !inTable) {
       inTable = true;
       if (tableBuffer._pendingTitle) {
         tableBuffer._title = tableBuffer._pendingTitle;
         delete tableBuffer._pendingTitle;
       }
-      // Add leading/trailing pipes to normalise
       tableBuffer.push(`| ${trimmedLine} |`);
-      // Auto-generate separator row
       const colCount = trimmedLine.split(" | ").length;
       tableBuffer.push(`|${Array(colCount).fill("---").join("|")}|`);
       return;
@@ -311,7 +298,6 @@ function AnswerRenderer({ text }) {
         );
       }
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
-      // Check if this is actually a standalone citation (*text*) before treating as a bullet
       const trimmedBullet = line.trim();
       const isBulletCitationWrapped = trimmedBullet.startsWith("*") && trimmedBullet.endsWith("*") && trimmedBullet.length > 2 && !trimmedBullet.startsWith("**");
       const isBulletCitationUnwrapped = trimmedBullet.startsWith("*") && !trimmedBullet.startsWith("**") && trimmedBullet.includes("|") && trimmedBullet.length > 10;
@@ -341,7 +327,6 @@ function AnswerRenderer({ text }) {
       elements.push(<div key={i} style={{ height: 10 }} />);
     } else {
       const trimmed = line.trim();
-      // Match properly wrapped citations *text* OR lines starting with * containing | (citation pattern)
       const isWrappedCitation = trimmed.startsWith("*") && trimmed.endsWith("*") && trimmed.length > 2 && !trimmed.startsWith("**");
       const isUnwrappedCitation = trimmed.startsWith("*") && !trimmed.startsWith("**") && trimmed.includes("|") && trimmed.length > 10;
       if (isWrappedCitation || isUnwrappedCitation) {
@@ -363,8 +348,8 @@ function AnswerRenderer({ text }) {
 // ── Vault Management Modal ─────────────────────────────────────────────────────
 
 function VaultManagementModal({ vaults, onClose, onRefresh, isAdmin }) {
-  const [mode, setMode] = useState("menu"); // menu | createMaster | createSub | adopt | rename | delete
-  const [targetVault, setTargetVault] = useState(null); // vault being acted on
+  const [mode, setMode] = useState("menu");
+  const [targetVault, setTargetVault] = useState(null);
   const [inputName, setInputName] = useState("");
   const [selectedParent, setSelectedParent] = useState("");
   const [selectedSource, setSelectedSource] = useState("");
@@ -460,7 +445,6 @@ function VaultManagementModal({ vaults, onClose, onRefresh, isAdmin }) {
       }}>{busy ? <Spinner size={12} /> : label}</button>
   );
 
-  // ── All vault tree for rename/delete picker ─────────────────────────────────
   const allVaultOptions = [];
   vaults.forEach(v => {
     allVaultOptions.push({ id: v.id, label: v.name });
@@ -488,7 +472,6 @@ function VaultManagementModal({ vaults, onClose, onRefresh, isAdmin }) {
 
         {error && <div style={{ background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: ARC_TERRACOTTA }}>{error}</div>}
 
-        {/* ── MENU ── */}
         {mode === "menu" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <MenuOption icon="📁" title="New Master Vault" desc="Create a top-level folder to organise sub-vaults" onClick={() => setMode("createMaster")} />
@@ -499,7 +482,6 @@ function VaultManagementModal({ vaults, onClose, onRefresh, isAdmin }) {
           </div>
         )}
 
-        {/* ── CREATE MASTER ── */}
         {mode === "createMaster" && (
           <>
             {label("Master vault name")}
@@ -511,7 +493,6 @@ function VaultManagementModal({ vaults, onClose, onRefresh, isAdmin }) {
           </>
         )}
 
-        {/* ── CREATE SUB ── */}
         {mode === "createSub" && (
           <>
             {label("Parent master vault")}
@@ -525,7 +506,6 @@ function VaultManagementModal({ vaults, onClose, onRefresh, isAdmin }) {
           </>
         )}
 
-        {/* ── ADOPT ── */}
         {mode === "adopt" && (
           <>
             <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 16, lineHeight: 1.6 }}>
@@ -542,7 +522,6 @@ function VaultManagementModal({ vaults, onClose, onRefresh, isAdmin }) {
           </>
         )}
 
-        {/* ── RENAME ── */}
         {mode === "rename" && (
           <>
             {label("Select vault to rename")}
@@ -565,7 +544,6 @@ function VaultManagementModal({ vaults, onClose, onRefresh, isAdmin }) {
           </>
         )}
 
-        {/* ── DELETE ── */}
         {mode === "delete" && (
           <>
             <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 16, lineHeight: 1.6 }}>
@@ -615,12 +593,705 @@ function MenuOption({ icon, title, desc, onClick, disabled, danger }) {
   );
 }
 
+// ── Compare Section ────────────────────────────────────────────────────────────
+
+function CompareSection({ vaults, isAdmin }) {
+  const [docA, setDocA] = useState(null);
+  const [docB, setDocB] = useState(null);
+  const [dragOverA, setDragOverA] = useState(false);
+  const [dragOverB, setDragOverB] = useState(false);
+  const [compareStatus, setCompareStatus] = useState("");
+  const [compareRunning, setCompareRunning] = useState(false);
+  const [compareAnswer, setCompareAnswer] = useState(null);
+  const [compareHistory, setCompareHistory] = useState([]);
+  const [followUp, setFollowUp] = useState("");
+
+  // Compliance check state
+  const [showVaultPicker, setShowVaultPicker] = useState(false);
+  const [selectedVaultIds, setSelectedVaultIds] = useState([]);
+  const [complianceRunning, setComplianceRunning] = useState(false);
+  const [complianceStatus, setComplianceStatus] = useState("");
+  const [complianceProgress, setComplianceProgress] = useState({ select: 0, read: 0, answer: 0 });
+  const [complianceAnswer, setComplianceAnswer] = useState(null);
+
+  const inputARef = useRef();
+  const inputBRef = useRef();
+
+  const loadDoc = async (file, setter) => {
+    if (!file || file.type !== "application/pdf") return;
+    const base64 = await fileToBase64(file);
+    setter({ name: file.name, base64 });
+  };
+
+  // ── Initial comparison ────────────────────────────────────────────────────────
+  const runComparison = async () => {
+    if (!docA || !docB) return;
+    setCompareRunning(true);
+    setCompareAnswer(null);
+    setCompareHistory([]);
+    setComplianceAnswer(null);
+    setComplianceStatus("");
+    setShowVaultPicker(false);
+    setCompareStatus("Analysing both documents…");
+
+    const prompt = `You are a technical product comparison specialist. You have been given two product datasheets or technical documents. Compare them thoroughly and identify all key differences.
+
+Your response must cover:
+
+## Overview
+A brief one-paragraph summary of what each document describes (product type, manufacturer if visible, key purpose).
+
+## Key Differences
+A comprehensive table showing the most important differences between the two products/systems. Use this format:
+
+| Feature | ${docA.name.replace(".pdf", "")} | ${docB.name.replace(".pdf", "")} | Notes |
+|---|---|---|---|
+
+Include all technically significant differences: performance ratings, dimensions, materials, certifications, installation requirements, compatibility, limitations, and any other specification differences.
+
+## Highlighted Differences
+After the table, write 3–6 bullet points calling out the most significant differences that a specifier or designer would need to be aware of. Be specific and technical.
+
+## Similarities
+Briefly note any key areas where the two products are equivalent or interchangeable.
+
+## Specifier Notes
+Any practical notes about choosing between these two products for a project — including any scenarios where one is clearly more suitable than the other.`;
+
+    try {
+      const { text } = await callClaude(
+        [{
+          role: "user",
+          content: [
+            { type: "document", source: { type: "base64", media_type: "application/pdf", data: docA.base64 }, title: docA.name },
+            { type: "document", source: { type: "base64", media_type: "application/pdf", data: docB.base64 }, title: docB.name },
+            { type: "text", text: prompt }
+          ]
+        }],
+        "You are a technical product comparison specialist. Provide detailed, structured comparisons using tables where appropriate.",
+        65000,
+        2,
+        "gemini-2.5-flash"
+      );
+      setCompareAnswer(text);
+      setCompareHistory([{ role: "user", content: `Compare ${docA.name} and ${docB.name}`, isInitial: true }, { role: "assistant", content: text }]);
+      setCompareStatus("Comparison complete.");
+    } catch (e) {
+      setCompareStatus("Error: " + e.message);
+    }
+    setCompareRunning(false);
+  };
+
+  // ── Follow-up question ────────────────────────────────────────────────────────
+  const askFollowUp = async () => {
+    if (!followUp.trim() || compareRunning) return;
+    const q = followUp.trim();
+    setFollowUp("");
+    setCompareRunning(true);
+    setCompareStatus("Thinking…");
+
+    const historyMessages = compareHistory.map(h => ({
+      role: h.role,
+      content: h.isInitial
+        ? [
+            { type: "document", source: { type: "base64", media_type: "application/pdf", data: docA.base64 }, title: docA.name },
+            { type: "document", source: { type: "base64", media_type: "application/pdf", data: docB.base64 }, title: docB.name },
+            { type: "text", text: `Compare these two documents in detail.` }
+          ]
+        : h.content
+    }));
+
+    const messages = [...historyMessages, { role: "user", content: q }];
+
+    try {
+      const { text } = await callClaude(
+        messages,
+        "You are a technical product comparison specialist. You are continuing a conversation about two documents the user has uploaded. Be specific, use tables where helpful.",
+        65000,
+        2,
+        "gemini-2.5-flash"
+      );
+      setCompareAnswer(text);
+      setCompareHistory(prev => [...prev, { role: "user", content: q }, { role: "assistant", content: text }]);
+      setCompareStatus("Answer ready.");
+    } catch (e) {
+      setCompareStatus("Error: " + e.message);
+    }
+    setCompareRunning(false);
+  };
+
+  // ── Compliance check against vaults ──────────────────────────────────────────
+  const runComplianceCheck = async () => {
+    if (selectedVaultIds.length === 0 || !compareAnswer) return;
+    setShowVaultPicker(false);
+    setComplianceRunning(true);
+    setComplianceAnswer(null);
+    setComplianceProgress({ select: 0, read: 0, answer: 0 });
+
+    // Build a summary of what was compared for the compliance question
+    const complianceSummary = `The following two products/systems have been compared:\n- Document A: ${docA.name}\n- Document B: ${docB.name}\n\nComparison findings summary:\n${compareAnswer.slice(0, 1500)}`;
+    const complianceQuestion = `Based on the comparison of ${docA.name.replace(".pdf", "")} and ${docB.name.replace(".pdf", "")}, are these products/systems compliant with the relevant requirements in this vault? Identify any areas where either product may not meet the required standards, and flag any specification differences that are relevant to compliance.`;
+
+    try {
+      // For each selected vault, load its index and run the 3-pass pipeline
+      const allResults = [];
+
+      for (const vaultId of selectedVaultIds) {
+        const vaultObj = (() => {
+          for (const v of vaults) {
+            if (v.id === vaultId) return v;
+            if (v.type === "master") {
+              const sub = (v.subVaults || []).find(sv => sv.id === vaultId);
+              if (sub) return sub;
+            }
+          }
+          return null;
+        })();
+        if (!vaultObj) continue;
+
+        setComplianceStatus(`Checking ${vaultObj.name}…`);
+
+        let vaultIndex = null;
+        try {
+          vaultIndex = await api(`/api/vaults/${encodeURIComponent(vaultId)}/index`);
+        } catch (_) {}
+
+        if (!vaultIndex?.documents?.length) {
+          allResults.push({ vaultName: vaultObj.name, answer: "Vault has no index — cannot check compliance. Please index this vault first." });
+          continue;
+        }
+
+        // ── PASS 1: Score index ──────────────────────────────────────────────
+        setComplianceStatus(`Pass 1/3 · Scoring ${vaultObj.name} index…`);
+        setComplianceProgress({ select: 20, read: 0, answer: 0 });
+
+        const BOILERPLATE_HEADINGS = [
+          "the approved documents", "what is an approved document", "approved documents",
+          "list of approved documents", "use of guidance", "how to use this approved document",
+          "other guidance", "the building regulations", "online version", "hm government",
+          "main changes", "approved document", "list of approved documents"
+        ];
+        const isBoilerplate = (title) => {
+          const t = title.toLowerCase().trim();
+          return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
+        };
+
+        const indexSummary = (vaultIndex.documents || []).map(doc => {
+          const pageFrequency = {};
+          (doc.headings || []).forEach(h => {
+            const p = h.pageHint || 1;
+            pageFrequency[p] = (pageFrequency[p] || 0) + 1;
+          });
+          const crowdedPages = new Set(
+            Object.entries(pageFrequency).filter(([, count]) => count > 8).map(([page]) => Number(page))
+          );
+          const headings = (doc.headings || [])
+            .filter(h => !isBoilerplate(h.title))
+            .filter(h => !crowdedPages.has(h.pageHint))
+            .map(h => `  p${h.pageHint || 1}: ${h.title}`)
+            .join("\n");
+          return `DOCUMENT: ${doc.name}\n${headings}`;
+        }).join("\n\n");
+
+        const scoringPrompt = `You are an expert technical document analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain requirements relevant to the compliance question.
+
+DOCUMENT INDEX:
+${indexSummary}
+
+COMPLIANCE QUESTION: ${complianceQuestion}
+
+CONTEXT — what is being checked for compliance:
+${complianceSummary.slice(0, 800)}
+
+Identify all sections that could contain relevant performance requirements, specifications, classifications, installation requirements, or testing standards. Be conservative — include borderline sections.
+
+Respond ONLY as compact JSON:
+{
+  "selectedDocs": [
+    {
+      "docName": "exact filename from index",
+      "sections": [
+        {"heading": "exact heading from index", "pageHint": 42, "probability": 0.95}
+      ]
+    }
+  ]
+}
+
+Rules:
+- Include sections with probability > 0.5
+- pageHint MUST be a plain integer
+- Return pure JSON only`;
+
+        let scoring = { selectedDocs: [] };
+        try {
+          const { text: scoringText } = await callClaude(
+            [{ role: "user", content: scoringPrompt }],
+            "You are a technical document analyst. Score document sections for relevance. Return pure JSON only.",
+            65000, 2, "gemini-2.5-flash"
+          );
+          const clean = scoringText.replace(/```json|```/g, "").trim();
+          try { scoring = JSON.parse(clean); }
+          catch { const m = clean.match(/\{[\s\S]*\}/); if (m) try { scoring = JSON.parse(m[0]); } catch {} }
+        } catch (e) {
+          console.warn("Compliance scoring failed:", e);
+        }
+
+        setComplianceProgress({ select: 100, read: 20, answer: 0 });
+
+        // ── PASS 2: Load PDFs and extract relevant pages ───────────────────────
+        setComplianceStatus(`Pass 2/3 · Extracting pages from ${vaultObj.name}…`);
+
+        let pdfsInVault = [];
+        try {
+          const pdfsData = await api(`/api/vaults/${encodeURIComponent(vaultId)}/pdfs`);
+          pdfsInVault = pdfsData.pdfs || [];
+        } catch (_) {}
+
+        const selectedDocNames = (scoring.selectedDocs || []).map(d => d.docName);
+        const contentsData = [];
+
+        for (const docName of selectedDocNames) {
+          const matchedPdf = pdfsInVault.find(p =>
+            p.name === docName || p.name.includes(docName) || docName.includes(p.name)
+          );
+          if (!matchedPdf) continue;
+          try {
+            const pdfData = await api(`/api/vaults/${encodeURIComponent(vaultId)}/pdfs/${encodeURIComponent(matchedPdf.name)}`);
+            contentsData.push({ pdf: matchedPdf, base64: pdfData.base64 });
+          } catch (_) {}
+        }
+
+        // Fallback: fetch first 2 PDFs if scoring returned nothing useful
+        if (contentsData.length === 0 && pdfsInVault.length > 0) {
+          for (const pdf of pdfsInVault.slice(0, 2)) {
+            try {
+              const pdfData = await api(`/api/vaults/${encodeURIComponent(vaultId)}/pdfs/${encodeURIComponent(pdf.name)}`);
+              contentsData.push({ pdf, base64: pdfData.base64 });
+            } catch (_) {}
+          }
+        }
+
+        // Build page map from scoring
+        const docPageMap = {};
+        const HARD_PAGE_BUDGET = 60;
+        let budgetRemaining = HARD_PAGE_BUDGET;
+
+        (scoring.selectedDocs || []).forEach(selectedDoc => {
+          const matchedDoc = contentsData.find(d =>
+            d.pdf.name.includes(selectedDoc.docName) || selectedDoc.docName.includes(d.pdf.name)
+          );
+          if (!matchedDoc) return;
+          (selectedDoc.sections || []).sort((a, b) => (b.probability || 0) - (a.probability || 0)).forEach(section => {
+            if (budgetRemaining <= 0) return;
+            const pageHint = typeof section.pageHint === "number" ? section.pageHint : parseInt(String(section.pageHint)) || 1;
+            const key = matchedDoc.pdf.name;
+            if (!docPageMap[key]) docPageMap[key] = { contentsDoc: matchedDoc, pages: new Set() };
+            [0, 1].forEach(offset => {
+              const pg = pageHint + offset;
+              if (pg > 0 && !docPageMap[key].pages.has(pg) && budgetRemaining > 0) {
+                docPageMap[key].pages.add(pg);
+                budgetRemaining--;
+              }
+            });
+          });
+        });
+
+        // Fallback pages if nothing selected
+        if (Object.keys(docPageMap).length === 0 && contentsData.length > 0) {
+          contentsData.slice(0, 2).forEach(d => {
+            docPageMap[d.pdf.name] = { contentsDoc: d, pages: new Set([1, 2, 3, 4, 5]) };
+          });
+        }
+
+        // Extract pages
+        const docBlocks = [];
+        for (const [docName, { contentsDoc, pages }] of Object.entries(docPageMap)) {
+          const pageList = Array.from(pages).sort((a, b) => a - b);
+          if (pageList.length === 0) continue;
+          try {
+            const result = await api("/api/extract-pages", {
+              method: "POST",
+              body: { base64: contentsDoc.base64, pages: pageList }
+            });
+            docBlocks.push({
+              type: "document",
+              source: { type: "base64", media_type: "application/pdf", data: result.base64 },
+              title: `${docName} — pages ${result.pageNumbers.join(", ")}`,
+            });
+          } catch (_) {}
+        }
+
+        setComplianceProgress({ select: 100, read: 100, answer: 20 });
+
+        // ── PASS 3: Compliance synthesis ──────────────────────────────────────
+        setComplianceStatus(`Pass 3/3 · Assessing compliance against ${vaultObj.name}…`);
+
+        if (docBlocks.length === 0) {
+          allResults.push({ vaultName: vaultObj.name, answer: "Could not extract relevant pages from this vault for comparison." });
+          continue;
+        }
+
+        const compliancePrompt = `You are an expert building regulations consultant. You are assessing whether two products/systems are compliant with the requirements in the provided regulatory documents.
+
+PRODUCTS BEING ASSESSED:
+- Product A: ${docA.name}
+- Product B: ${docB.name}
+
+KEY COMPARISON FINDINGS (from product comparison):
+${compareAnswer.slice(0, 1200)}
+
+COMPLIANCE QUESTION: ${complianceQuestion}
+
+Using ONLY the provided regulatory document pages, assess compliance for both products. Structure your response as follows:
+
+## Compliance Assessment — ${vaultObj.name}
+
+### Overall Verdict
+A brief statement on whether each product appears compliant, non-compliant, or where compliance is uncertain based on the available evidence.
+
+### Compliance Analysis
+For each relevant requirement found in the documents, assess both products against it. Use a table where helpful:
+
+| Requirement | ${docA.name.replace(".pdf", "")} | ${docB.name.replace(".pdf", "")} | Assessment |
+|---|---|---|---|
+
+### Non-Compliances or Concerns
+List any specific areas where either product may not meet requirements. Be precise — quote the requirement and explain the gap.
+
+### Areas Requiring Further Information
+Any compliance questions that cannot be answered from the available documents.
+
+### Regulatory References
+Key clauses and sections from the vault documents that are most relevant to this assessment.
+*Document | Page X | Clause title*
+
+Use only the document pages provided. Do not assume compliance where evidence is absent. Be direct and specific.`;
+
+        try {
+          const { text: complianceText } = await callClaude(
+            [{ role: "user", content: [...docBlocks, { type: "text", text: compliancePrompt }] }],
+            "You are an expert building regulations consultant. Assess compliance using only the provided document pages. Be direct and specific.",
+            65536, 2, "gemini-2.5-flash"
+          );
+          allResults.push({ vaultName: vaultObj.name, answer: complianceText });
+        } catch (e) {
+          allResults.push({ vaultName: vaultObj.name, answer: `Error running compliance check: ${e.message}` });
+        }
+
+        setComplianceProgress({ select: 100, read: 100, answer: 100 });
+      }
+
+      // Combine results from all selected vaults
+      const combinedAnswer = allResults.map(r =>
+        `# Compliance Check — ${r.vaultName}\n\n${r.answer}`
+      ).join("\n\n---\n\n");
+
+      setComplianceAnswer(combinedAnswer);
+      setComplianceStatus("Compliance check complete.");
+    } catch (e) {
+      setComplianceStatus("Error: " + e.message);
+    }
+    setComplianceRunning(false);
+  };
+
+  // ── Build flat vault options list for picker ──────────────────────────────────
+  const vaultOptions = [];
+  vaults.forEach(v => {
+    if (v.type === "master") {
+      (v.subVaults || []).forEach(sv => {
+        vaultOptions.push({ id: sv.id, name: `${v.name} / ${sv.name}` });
+      });
+    } else {
+      vaultOptions.push({ id: v.id, name: v.name });
+    }
+  });
+
+  const toggleVaultSelection = (id) => {
+    setSelectedVaultIds(prev =>
+      prev.includes(id) ? prev.filter(v => v !== id) : [...prev, id]
+    );
+  };
+
+  const DropZone = ({ doc, setDoc, label, dragOver, setDragOver, inputRef }) => (
+    <div style={{ flex: 1 }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
+      {doc ? (
+        <div style={{ border: `1px solid ${AD_GREEN}`, background: "#f0f5f6", padding: "20px 24px", display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 24 }}>📄</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</div>
+            <div style={{ fontSize: 11, color: AD_GREEN, marginTop: 2 }}>Ready</div>
+          </div>
+          <button className="btn" onClick={() => setDoc(null)}
+            style={{ background: "none", color: "#9a9088", fontSize: 18, padding: "0 4px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
+        </div>
+      ) : (
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) loadDoc(f, setDoc); }}
+          onClick={() => inputRef.current.click()}
+          style={{
+            border: `2px dashed ${dragOver ? AD_GREEN : "#c8c0b8"}`,
+            padding: "40px 24px",
+            textAlign: "center",
+            cursor: "pointer",
+            background: dragOver ? "#f0f5f6" : "#faf8f5",
+            transition: "all 0.2s",
+          }}>
+          <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.4 }}>📄</div>
+          <p style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500, marginBottom: 4 }}>Drop PDF here</p>
+          <p style={{ fontSize: 11, color: "#9a9088" }}>or click to browse</p>
+          <input ref={inputRef} type="file" accept="application/pdf" style={{ display: "none" }}
+            onChange={e => { if (e.target.files[0]) loadDoc(e.target.files[0], setDoc); }} />
+        </div>
+      )}
+    </div>
+  );
+
+  const chatHistory = compareHistory.filter(h => !h.isInitial && h.role === "user");
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+
+      {/* Header */}
+      <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "20px 32px", flexShrink: 0 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>Compare</h1>
+        <p style={{ fontSize: 11, color: "#9a9088", marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+          Upload two documents to compare — then check against your vaults for compliance
+        </p>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+
+        {/* Upload zone */}
+        <div style={{ display: "flex", gap: 20, marginBottom: 24 }}>
+          <DropZone doc={docA} setDoc={setDocA} label="Document A" dragOver={dragOverA} setDragOver={setDragOverA} inputRef={inputARef} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 40, flexShrink: 0 }}>
+            <span style={{ fontSize: 20, color: "#c8c0b8" }}>vs</span>
+          </div>
+          <DropZone doc={docB} setDoc={setDocB} label="Document B" dragOver={dragOverB} setDragOver={setDragOverB} inputRef={inputBRef} />
+        </div>
+
+        {/* Compare button */}
+        {docA && docB && !compareAnswer && (
+          <div style={{ marginBottom: 24 }}>
+            <button className="btn" onClick={runComparison} disabled={compareRunning}
+              style={{ background: compareRunning ? "#c8c0b8" : ARC_NAVY, color: "#ffffff", padding: "12px 32px", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 10 }}>
+              {compareRunning ? <><Spinner size={14} /> Comparing…</> : "Compare Documents"}
+            </button>
+          </div>
+        )}
+
+        {/* Status */}
+        {compareStatus && (
+          <div style={{ marginBottom: 16, fontSize: 12, color: "#505a5f", display: "flex", alignItems: "center", gap: 8 }}>
+            {compareRunning && <Spinner size={12} />}
+            <span>{compareStatus}</span>
+          </div>
+        )}
+
+        {/* Chat history (prior questions) */}
+        {chatHistory.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            {chatHistory.map((h, i) => (
+              <div key={i} style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", marginBottom: 6, display: "flex", gap: 12, alignItems: "center" }}>
+                <span style={{ color: AD_GREEN, fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                <span style={{ flex: 1 }}>{h.content}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Comparison answer */}
+        {compareAnswer && (
+          <div style={{ animation: "fadeIn 0.4s ease", marginBottom: 24 }}>
+            <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: `4px solid ${AD_GREEN}`, padding: "24px 28px", marginBottom: 16 }}>
+              <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Comparison — {docA.name.replace(".pdf", "")} vs {docB.name.replace(".pdf", "")}
+              </p>
+              <AnswerRenderer text={compareAnswer} />
+            </div>
+
+            {/* Follow-up input */}
+            {!compareRunning && (
+              <div style={{ background: "#ffffff", border: "1px solid #e8e0d5", padding: "16px 20px", marginBottom: 20 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Ask a follow-up question</div>
+                <div style={{ display: "flex", gap: 0 }}>
+                  <textarea value={followUp} onChange={e => setFollowUp(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
+                    placeholder="e.g. What are the fire performance differences between the two products?"
+                    rows={2} className="arc-input"
+                    style={{ flex: 1, border: `1px solid #ddd8d0`, borderRight: "none", padding: "10px 14px", fontSize: 13, color: ARC_NAVY, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif" }} />
+                  <button className="btn" onClick={askFollowUp} disabled={!followUp.trim()}
+                    style={{ background: followUp.trim() ? ARC_NAVY : "#f0ede8", color: followUp.trim() ? "#ffffff" : "#9a9088", padding: "0 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", border: `1px solid ${followUp.trim() ? ARC_NAVY : "#ddd8d0"}`, minWidth: 80 }}>
+                    Ask
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Vault compliance check */}
+            {!complianceRunning && !complianceAnswer && (
+              <div style={{ marginBottom: 20 }}>
+                {!showVaultPicker ? (
+                  <button className="btn" onClick={() => setShowVaultPicker(true)}
+                    style={{ background: ARC_TERRACOTTA, color: "#ffffff", padding: "12px 28px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8 }}>
+                    🔍 Check Compliance Against Vaults
+                  </button>
+                ) : (
+                  <div style={{ background: "#ffffff", border: `1px solid #e8e0d5`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "20px 24px" }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Select vaults to check compliance against</div>
+                    <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 16, lineHeight: 1.6 }}>
+                      The comparison findings will be assessed against the selected vaults. Only indexed vaults can be used.
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16, maxHeight: 200, overflowY: "auto" }}>
+                      {vaultOptions.length === 0 && (
+                        <p style={{ fontSize: 12, color: "#9a9088", fontStyle: "italic" }}>No vaults available.</p>
+                      )}
+                      {vaultOptions.map(v => (
+                        <label key={v.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 12px", background: selectedVaultIds.includes(v.id) ? "#f0f5f6" : "transparent", border: `1px solid ${selectedVaultIds.includes(v.id) ? AD_GREEN : "#e8e0d5"}` }}>
+                          <input type="checkbox" checked={selectedVaultIds.includes(v.id)} onChange={() => toggleVaultSelection(v.id)}
+                            style={{ accentColor: AD_GREEN }} />
+                          <span style={{ fontSize: 13, color: ARC_NAVY }}>{v.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button className="btn" onClick={runComplianceCheck} disabled={selectedVaultIds.length === 0}
+                        style={{ background: selectedVaultIds.length > 0 ? ARC_TERRACOTTA : "#c8c0b8", color: "#ffffff", padding: "10px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                        Run Compliance Check ({selectedVaultIds.length} vault{selectedVaultIds.length !== 1 ? "s" : ""})
+                      </button>
+                      <button className="btn" onClick={() => setShowVaultPicker(false)}
+                        style={{ background: "transparent", color: "#9a9088", padding: "10px 16px", fontSize: 11, border: "1px solid #ccc" }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Compliance running */}
+            {complianceRunning && (
+              <div style={{ background: "#ffffff", border: "1px solid #e8e0d5", padding: "20px 24px", marginBottom: 20 }}>
+                <div style={{ fontSize: 12, color: ARC_NAVY, marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontWeight: 500 }}>
+                  <Spinner size={12} /> {complianceStatus}
+                </div>
+                <ProgressBar label="Pass 1 · Index scoring" pct={complianceProgress.select} color={AD_GREEN} />
+                <ProgressBar label="Pass 2 · Page extraction" pct={complianceProgress.read} color={ARC_TERRACOTTA} />
+                <ProgressBar label="Pass 3 · Compliance synthesis" pct={complianceProgress.answer} color={ARC_NAVY} />
+              </div>
+            )}
+
+            {/* Compliance answer */}
+            {complianceAnswer && (
+              <div style={{ animation: "fadeIn 0.4s ease" }}>
+                <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: `4px solid ${ARC_TERRACOTTA}`, padding: "24px 28px", marginBottom: 12 }}>
+                  <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    Compliance Assessment
+                  </p>
+                  <AnswerRenderer text={complianceAnswer} />
+                </div>
+                {/* Option to run another compliance check against different vaults */}
+                <button className="btn" onClick={() => { setComplianceAnswer(null); setComplianceStatus(""); setSelectedVaultIds([]); setShowVaultPicker(true); }}
+                  style={{ background: "transparent", color: AD_GREEN, padding: "8px 0", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", border: "none", textDecoration: "underline" }}>
+                  Check against different vaults
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!docA && !docB && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 0", gap: 10 }}>
+            <div style={{ width: 32, height: 2, background: ARC_TERRACOTTA }} />
+            <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Upload two documents to compare</p>
+            <p style={{ fontSize: 11, color: "#9a9088", letterSpacing: "0.03em" }}>Product datasheets, specifications, or any technical documents</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Landing Page ───────────────────────────────────────────────────────────────
+
+function LandingPage({ onSelect, isAdmin }) {
+  const [hoverVault, setHoverVault] = useState(false);
+  const [hoverCompare, setHoverCompare] = useState(false);
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: ARC_STONE, padding: "40px 24px" }}>
+      <div style={{ marginBottom: 48, textAlign: "center" }}>
+        <p style={{ fontSize: 13, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Select a tool to get started</p>
+      </div>
+
+      <div style={{ display: "flex", gap: 24, width: "100%", maxWidth: 800 }}>
+
+        {/* Vault tile */}
+        <button className="btn" onClick={() => onSelect("vault")}
+          onMouseEnter={() => setHoverVault(true)}
+          onMouseLeave={() => setHoverVault(false)}
+          style={{
+            flex: 1, background: hoverVault ? ARC_NAVY : "#ffffff",
+            border: `2px solid ${hoverVault ? ARC_NAVY : "#ddd8d0"}`,
+            padding: "48px 32px", textAlign: "left", cursor: "pointer",
+            transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 16,
+          }}>
+          <div style={{ fontSize: 40 }}>🗄️</div>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 300, color: hoverVault ? "#ffffff" : ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
+              Vault
+            </div>
+            <div style={{ fontSize: 13, color: hoverVault ? "#b8d4da" : "#9a9088", lineHeight: 1.7, fontFamily: "Inter, Arial, sans-serif" }}>
+              Query your building regulations documents. Upload PDFs, index vaults, and ask natural language questions across Approved Documents, British Standards, and NHBC guidance.
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: hoverVault ? AD_GREEN_MID : AD_GREEN, display: "flex", alignItems: "center", gap: 6 }}>
+              Open Vault →
+            </span>
+          </div>
+        </button>
+
+        {/* Compare tile */}
+        <button className="btn" onClick={() => onSelect("compare")}
+          onMouseEnter={() => setHoverCompare(true)}
+          onMouseLeave={() => setHoverCompare(false)}
+          style={{
+            flex: 1, background: hoverCompare ? ARC_TERRACOTTA : "#ffffff",
+            border: `2px solid ${hoverCompare ? ARC_TERRACOTTA : "#ddd8d0"}`,
+            padding: "48px 32px", textAlign: "left", cursor: "pointer",
+            transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 16,
+          }}>
+          <div style={{ fontSize: 40 }}>⚖️</div>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 300, color: hoverCompare ? "#ffffff" : ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
+              Compare
+            </div>
+            <div style={{ fontSize: 13, color: hoverCompare ? "#f0d0cb" : "#9a9088", lineHeight: 1.7, fontFamily: "Inter, Arial, sans-serif" }}>
+              Upload two product datasheets or technical documents. Get a detailed AI comparison of key differences, then check both products against your vault documents for compliance.
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: hoverCompare ? "#f0d0cb" : ARC_TERRACOTTA, display: "flex", alignItems: "center", gap: 6 }}>
+              Open Compare →
+            </span>
+          </div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── main app ──────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const [appSection, setAppSection] = useState("home"); // "home" | "vault" | "compare"
   const [vaults, setVaults] = useState([]);
   const [selectedVault, setSelectedVault] = useState(null);
-  // queryScope: "single" | "all" — only relevant when vault is a sub-vault
   const [queryScope, setQueryScope] = useState("single");
   const [expandedMasters, setExpandedMasters] = useState({});
   const [pdfs, setPdfs] = useState([]);
@@ -677,7 +1348,6 @@ export default function App() {
 
   const isAdmin = authenticated === "admin";
 
-  // Find selected vault object — search both flat vaults and sub-vaults
   const vault = (() => {
     for (const v of vaults) {
       if (v.id === selectedVault) return v;
@@ -689,17 +1359,14 @@ export default function App() {
     return null;
   })();
 
-  // Find parent master vault if selected vault is a sub-vault
   const parentMaster = vaults.find(v => v.type === "master" && (v.subVaults || []).some(sv => sv.id === selectedVault));
-
   const vaultHistory = history.filter(h => h.vaultId === selectedVault);
-  
-useEffect(() => {
-  const isStaging = process.env.REACT_APP_API_URL?.includes("staging");
-  document.title = isStaging ? "Archimind [Staging]" : "Archimind";
-}, []);
-  
-  // ── load vaults on mount ────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const isStaging = process.env.REACT_APP_API_URL?.includes("staging");
+    document.title = isStaging ? "Archimind [Staging]" : "Archimind";
+  }, []);
+
   useEffect(() => { loadVaults(); }, []);
 
   const loadVaults = async () => {
@@ -713,7 +1380,6 @@ useEffect(() => {
     setLoadingVaults(false);
   };
 
-  // ── load PDFs and index when vault selected ─────────────────────────────────
   useEffect(() => {
     if (!selectedVault) return;
     loadVaultContents(selectedVault);
@@ -745,7 +1411,6 @@ useEffect(() => {
     }
   };
 
-  // ── vault creation (flat) ───────────────────────────────────────────────────
   const createVault = async () => {
     if (!newVaultName.trim()) return;
     try {
@@ -759,7 +1424,6 @@ useEffect(() => {
     }
   };
 
-  // ── PDF upload ──────────────────────────────────────────────────────────────
   const addPDFs = useCallback(async (files) => {
     if (!vault) return;
     const pdfFiles = Array.from(files).filter(f => f.type === "application/pdf");
@@ -795,7 +1459,6 @@ useEffect(() => {
     }
   };
 
-  // ── PDF helper: extract pages as base64 ────────────────────────────────────
   const extractPdfPages = async (base64, pageIndices) => {
     if (!window.PDFLib) {
       await new Promise((resolve, reject) => {
@@ -819,7 +1482,6 @@ useEffect(() => {
     return { base64: btoa(binary), pageCount: srcDoc.getPageCount() };
   };
 
-  // ── shared indexing helper ────────────────────────────────────────────────────
   const indexOnePdf = async (pdfName, base64) => {
     const SYSTEM = "You are a document indexer. Extract only structural metadata. Return pure JSON only, no markdown, no explanation.";
     const INDEX_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.
@@ -936,7 +1598,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     }
   };
 
-  // ── indexing ────────────────────────────────────────────────────────────────
   const indexVault = async () => {
     if (!vault || pdfs.length === 0) return;
     setStage("indexing");
@@ -978,7 +1639,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     }
   };
 
-  // ── single document re-index ────────────────────────────────────────────────
   const indexSinglePdf = async (pdf) => {
     if (!vault) return;
     setStage("indexing");
@@ -1004,7 +1664,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     }
   };
 
-  // ── Build combined index for "query all sub-vaults" mode ──────────────────
   const buildCombinedIndex = async () => {
     if (!parentMaster) return vaultIndex;
     const subVaults = parentMaster.subVaults || [];
@@ -1013,9 +1672,7 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       try {
         const idx = await api(`/api/vaults/${encodeURIComponent(sv.id)}/index`).catch(() => null);
         if (idx?.documents) {
-          // Prefix each doc name with the sub-vault name so citations are clear
           idx.documents.forEach(doc => {
-            // Use a clean prefix format — no special characters that Gemini might strip
             combinedDocs.push({ ...doc, name: `${sv.name} >> ${doc.name}`, vaultId: sv.id, originalName: doc.name });
           });
         }
@@ -1024,7 +1681,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     return combinedDocs.length > 0 ? { documents: combinedDocs } : vaultIndex;
   };
 
-  // ── question answering — 3-pass pipeline ────────────────────────────────────
   const askQuestion = async () => {
     if (!vaultIndex || !question.trim()) return;
     const q = question.trim();
@@ -1038,11 +1694,9 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     setStatusMsg("Pass 1/3 · Reading contents pages and scoring sections…");
 
     try {
-      // Determine which index to use
       const useAllSubVaults = queryScope === "all" && parentMaster;
       const activeIndex = useAllSubVaults ? await buildCombinedIndex() : vaultIndex;
 
-      // ── PASS 1: Score index ──────────────────────────────────────────────────
       setStatusMsg("Pass 1/3 · Scoring index — identifying relevant sections…");
 
       const BOILERPLATE_HEADINGS = [
@@ -1057,15 +1711,11 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       };
 
       const indexSummary = (activeIndex.documents || []).map(doc => {
-        // Identify contents pages — any page where a "Contents" heading appears
         const contentsPages = new Set(
           (doc.headings || [])
             .filter(h => /^(contents|table of contents|index)$/i.test(h.title.trim()))
             .map(h => h.pageHint)
         );
-
-        // Also identify pages that appear suspiciously often (>8 headings on same page)
-        // — these are almost always contents/index pages
         const pageFrequency = {};
         (doc.headings || []).forEach(h => {
           const p = h.pageHint || 1;
@@ -1076,7 +1726,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
             .filter(([, count]) => count > 8)
             .map(([page]) => Number(page))
         );
-
         const headings = (doc.headings || [])
           .filter(h => !isBoilerplate(h.title))
           .filter(h => !contentsPages.has(h.pageHint))
@@ -1128,9 +1777,7 @@ Rules:
       const { text: scoringText, usage: scoringUsage } = await callClaude(
         [{ role: "user", content: scoringPrompt }],
         "You are a technical document analyst. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
-        65000,
-        2,
-        "gemini-2.5-flash"
+        65000, 2, "gemini-2.5-flash"
       );
 
       setProgress(p => ({ ...p, select: 100 }));
@@ -1147,7 +1794,6 @@ Rules:
       if (!scoring.selectedDocs || scoring.selectedDocs.length === 0) {
         console.warn("Scoring returned empty — raw response:", scoringText.slice(0, 500));
       }
-      // Debug: log scoring result
       console.log("Scoring result:", JSON.stringify(scoring).slice(0, 1000));
       console.log("Selected docs:", (scoring.selectedDocs || []).length);
       (scoring.selectedDocs || []).forEach(d => {
@@ -1157,18 +1803,13 @@ Rules:
         });
       });
 
-      // ── PASS 2: Load PDFs and extract pages ──────────────────────────────────
       setStatusMsg("Pass 1/3 · Loading documents for page extraction…");
 
-      // When querying all sub-vaults, we need to fetch PDFs from the correct sub-vault
-      // The doc name is prefixed "[SubVaultName] filename.pdf" — we strip the prefix to find the right vault+file
       const contentsData = [];
       const selectedDocNames = (scoring.selectedDocs || []).map(d => d.docName);
 
       if (useAllSubVaults) {
         console.log("All-subvaults mode — selectedDocNames from scoring:", selectedDocNames);
-
-        // Build a flat lookup of every PDF across all sub-vaults
         const allSubVaultPdfs = [];
         for (const sv of (parentMaster.subVaults || [])) {
           try {
@@ -1186,14 +1827,9 @@ Rules:
         }
         console.log("All sub-vault PDFs available:", allSubVaultPdfs.map(p => p.prefixedName));
 
-        // Match each selected doc name to a real PDF — try exact first, then fuzzy
         for (const docName of selectedDocNames) {
           if (contentsData.find(c => c.pdf.name === docName)) continue;
-
-          // 1. Exact match on prefixed name
           let found = allSubVaultPdfs.find(p => p.prefixedName === docName);
-
-          // 2. Gemini may have altered the prefix separator — try splitting on >> or ]
           if (!found) {
             const filenamePart = docName.includes(">>") ? docName.split(">>").pop().trim()
               : docName.includes("]") ? docName.split("]").pop().trim()
@@ -1204,8 +1840,6 @@ Rules:
               filenamePart.includes(p.fileName)
             );
           }
-
-          // 3. Fuzzy: match on filename substring
           if (!found) {
             const lower = docName.toLowerCase();
             found = allSubVaultPdfs.find(p =>
@@ -1213,14 +1847,11 @@ Rules:
               lower.includes(p.fileName.toLowerCase().replace(/\.pdf$/i, ""))
             );
           }
-
           if (!found) {
             console.warn(`Could not match scoring docName "${docName}" to any sub-vault PDF`);
             continue;
           }
-
           console.log(`Matched "${docName}" to ${found.subVault.name}/${found.fileName}`);
-
           try {
             const pdfData = await api(`/api/vaults/${encodeURIComponent(found.subVault.id)}/pdfs/${encodeURIComponent(found.fileName)}`);
             contentsData.push({ pdf: { name: found.prefixedName, size: 0 }, base64: pdfData.base64 });
@@ -1230,7 +1861,6 @@ Rules:
         }
         console.log("contentsData loaded:", contentsData.map(c => c.pdf.name));
       } else {
-        // Standard single-vault fetch
         const docsNeeded = pdfs.filter(p =>
           selectedDocNames.some(n => p.name.includes(n) || n.includes(p.name))
         );
@@ -1283,7 +1913,6 @@ Rules:
           d.pdf.name.includes(selectedDoc.docName) || selectedDoc.docName.includes(d.pdf.name)
         );
         if (!matchedDoc) return;
-
         (selectedDoc.sections || []).forEach(section => {
           const parsed = parsePageNums(section.pageHint);
           if (parsed.size > 0) {
@@ -1303,24 +1932,17 @@ Rules:
       const docPageMap = {};
       let budgetRemaining = HARD_PAGE_BUDGET;
 
-      // When multiple documents are present, allocate budget fairly across them
-      // so no single document dominates. Each doc gets an equal share of the budget,
-      // with any unused share redistributed to others.
       const uniqueDocs = [...new Set(allScoredSections.map(s => s.docName))];
       const numDocs = Math.max(uniqueDocs.length, 1);
       const perDocBudget = Math.floor(HARD_PAGE_BUDGET / numDocs);
 
-      // First pass: fill each doc up to its per-doc budget using highest-probability sections
       for (const docName of uniqueDocs) {
         const docSections = allScoredSections.filter(s => s.docName === docName);
         let docBudget = perDocBudget;
-
         for (const section of docSections) {
           if (docBudget <= 0 || budgetRemaining <= 0) break;
           if (!docPageMap[docName]) docPageMap[docName] = { contentsDoc: section.contentsDoc, pages: new Set() };
-
           const pagesToAdd = [];
-          // Tables can span multiple pages — fetch up to 3 extra pages for table entries, 1 for others
           const isTableSection = /^(table|figure)\s+\d+/i.test(section.heading || "");
           const lookahead = isTableSection ? [0, 1, 2, 3] : [0, 1];
           section.pages.forEach(p => {
@@ -1339,13 +1961,11 @@ Rules:
         }
       }
 
-      // Second pass: use any remaining budget on highest-probability sections across all docs
       if (budgetRemaining > 0) {
         for (const section of allScoredSections) {
           if (budgetRemaining <= 0) break;
           const key = section.docName;
           if (!docPageMap[key]) docPageMap[key] = { contentsDoc: section.contentsDoc, pages: new Set() };
-
           const pagesToAdd = [];
           section.pages.forEach(p => {
             [0, 1].forEach(offset => {
@@ -1387,7 +2007,6 @@ Rules:
         setStatusMsg(`Pass 2/3 · Extracting pages from ${docName}…`);
         const pageList = Array.from(pages).sort((a, b) => a - b);
         if (pageList.length === 0) continue;
-
         try {
           const result = await api("/api/extract-pages", {
             method: "POST",
@@ -1417,7 +2036,6 @@ Rules:
       setStatusMsg(`Pass 2/3 · ${totalPagesExtracted} specific pages extracted across ${docBlocks.length} document${docBlocks.length !== 1 ? "s" : ""}…`);
       setProgress(p => ({ ...p, read: 100 }));
 
-      // ── PASS 3: Answer synthesis ───────────────────────────────────────────────
       setStage("answering");
       setStatusMsg("Pass 3/3 · Deep reading selected pages and synthesising answer…");
 
@@ -1572,7 +2190,6 @@ RULES:
 
   const isRunning = ["indexing", "selecting", "reading", "answering"].includes(stage);
 
-  // ── toggle master vault expanded/collapsed ──────────────────────────────────
   const toggleMaster = (masterId) => {
     setExpandedMasters(prev => ({ ...prev, [masterId]: !prev[masterId] }));
   };
@@ -1604,7 +2221,7 @@ RULES:
     body { font-family: Inter, Arial, sans-serif; }
   `;
 
-  // ── login screen ────────────────────────────────────────────────────────────
+  // ── login screen ─────────────────────────────────────────────────────────────
   if (!authenticated) {
     return (
       <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -1637,7 +2254,7 @@ RULES:
     );
   }
 
-  // ── main UI ─────────────────────────────────────────────────────────────────
+  // ── main UI ──────────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", color: "#0b0c0c", display: "flex", flexDirection: "column" }}>
       <style>{globalStyles}</style>
@@ -1651,9 +2268,26 @@ RULES:
         />
       )}
 
-      {/* Architectus top nav */}
+      {/* Top nav */}
       <div style={{ background: ARC_NAVY, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, height: 56 }}>
-        <span style={{ color: "#ffffff", fontSize: 20, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif" }}>Architectus</span>
+        {/* Left: logo + section nav */}
+        <div style={{ display: "flex", alignItems: "center", gap: 32 }}>
+          <button className="btn" onClick={() => setAppSection("home")}
+            style={{ background: "none", padding: 0, color: "#ffffff", fontSize: 20, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif" }}>
+            Architectus
+          </button>
+          <div style={{ display: "flex", gap: 4 }}>
+            <button className="btn" onClick={() => setAppSection("vault")}
+              style={{ background: appSection === "vault" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "vault" ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === "vault" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
+              Vault
+            </button>
+            <button className="btn" onClick={() => setAppSection("compare")}
+              style={{ background: appSection === "compare" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "compare" ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === "compare" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
+              Compare
+            </button>
+          </div>
+        </div>
+        {/* Right: role badge */}
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ color: "#7a9aaa", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase" }}>Document Intelligence</span>
           <span style={{ fontSize: 10, color: isAdmin ? ARC_TERRACOTTA : "#7a9aaa", letterSpacing: "0.1em", textTransform: "uppercase", border: `1px solid ${isAdmin ? ARC_TERRACOTTA : "#3a5a6a"}`, padding: "2px 8px" }}>
@@ -1664,339 +2298,340 @@ RULES:
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden", maxHeight: "calc(100vh - 56px)" }}>
 
-        {/* sidebar */}
-        <div style={{ width: 260, borderRight: "1px solid #e8e0d5", background: ARC_STONE, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+        {/* ── HOME landing page ─────────────────────────────────────────────── */}
+        {appSection === "home" && (
+          <LandingPage onSelect={setAppSection} isAdmin={isAdmin} />
+        )}
 
-          <div style={{ padding: "20px 24px 8px", fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: "1px solid #ddd8d0" }}>Vaults</div>
+        {/* ── COMPARE section ───────────────────────────────────────────────── */}
+        {appSection === "compare" && (
+          <CompareSection vaults={vaults} isAdmin={isAdmin} />
+        )}
 
-          {/* Vault tree */}
-          <div style={{ flex: 1, overflowY: "auto" }}>
-            {loadingVaults ? (
-              <div style={{ padding: 16, display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}><Spinner size={12} /> Loading…</div>
-            ) : vaults.map(v => {
-              if (v.type === "master") {
-                const isExpanded = !!expandedMasters[v.id];
-                return (
-                  <div key={v.id}>
-                    {/* Master vault row */}
-                    <div className="master-item"
-                      onClick={() => toggleMaster(v.id)}
-                      style={{ padding: "10px 24px", display: "flex", alignItems: "center", gap: 8, borderLeft: "3px solid transparent" }}>
-                      <span style={{ fontSize: 10, color: "#9a9088", transition: "transform 0.15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>▶</span>
-                      <span style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500, letterSpacing: "0.01em", flex: 1 }}>{v.name}</span>
-                      <span style={{ fontSize: 10, color: "#b0a8a0" }}>{(v.subVaults || []).length}</span>
-                    </div>
+        {/* ── VAULT section ─────────────────────────────────────────────────── */}
+        {appSection === "vault" && (
+          <>
+            {/* sidebar */}
+            <div style={{ width: 260, borderRight: "1px solid #e8e0d5", background: ARC_STONE, display: "flex", flexDirection: "column", flexShrink: 0 }}>
 
-                    {/* Sub-vault rows */}
-                    {isExpanded && (v.subVaults || []).map(sv => (
-                      <div key={sv.id} className="vault-item"
-                        onClick={() => selectVault(sv.id)}
-                        style={{
-                          padding: "9px 24px 9px 44px",
-                          background: selectedVault === sv.id ? "#ffffff" : "transparent",
-                          borderLeft: selectedVault === sv.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent",
-                          display: "flex", alignItems: "center", gap: 6,
-                        }}>
-                        <span style={{ fontSize: 10, color: "#b0a8a0" }}>📄</span>
-                        <span style={{ fontSize: 12, color: ARC_NAVY, fontWeight: selectedVault === sv.id ? 600 : 400, letterSpacing: "0.01em" }}>{sv.name}</span>
-                      </div>
-                    ))}
-                    {isExpanded && (v.subVaults || []).length === 0 && (
-                      <div style={{ padding: "6px 24px 6px 44px", fontSize: 11, color: "#b0a8a0", fontStyle: "italic" }}>No sub-vaults yet</div>
-                    )}
-                  </div>
-                );
-              } else {
-                // Regular flat vault
-                return (
-                  <div key={v.id} className="vault-item"
-                    onClick={() => selectVault(v.id)}
-                    style={{ padding: "12px 24px", background: selectedVault === v.id ? "#ffffff" : "transparent", borderLeft: selectedVault === v.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent" }}>
-                    <div style={{ fontSize: 13, color: ARC_NAVY, fontWeight: selectedVault === v.id ? 600 : 400, letterSpacing: "0.01em" }}>{v.name}</div>
-                  </div>
-                );
-              }
-            })}
-          </div>
+              <div style={{ padding: "20px 24px 8px", fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: "1px solid #ddd8d0" }}>Vaults</div>
 
-          {/* Temp doc upload */}
-          <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px" }}>
-            {tempDoc ? (
-              <div style={{ padding: "10px 0" }}>
-                <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "8px 10px" }}>
-                  <span style={{ fontSize: 11, color: ARC_TERRACOTTA, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {tempDoc.name}</span>
-                  <button className="btn" onClick={() => setTempDoc(null)} title="Remove"
-                    style={{ background: "none", color: ARC_TERRACOTTA, fontSize: 14, padding: "0 2px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
-                </div>
-                <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Temporary — will not be saved. Included in all questions.</p>
-              </div>
-            ) : (
-              <div
-                onDragOver={e => { e.preventDefault(); setTempDocDragOver(true); }}
-                onDragLeave={() => setTempDocDragOver(false)}
-                onDrop={e => { e.preventDefault(); setTempDocDragOver(false); const f = e.dataTransfer.files[0]; if (f) loadTempDoc(f); }}
-                onClick={() => tempDocInputRef.current.click()}
-                style={{ padding: "10px 0", cursor: "pointer" }}>
-                <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
-                <div style={{ border: `1px dashed ${tempDocDragOver ? AD_GREEN : "#ccc"}`, padding: "10px 12px", background: tempDocDragOver ? "#f0f5f6" : "transparent", display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 12, opacity: 0.4 }}>📎</span>
-                  <span style={{ fontSize: 11, color: ARC_NAVY, letterSpacing: "0.01em" }}>Upload a PDF</span>
-                </div>
-                <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Upload a temporary PDF here to include it in your questions. It will not be saved to the vault.</p>
-                <input ref={tempDocInputRef} type="file" accept="application/pdf" style={{ display: "none" }} onChange={e => { if (e.target.files[0]) loadTempDoc(e.target.files[0]); }} />
-              </div>
-            )}
-          </div>
-
-          {/* Admin controls */}
-          {isAdmin && (
-            <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px", display: "flex", flexDirection: "column", gap: 8 }}>
-              {creating ? (
-                <div style={{ background: "#f5f3f0", padding: "12px" }}>
-                  <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", display: "block", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>New Vault Name</label>
-                  <input value={newVaultName} onChange={e => setNewVaultName(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && createVault()}
-                    placeholder="Name" autoFocus className="arc-input"
-                    style={{ width: "100%", border: `1px solid #ccc`, padding: "7px 10px", fontSize: 13, color: ARC_NAVY, marginBottom: 8, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }} />
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button className="btn" onClick={createVault} style={{ background: ARC_NAVY, color: "#fff", padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Create</button>
-                    <button className="btn" onClick={() => setCreating(false)} style={{ background: "transparent", color: "#9a9088", padding: "6px 10px", fontSize: 11, border: "1px solid #ccc" }}>Cancel</button>
-                  </div>
-                </div>
-              ) : (
-                <button className="btn" onClick={() => setCreating(true)}
-                  style={{ width: "100%", background: "transparent", color: ARC_NAVY, padding: "8px 0", fontSize: 11, fontWeight: 600, textAlign: "center", border: `1px solid ${ARC_NAVY}`, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                  + New Vault
-                </button>
-              )}
-              <button className="btn" onClick={() => setShowManageModal(true)}
-                style={{ width: "100%", background: "transparent", color: "#9a9088", padding: "7px 0", fontSize: 11, fontWeight: 500, textAlign: "center", border: "1px solid #ccc", letterSpacing: "0.04em" }}>
-                Manage Vaults
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* main panel */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
-          {!vault ? (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Select a vault</p>
-              <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Upload documents and query building regulations</p>
-            </div>
-          ) : (
-            <>
-              {/* Vault header */}
-              <div style={{ borderBottom: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
-                <div style={{ padding: "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div>
-                    {parentMaster && (
-                      <div style={{ fontSize: 10, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>
-                        📁 {parentMaster.name}
-                      </div>
-                    )}
-                    <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>{vault.name}</h1>
-                    <p style={{ fontSize: 11, color: "#9a9088", marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-                      {pdfs.length} document{pdfs.length !== 1 ? "s" : ""} &nbsp;·&nbsp;
-                      {vaultIndex
-                        ? <span style={{ color: AD_GREEN, fontWeight: 600 }}>Indexed</span>
-                        : <span style={{ color: ARC_TERRACOTTA }}>Not indexed</span>}
-                    </p>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    {/* Query scope toggle — only shown when inside a master vault */}
-                    {parentMaster && (
-                      <div style={{ display: "flex", border: `1px solid ${ARC_STONE}`, overflow: "hidden" }}>
-                        <button className="btn" onClick={() => setQueryScope("single")}
-                          style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "single" ? ARC_NAVY : "transparent", color: queryScope === "single" ? "#fff" : "#9a9088", border: "none" }}>
-                          This vault
-                        </button>
-                        <button className="btn" onClick={() => setQueryScope("all")}
-                          style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "all" ? ARC_NAVY : "transparent", color: queryScope === "all" ? "#fff" : "#9a9088", border: "none", borderLeft: `1px solid ${ARC_STONE}` }}>
-                          All in {parentMaster.name}
-                        </button>
-                      </div>
-                    )}
-                    {pdfs.length > 0 && isAdmin && (
-                      <button className="btn" onClick={indexVault} disabled={isRunning}
-                        style={{ background: vaultIndex ? "transparent" : ARC_NAVY, color: vaultIndex ? ARC_NAVY : "#ffffff", border: `1px solid ${ARC_NAVY}`, padding: "8px 20px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                        {stage === "indexing" ? <><Spinner size={12} /> Indexing…</> : vaultIndex ? "Re-index" : "Index Vault"}
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-
-                {/* PDF panel */}
-                <div style={{ width: 220, borderRight: "1px solid #e8e0d5", background: "#faf8f5", display: "flex", flexDirection: "column", flexShrink: 0 }}>
-                  {isAdmin && (
-                    <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
-                      onClick={() => fileInputRef.current.click()}
-                      style={{ margin: 12, border: `1px dashed ${dragOver ? AD_GREEN : "#ccc"}`, padding: "14px 10px", textAlign: "center", cursor: "pointer", background: dragOver ? "#f0f5f6" : "transparent" }}>
-                      {uploadingPdf ? (
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: AD_GREEN, fontSize: 12 }}><Spinner size={12} /> Uploading…</div>
-                      ) : (
-                        <>
-                          <div style={{ fontSize: 18, marginBottom: 4, opacity: 0.4 }}>📄</div>
-                          <p style={{ fontSize: 11, color: "#9a9088", lineHeight: 1.6, letterSpacing: "0.02em" }}>Drop PDFs here<br />or click to browse</p>
-                        </>
-                      )}
-                      <input ref={fileInputRef} type="file" multiple accept="application/pdf" style={{ display: "none" }} onChange={e => addPDFs(e.target.files)} />
-                    </div>
-                  )}
-
-                  <div style={{ flex: 1, overflowY: "auto" }}>
-                    {pdfs.length > 0 && (
-                      <div style={{ padding: "4px 12px 4px", fontSize: 9, color: "#b0a8a0", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", gap: 12, borderBottom: "1px solid #eae5df" }}>
-                        <span style={{ color: AD_GREEN }}>● indexed</span>
-                        <span style={{ color: "#c0b8b0" }}>○ pending</span>
-                      </div>
-                    )}
-                    {pdfs.map(pdf => {
-                      const isIndexed = vaultIndex?.documents?.some(d => d.name === pdf.name);
-                      return (
-                        <div key={pdf.id} style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid #eae5df" }}>
-                          <span style={{ fontSize: 8, color: isIndexed ? AD_GREEN : "#c0b8b0", flexShrink: 0 }}>{isIndexed ? "●" : "○"}</span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 11, color: ARC_NAVY, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.01em" }}>{pdf.name}</div>
-                            <div style={{ fontSize: 9, color: "#b0a8a0", marginTop: 1 }}>{(pdf.size / 1024).toFixed(0)} KB</div>
-                          </div>
-                          {isAdmin && <>
-                            <button className="btn" onClick={() => indexSinglePdf(pdf)} disabled={isRunning} title="Re-index"
-                              style={{ background: "none", color: "#b0a8a0", fontSize: 11, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
-                              onMouseEnter={e => e.target.style.color = AD_GREEN}
-                              onMouseLeave={e => e.target.style.color = "#b0a8a0"}>↻</button>
-                            <button className="btn" onClick={() => deletePdf(pdf)} disabled={isRunning} title="Remove"
-                              style={{ background: "none", color: "#b0a8a0", fontSize: 14, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
-                              onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA}
-                              onMouseLeave={e => e.target.style.color = "#b0a8a0"}>×</button>
-                          </>}
+              <div style={{ flex: 1, overflowY: "auto" }}>
+                {loadingVaults ? (
+                  <div style={{ padding: 16, display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}><Spinner size={12} /> Loading…</div>
+                ) : vaults.map(v => {
+                  if (v.type === "master") {
+                    const isExpanded = !!expandedMasters[v.id];
+                    return (
+                      <div key={v.id}>
+                        <div className="master-item"
+                          onClick={() => toggleMaster(v.id)}
+                          style={{ padding: "10px 24px", display: "flex", alignItems: "center", gap: 8, borderLeft: "3px solid transparent" }}>
+                          <span style={{ fontSize: 10, color: "#9a9088", transition: "transform 0.15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>▶</span>
+                          <span style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500, letterSpacing: "0.01em", flex: 1 }}>{v.name}</span>
+                          <span style={{ fontSize: 10, color: "#b0a8a0" }}>{(v.subVaults || []).length}</span>
                         </div>
-                      );
-                    })}
-                    {pdfs.length === 0 && <p style={{ fontSize: 11, color: "#b0a8a0", textAlign: "center", marginTop: 24, letterSpacing: "0.02em" }}>No documents yet</p>}
-                  </div>
-                </div>
-
-                {/* Q&A panel */}
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
-
-                  {/* Progress */}
-                  {isRunning && (
-                    <div style={{ padding: "14px 32px", borderBottom: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0, animation: "fadeIn 0.3s ease" }}>
-                      <div style={{ fontSize: 12, color: ARC_NAVY, marginBottom: 10, display: "flex", alignItems: "center", gap: 8, fontWeight: 500, letterSpacing: "0.02em" }}><Spinner size={12} /> {statusMsg}</div>
-                      <ProgressBar label="Pass 1 · Index scoring" pct={progress.select} color={AD_GREEN} />
-                      <ProgressBar label="Pass 2 · Page extraction" pct={progress.read} color={ARC_TERRACOTTA} />
-                      <ProgressBar label="Pass 3 · Answer synthesis" pct={progress.answer} color={ARC_NAVY} />
-                    </div>
-                  )}
-
-                  {/* Status bar */}
-                  {!isRunning && statusMsg && (
-                    <div style={{ padding: "8px 24px", borderBottom: "1px solid #e8e0d5", background: "#ffffff", fontSize: 12, color: "#505a5f", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, gap: 12 }}>
-                      <span style={{ color: timedOut ? ARC_TERRACOTTA : "#505a5f" }}>{statusMsg}</span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                        {timedOut && lastQuestion && (
-                          <button className="btn" onClick={() => { setTimedOut(false); setQuestion(lastQuestion); askQuestion(); }}
-                            style={{ background: ARC_TERRACOTTA, color: "#fff", padding: "4px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
-                            ↻ Retry
-                          </button>
-                        )}
-                        {costEst !== null && !timedOut && (
-                          <span style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic" }}>
-                            Est. cost: {costEst < 0.01 ? "< 1p" : `${(costEst * 100).toFixed(2)}p`}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Scope notice when querying all */}
-                  {queryScope === "all" && parentMaster && (
-                    <div style={{ padding: "8px 28px", background: "#f0f5f6", borderBottom: `1px solid ${AD_GREEN_MID}`, fontSize: 11, color: AD_GREEN, display: "flex", alignItems: "center", gap: 8 }}>
-                      <span>🔍</span>
-                      <span>Searching across all {(parentMaster.subVaults || []).length} vaults in <strong>{parentMaster.name}</strong></span>
-                    </div>
-                  )}
-
-                  {/* Answer area */}
-                  <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px" }}>
-
-                    {/* History */}
-                    {vaultHistory.length > 0 && (
-                      <div style={{ marginBottom: 20 }}>
-                        {vaultHistory.map((h, i) => (
-                          <div key={i} style={{ marginBottom: 8 }}>
-                            <div style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                              <span style={{ color: "#4a7c20", fontWeight: 700, flexShrink: 0 }}>Q:</span>
-                              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.question}</span>
-                              <span style={{ fontSize: 11, color: "#6f777b", flexShrink: 0 }}>{new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                            </div>
+                        {isExpanded && (v.subVaults || []).map(sv => (
+                          <div key={sv.id} className="vault-item"
+                            onClick={() => selectVault(sv.id)}
+                            style={{
+                              padding: "9px 24px 9px 44px",
+                              background: selectedVault === sv.id ? "#ffffff" : "transparent",
+                              borderLeft: selectedVault === sv.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent",
+                              display: "flex", alignItems: "center", gap: 6,
+                            }}>
+                            <span style={{ fontSize: 10, color: "#b0a8a0" }}>📄</span>
+                            <span style={{ fontSize: 12, color: ARC_NAVY, fontWeight: selectedVault === sv.id ? 600 : 400, letterSpacing: "0.01em" }}>{sv.name}</span>
                           </div>
                         ))}
+                        {isExpanded && (v.subVaults || []).length === 0 && (
+                          <div style={{ padding: "6px 24px 6px 44px", fontSize: 11, color: "#b0a8a0", fontStyle: "italic" }}>No sub-vaults yet</div>
+                        )}
                       </div>
-                    )}
+                    );
+                  } else {
+                    return (
+                      <div key={v.id} className="vault-item"
+                        onClick={() => selectVault(v.id)}
+                        style={{ padding: "12px 24px", background: selectedVault === v.id ? "#ffffff" : "transparent", borderLeft: selectedVault === v.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent" }}>
+                        <div style={{ fontSize: 13, color: ARC_NAVY, fontWeight: selectedVault === v.id ? 600 : 400, letterSpacing: "0.01em" }}>{v.name}</div>
+                      </div>
+                    );
+                  }
+                })}
+              </div>
 
-                    {/* Current answer */}
-                    {answer && (
-                      <div style={{ animation: "fadeIn 0.4s ease" }}>
-                        <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #4a7c20", padding: "24px 28px" }}>
-                          <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                            Response — {queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name}
-                          </p>
-                          <AnswerRenderer text={answer} />
-                        </div>
-                      </div>
-                    )}
+              {/* Temp doc upload */}
+              <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px" }}>
+                {tempDoc ? (
+                  <div style={{ padding: "10px 0" }}>
+                    <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "8px 10px" }}>
+                      <span style={{ fontSize: 11, color: ARC_TERRACOTTA, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {tempDoc.name}</span>
+                      <button className="btn" onClick={() => setTempDoc(null)} title="Remove"
+                        style={{ background: "none", color: ARC_TERRACOTTA, fontSize: 14, padding: "0 2px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
+                    </div>
+                    <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Temporary — will not be saved. Included in all questions.</p>
+                  </div>
+                ) : (
+                  <div
+                    onDragOver={e => { e.preventDefault(); setTempDocDragOver(true); }}
+                    onDragLeave={() => setTempDocDragOver(false)}
+                    onDrop={e => { e.preventDefault(); setTempDocDragOver(false); const f = e.dataTransfer.files[0]; if (f) loadTempDoc(f); }}
+                    onClick={() => tempDocInputRef.current.click()}
+                    style={{ padding: "10px 0", cursor: "pointer" }}>
+                    <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
+                    <div style={{ border: `1px dashed ${tempDocDragOver ? AD_GREEN : "#ccc"}`, padding: "10px 12px", background: tempDocDragOver ? "#f0f5f6" : "transparent", display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 12, opacity: 0.4 }}>📎</span>
+                      <span style={{ fontSize: 11, color: ARC_NAVY, letterSpacing: "0.01em" }}>Upload a PDF</span>
+                    </div>
+                    <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Upload a temporary PDF here to include it in your questions. It will not be saved to the vault.</p>
+                    <input ref={tempDocInputRef} type="file" accept="application/pdf" style={{ display: "none" }} onChange={e => { if (e.target.files[0]) loadTempDoc(e.target.files[0]); }} />
+                  </div>
+                )}
+              </div>
 
-                    {!answer && !isRunning && vaultIndex && vaultHistory.length === 0 && (
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10 }}>
-                        <div style={{ width: 32, height: 2, background: ARC_TERRACOTTA }} />
-                        <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Ask a question</p>
-                        <p style={{ fontSize: 11, color: "#9a9088", letterSpacing: "0.03em" }}>AI selects the most relevant pages before answering</p>
+              {/* Admin controls */}
+              {isAdmin && (
+                <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px", display: "flex", flexDirection: "column", gap: 8 }}>
+                  {creating ? (
+                    <div style={{ background: "#f5f3f0", padding: "12px" }}>
+                      <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", display: "block", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>New Vault Name</label>
+                      <input value={newVaultName} onChange={e => setNewVaultName(e.target.value)}
+                        onKeyDown={e => e.key === "Enter" && createVault()}
+                        placeholder="Name" autoFocus className="arc-input"
+                        style={{ width: "100%", border: `1px solid #ccc`, padding: "7px 10px", fontSize: 13, color: ARC_NAVY, marginBottom: 8, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }} />
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button className="btn" onClick={createVault} style={{ background: ARC_NAVY, color: "#fff", padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Create</button>
+                        <button className="btn" onClick={() => setCreating(false)} style={{ background: "transparent", color: "#9a9088", padding: "6px 10px", fontSize: 11, border: "1px solid #ccc" }}>Cancel</button>
                       </div>
-                    )}
+                    </div>
+                  ) : (
+                    <button className="btn" onClick={() => setCreating(true)}
+                      style={{ width: "100%", background: "transparent", color: ARC_NAVY, padding: "8px 0", fontSize: 11, fontWeight: 600, textAlign: "center", border: `1px solid ${ARC_NAVY}`, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                      + New Vault
+                    </button>
+                  )}
+                  <button className="btn" onClick={() => setShowManageModal(true)}
+                    style={{ width: "100%", background: "transparent", color: "#9a9088", padding: "7px 0", fontSize: 11, fontWeight: 500, textAlign: "center", border: "1px solid #ccc", letterSpacing: "0.04em" }}>
+                    Manage Vaults
+                  </button>
+                </div>
+              )}
+            </div>
 
-                    {!vaultIndex && !isRunning && pdfs.length > 0 && (
-                      <div style={{ border: `1px solid ${ARC_TERRACOTTA}`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 20px", margin: "24px 0", background: "#fdf5f3" }}>
-                        <p style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Vault not indexed</p>
-                        <p style={{ fontSize: 12, color: "#9a9088" }}>Click Index Vault to prepare documents for searching.</p>
+            {/* main vault panel */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+              {!vault ? (
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Select a vault</p>
+                  <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Upload documents and query building regulations</p>
+                </div>
+              ) : (
+                <>
+                  {/* Vault header */}
+                  <div style={{ borderBottom: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
+                    <div style={{ padding: "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <div>
+                        {parentMaster && (
+                          <div style={{ fontSize: 10, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>
+                            📁 {parentMaster.name}
+                          </div>
+                        )}
+                        <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>{vault.name}</h1>
+                        <p style={{ fontSize: 11, color: "#9a9088", marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                          {pdfs.length} document{pdfs.length !== 1 ? "s" : ""} &nbsp;·&nbsp;
+                          {vaultIndex
+                            ? <span style={{ color: AD_GREEN, fontWeight: 600 }}>Indexed</span>
+                            : <span style={{ color: ARC_TERRACOTTA }}>Not indexed</span>}
+                        </p>
                       </div>
-                    )}
-
-                    {pdfs.length === 0 && !isRunning && (
-                      <div style={{ border: `1px solid #b8d4da`, borderLeft: `3px solid ${AD_GREEN}`, padding: "14px 20px", margin: "24px 0", background: "#f0f5f6" }}>
-                        <p style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>No documents uploaded</p>
-                        <p style={{ fontSize: 12, color: "#9a9088" }}>Use the panel on the left to upload PDF documents to this vault.</p>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        {parentMaster && (
+                          <div style={{ display: "flex", border: `1px solid ${ARC_STONE}`, overflow: "hidden" }}>
+                            <button className="btn" onClick={() => setQueryScope("single")}
+                              style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "single" ? ARC_NAVY : "transparent", color: queryScope === "single" ? "#fff" : "#9a9088", border: "none" }}>
+                              This vault
+                            </button>
+                            <button className="btn" onClick={() => setQueryScope("all")}
+                              style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "all" ? ARC_NAVY : "transparent", color: queryScope === "all" ? "#fff" : "#9a9088", border: "none", borderLeft: `1px solid ${ARC_STONE}` }}>
+                              All in {parentMaster.name}
+                            </button>
+                          </div>
+                        )}
+                        {pdfs.length > 0 && isAdmin && (
+                          <button className="btn" onClick={indexVault} disabled={isRunning}
+                            style={{ background: vaultIndex ? "transparent" : ARC_NAVY, color: vaultIndex ? ARC_NAVY : "#ffffff", border: `1px solid ${ARC_NAVY}`, padding: "8px 20px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                            {stage === "indexing" ? <><Spinner size={12} /> Indexing…</> : vaultIndex ? "Re-index" : "Index Vault"}
+                          </button>
+                        )}
                       </div>
-                    )}
+                    </div>
                   </div>
 
-                  {/* Question input — show if either single vault is indexed OR all-scope is selected */}
-                  {(vaultIndex || (queryScope === "all" && parentMaster)) && (
-                    <div style={{ padding: "16px 32px 20px", borderTop: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
-                      <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
-                        <textarea value={question} onChange={e => setQuestion(e.target.value)}
-                          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
-                          placeholder="Ask a question about your building regulations documents…"
-                          disabled={isRunning} rows={2} className="arc-input"
-                          style={{ flex: 1, border: `1px solid #ddd8d0`, borderRight: "none", padding: "12px 16px", color: ARC_NAVY, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#faf8f5" : "#ffffff", letterSpacing: "0.01em" }} />
-                        <button className="btn" onClick={askQuestion} disabled={isRunning || !question.trim()}
-                          style={{ background: isRunning || !question.trim() ? "#f0ede8" : ARC_NAVY, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                          {isRunning ? <Spinner size={14} /> : "Search"}
-                        </button>
+                  <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+
+                    {/* PDF panel */}
+                    <div style={{ width: 220, borderRight: "1px solid #e8e0d5", background: "#faf8f5", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+                      {isAdmin && (
+                        <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
+                          onClick={() => fileInputRef.current.click()}
+                          style={{ margin: 12, border: `1px dashed ${dragOver ? AD_GREEN : "#ccc"}`, padding: "14px 10px", textAlign: "center", cursor: "pointer", background: dragOver ? "#f0f5f6" : "transparent" }}>
+                          {uploadingPdf ? (
+                            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: AD_GREEN, fontSize: 12 }}><Spinner size={12} /> Uploading…</div>
+                          ) : (
+                            <>
+                              <div style={{ fontSize: 18, marginBottom: 4, opacity: 0.4 }}>📄</div>
+                              <p style={{ fontSize: 11, color: "#9a9088", lineHeight: 1.6, letterSpacing: "0.02em" }}>Drop PDFs here<br />or click to browse</p>
+                            </>
+                          )}
+                          <input ref={fileInputRef} type="file" multiple accept="application/pdf" style={{ display: "none" }} onChange={e => addPDFs(e.target.files)} />
+                        </div>
+                      )}
+
+                      <div style={{ flex: 1, overflowY: "auto" }}>
+                        {pdfs.length > 0 && (
+                          <div style={{ padding: "4px 12px 4px", fontSize: 9, color: "#b0a8a0", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", gap: 12, borderBottom: "1px solid #eae5df" }}>
+                            <span style={{ color: AD_GREEN }}>● indexed</span>
+                            <span style={{ color: "#c0b8b0" }}>○ pending</span>
+                          </div>
+                        )}
+                        {pdfs.map(pdf => {
+                          const isIndexed = vaultIndex?.documents?.some(d => d.name === pdf.name);
+                          return (
+                            <div key={pdf.id} style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid #eae5df" }}>
+                              <span style={{ fontSize: 8, color: isIndexed ? AD_GREEN : "#c0b8b0", flexShrink: 0 }}>{isIndexed ? "●" : "○"}</span>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 11, color: ARC_NAVY, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.01em" }}>{pdf.name}</div>
+                                <div style={{ fontSize: 9, color: "#b0a8a0", marginTop: 1 }}>{(pdf.size / 1024).toFixed(0)} KB</div>
+                              </div>
+                              {isAdmin && <>
+                                <button className="btn" onClick={() => indexSinglePdf(pdf)} disabled={isRunning} title="Re-index"
+                                  style={{ background: "none", color: "#b0a8a0", fontSize: 11, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
+                                  onMouseEnter={e => e.target.style.color = AD_GREEN}
+                                  onMouseLeave={e => e.target.style.color = "#b0a8a0"}>↻</button>
+                                <button className="btn" onClick={() => deletePdf(pdf)} disabled={isRunning} title="Remove"
+                                  style={{ background: "none", color: "#b0a8a0", fontSize: 14, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
+                                  onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA}
+                                  onMouseLeave={e => e.target.style.color = "#b0a8a0"}>×</button>
+                              </>}
+                            </div>
+                          );
+                        })}
+                        {pdfs.length === 0 && <p style={{ fontSize: 11, color: "#b0a8a0", textAlign: "center", marginTop: 24, letterSpacing: "0.02em" }}>No documents yet</p>}
                       </div>
-                      {costEst !== null && <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, letterSpacing: "0.04em" }}>Est. cost: {costEst < 0.01 ? "< 1p" : `${(costEst * 100).toFixed(2)}p`}</p>}
                     </div>
-                  )}
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+
+                    {/* Q&A panel */}
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+
+                      {isRunning && (
+                        <div style={{ padding: "14px 32px", borderBottom: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0, animation: "fadeIn 0.3s ease" }}>
+                          <div style={{ fontSize: 12, color: ARC_NAVY, marginBottom: 10, display: "flex", alignItems: "center", gap: 8, fontWeight: 500, letterSpacing: "0.02em" }}><Spinner size={12} /> {statusMsg}</div>
+                          <ProgressBar label="Pass 1 · Index scoring" pct={progress.select} color={AD_GREEN} />
+                          <ProgressBar label="Pass 2 · Page extraction" pct={progress.read} color={ARC_TERRACOTTA} />
+                          <ProgressBar label="Pass 3 · Answer synthesis" pct={progress.answer} color={ARC_NAVY} />
+                        </div>
+                      )}
+
+                      {!isRunning && statusMsg && (
+                        <div style={{ padding: "8px 24px", borderBottom: "1px solid #e8e0d5", background: "#ffffff", fontSize: 12, color: "#505a5f", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, gap: 12 }}>
+                          <span style={{ color: timedOut ? ARC_TERRACOTTA : "#505a5f" }}>{statusMsg}</span>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                            {timedOut && lastQuestion && (
+                              <button className="btn" onClick={() => { setTimedOut(false); setQuestion(lastQuestion); askQuestion(); }}
+                                style={{ background: ARC_TERRACOTTA, color: "#fff", padding: "4px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
+                                ↻ Retry
+                              </button>
+                            )}
+                            {costEst !== null && !timedOut && (
+                              <span style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic" }}>
+                                Est. cost: {costEst < 0.01 ? "< 1p" : `${(costEst * 100).toFixed(2)}p`}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {queryScope === "all" && parentMaster && (
+                        <div style={{ padding: "8px 28px", background: "#f0f5f6", borderBottom: `1px solid ${AD_GREEN_MID}`, fontSize: 11, color: AD_GREEN, display: "flex", alignItems: "center", gap: 8 }}>
+                          <span>🔍</span>
+                          <span>Searching across all {(parentMaster.subVaults || []).length} vaults in <strong>{parentMaster.name}</strong></span>
+                        </div>
+                      )}
+
+                      <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px" }}>
+                        {vaultHistory.length > 0 && (
+                          <div style={{ marginBottom: 20 }}>
+                            {vaultHistory.map((h, i) => (
+                              <div key={i} style={{ marginBottom: 8 }}>
+                                <div style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                                  <span style={{ color: "#4a7c20", fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.question}</span>
+                                  <span style={{ fontSize: 11, color: "#6f777b", flexShrink: 0 }}>{new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {answer && (
+                          <div style={{ animation: "fadeIn 0.4s ease" }}>
+                            <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #4a7c20", padding: "24px 28px" }}>
+                              <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                                Response — {queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name}
+                              </p>
+                              <AnswerRenderer text={answer} />
+                            </div>
+                          </div>
+                        )}
+
+                        {!answer && !isRunning && vaultIndex && vaultHistory.length === 0 && (
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10 }}>
+                            <div style={{ width: 32, height: 2, background: ARC_TERRACOTTA }} />
+                            <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Ask a question</p>
+                            <p style={{ fontSize: 11, color: "#9a9088", letterSpacing: "0.03em" }}>AI selects the most relevant pages before answering</p>
+                          </div>
+                        )}
+
+                        {!vaultIndex && !isRunning && pdfs.length > 0 && (
+                          <div style={{ border: `1px solid ${ARC_TERRACOTTA}`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 20px", margin: "24px 0", background: "#fdf5f3" }}>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Vault not indexed</p>
+                            <p style={{ fontSize: 12, color: "#9a9088" }}>Click Index Vault to prepare documents for searching.</p>
+                          </div>
+                        )}
+
+                        {pdfs.length === 0 && !isRunning && (
+                          <div style={{ border: `1px solid #b8d4da`, borderLeft: `3px solid ${AD_GREEN}`, padding: "14px 20px", margin: "24px 0", background: "#f0f5f6" }}>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>No documents uploaded</p>
+                            <p style={{ fontSize: 12, color: "#9a9088" }}>Use the panel on the left to upload PDF documents to this vault.</p>
+                          </div>
+                        )}
+                      </div>
+
+                      {(vaultIndex || (queryScope === "all" && parentMaster)) && (
+                        <div style={{ padding: "16px 32px 20px", borderTop: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
+                          <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
+                            <textarea value={question} onChange={e => setQuestion(e.target.value)}
+                              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
+                              placeholder="Ask a question about your building regulations documents…"
+                              disabled={isRunning} rows={2} className="arc-input"
+                              style={{ flex: 1, border: `1px solid #ddd8d0`, borderRight: "none", padding: "12px 16px", color: ARC_NAVY, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#faf8f5" : "#ffffff", letterSpacing: "0.01em" }} />
+                            <button className="btn" onClick={askQuestion} disabled={isRunning || !question.trim()}
+                              style={{ background: isRunning || !question.trim() ? "#f0ede8" : ARC_NAVY, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                              {isRunning ? <Spinner size={14} /> : "Search"}
+                            </button>
+                          </div>
+                          {costEst !== null && <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, letterSpacing: "0.04em" }}>Est. cost: {costEst < 0.01 ? "< 1p" : `${(costEst * 100).toFixed(2)}p`}</p>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
