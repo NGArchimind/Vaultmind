@@ -1780,12 +1780,66 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
         source: { type: "base64", media_type: "application/pdf", data: d.base64 },
         title: d.name,
       }));
+      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document${tempDocs.length > 1 ? "s" : ""} to answer.
+
+CURRENT QUESTION: ${q}
+
+RESPONSE FORMAT — output in this exact order every time:
+
+## Summary
+
+A confident, definitive answer in 2–4 sentences. Must:
+- Open with a direct answer in plain English
+- Cite ALL relevant documents provided
+- Reproduce any table directly relevant to the answer
+
+For each key fact, include the exact supporting phrase and citation:
+
+> "Exact short phrase from document."
+*Document Name | Page X | Clause Title*
+
+CITATION FORMAT: *Document | Page X | Clause number and title*
+CRITICAL: Citation MUST start AND end with * asterisk. Every citation on its OWN LINE.
+
+PAGE NUMBERS: Use the printed page number visible on the page. Omit if not clearly visible.
+
+---
+
+## Detailed Analysis
+
+Only content that adds value beyond the summary. Concise bullet points, one sentence each. Citation after each bullet:
+*Document Name | Page X | Clause Title*
+
+If nothing to add: "The summary above fully addresses this question."
+
+---
+
+## Regulatory Context
+
+Broader background tightly scoped to the question. 2–4 bullets maximum.
+If nothing to add: "No additional context required."
+
+---
+
+## Contradictions & Conflicts
+
+Any conflicts between documents: state conflict, quote both sides with citations, give practical conclusion.
+If none: "No contradictions identified."
+
+---
+
+RULES:
+- Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions
+- Use ONLY the provided documents — no external knowledge
+- Every factual statement needs a citation
+- Omit citations rather than guess page numbers`;
+
       const { text: finalAnswer } = await callClaude(
         [{ role: "user", content: [
           ...docBlocks,
-          { type: "text", text: `You are an expert consultant. Answer the following question using ONLY the provided document${tempDocs.length > 1 ? "s" : ""}. Be thorough and precise. If the documents do not contain relevant information, say so clearly.\n\nQUESTION: ${q}` }
+          { type: "text", text: answerPrompt }
         ]}],
-        "You are an expert consultant. Answer using only the provided documents.",
+        `You are an expert building regulations consultant. Answer using ONLY the provided documents. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Every citation MUST start and end with asterisks.`,
         65536, 2, "gemini-2.5-flash", 240000
       );
       setAnswer(finalAnswer);
