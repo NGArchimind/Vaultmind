@@ -78,7 +78,7 @@ app.post("/api/claude", async (req, res) => {
   if (!apiKey) return res.status(500).json({ error: "GEMINI_API_KEY not set." });
 
   try {
-    const { model, max_tokens, system, messages } = req.body;
+    const { model, max_tokens, system, messages, temperature, thinking } = req.body;
     const requestedModel = model && model.startsWith("gemini-") ? model : "gemini-2.5-flash";
 
     const contents = [];
@@ -114,11 +114,19 @@ app.post("/api/claude", async (req, res) => {
 
     let response;
     try {
+      const generationConfig = {
+        maxOutputTokens: max_tokens || 65000,
+        temperature: temperature !== undefined ? temperature : 0.1,
+      };
+      if (thinking === false) {
+        generationConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
+
       response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
-        body: JSON.stringify({ contents, generationConfig: { maxOutputTokens: max_tokens || 65000, temperature: 0.1 } }),
+        body: JSON.stringify({ contents, generationConfig }),
       });
     } finally {
       clearTimeout(timeoutId);
