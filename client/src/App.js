@@ -1833,10 +1833,12 @@ For each key fact, include the exact supporting phrase and citation as a consecu
 CITATION FORMAT: *Document | Page X | Clause number and title (Parent section title)*
 CRITICAL: Citation MUST start AND end with * asterisk.
 
-CITATION PLACEMENT:
-- Every citation goes on its OWN LINE, never embedded within a sentence
-- If multiple documents support the same fact, each citation on its own separate line
+CITATION PLACEMENT — strictly follow these rules:
+- Every citation goes on its OWN LINE, immediately after the sentence it supports
+- NEVER embed a citation within a sentence like: "text *Citation* more text" — WRONG
+- NEVER chain citations inline — each one on its own separate line
 - A citation always ends a paragraph, never appears mid-sentence
+- Format: write the sentence. Then on the next line write the citation. Then continue.
 
 PAGE NUMBERS: Use the printed page number visible on the page. Do NOT count from start of PDF. Omit if not clearly visible.
 
@@ -1855,10 +1857,11 @@ Check ALL of the following — if ANY apply, write detailed bullets:
 
 CASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."
 
-CASE 2 — Concise bullet points. One sentence each. Citation after each bullet:
+CASE 2 — Bullet points using "- " prefix. One sentence per bullet. Citation on its own line immediately after each bullet:
+- Bullet text here.
 *Document Name | Page X | X.X.X Clause Title*
 
-Maximum 6 bullets. No repetition of summary content.
+Maximum 6 bullets. No repetition of summary content. NEVER embed citations within bullet text.
 
 ---
 
