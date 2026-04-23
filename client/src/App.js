@@ -1,21 +1,4 @@
-The bottleneck you are experiencing with `gemini-2.5-flash` is a known behavior involving **"Thinking" mode** and **Markdown table alignment**.
-
-In early 2026, Google enabled "thinking" (chain-of-thought) by default on several Flash models to improve quality. When you combine this with a request for a "Specifications Table," the model spends an enormous amount of time internally calculating character-perfect column alignment (padding with spaces) and reasoning through every possible row. For a 6,5000-token output limit at `temperature: 0.1`, the model is essentially "over-deliberating."
-
-Here are the specific optimizations to bring your response time under 30 seconds.
-
-### 1. Disable "Thinking" and Adjust Temperature
-By default, newer Gemini 2.5/3 models may attempt a "reasoning" pass. If your SDK version supports it, explicitly disable thinking. Furthermore, `0.1` temperature is often *too* low for complex tables, causing the model to get stuck in a repetitive loop of adding spaces for alignment.
-* **Action:** Increase temperature to **`0.7`** or **`0.8`**. 
-* **Reason:** This prevents the model from obsessing over the "perfect" next character (like a space or hyphen) in the Markdown table, which is the primary cause of "hanging" in Gemini Flash models.
-
-### 2. Stop "Visual Alignment" in Tables
-Gemini often tries to make Markdown tables look pretty in raw text by adding dozens of spaces so the pipes `|` line up. This is a massive waste of output tokens and time.
-* **Add this to your prompt:**
-    > "In the Specifications table, do not use extra spaces to align columns. Use exactly one space on either side of the pipe separator. For the separator row, use exactly three hyphens `|---|` for every column."
-
-### 3. Use "Asynchronous Chaining" (Parallel Calls)
-Instead of one massive call, split the task into two parallel requests. Since you are using Node.js, you can use `Promise.all()`.Aimport { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 
 const IS_DEMO = false;
 const API_BASE = process.env.REACT_APP_API_URL || "https://archimind.up.railway.app";
@@ -661,8 +644,6 @@ function CompareSection({ vaults, isAdmin }) {
     setCompareStatus("Analysing both documents…");
 
     // Two parallel prompts — Call A: Overview + Specifications, Call B: Key Differences + Specifier Notes
-    const docContext = `DOCUMENT A: ${docA.name}\n\n${"{extractA.text}"}\n\n---\n\nDOCUMENT B: ${docB.name}\n\n${"{extractB.text}"}`;
-
     const promptA = `You are a technical product comparison specialist. High-density technical analysis only, no fluff.
 
 PRODUCTS BEING COMPARED:
@@ -2740,46 +2721,4 @@ RULES:
       </div>
     </div>
   );
-}* **Call A:** Overview + Specifications Table.
-* **Call B:** Key Differences + Specifier Notes.
-* **Benefit:** Gemini 2.5 Flash has high concurrency. Two 15-second calls running at the same time will finish in ~15 seconds total, whereas one giant call that forces the model to maintain context across a table AND a long analysis often hits a "processing plateau."
-
-### 4. Reduce `maxOutputTokens` Aggressively
-Setting `maxOutputTokens` to 65,000 tells the model it has "infinite" room to talk. This often leads to verbosity and slower generation.
-* **Action:** Set `maxOutputTokens` to **4,000**.
-* **Reason:** 4,000 tokens is roughly 3,000 words—more than enough for a datasheet comparison. Limiting the "budget" forces the model to prioritize high-velocity token generation.
-
-### 5. Shift to System Instructions
-If you are sending the persona ("You are a technical specialist...") in the user prompt, move it to the `system_instruction` field in the Gemini API. 
-* **Reason:** Models process system instructions differently than user prompts. This reduces the "per-request" overhead and keeps the model focused on the task rather than re-evaluating its identity.
-
----
-
-### Optimized Prompt Strategy
-Refactor your prompt to look like this (to be sent to `gemini-2.5-flash`):
-
-```markdown
-// System Instruction
-You are a technical product comparison specialist. 
-Your goal is to provide high-density technical analysis without fluff.
-
-// User Prompt
-Compare the following two product datasets:
-[DATA A]
-[DATA B]
-
-Constraints:
-1. Table Format: Use minimal Markdown. |---| separators only. No padding spaces for alignment.
-2. Differences: Focus on 4 key performance metrics only.
-3. Speed: Be concise.
-```
-
-### Summary of Changes
-| Change | Current | Recommended |
-| :--- | :--- | :--- |
-| **Temperature** | 0.1 | **0.7 - 0.8** |
-| **Max Tokens** | 65,000 | **4,000** |
-| **Request Type** | Single Monolithic | **Parallel (Split Table vs. Analysis)** |
-| **Table Style** | Auto-aligned | **Strict No-Padding (`|---|`)** |
-
-**One Final Note:** If you are on the "Free Tier" of the Gemini Developer API, you may be experiencing "de-prioritized" latency during peak hours. If these prompt changes don't get you under 30 seconds, switching to a "Pay-as-you-go" plan (even with low usage) moves your requests to a higher priority queue.
+}
