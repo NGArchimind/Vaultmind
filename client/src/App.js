@@ -1053,34 +1053,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     }
   };
 
-  // ── temp doc direct question — no vault pipeline ─────────────────────────────
-  const askTempDocQuestion = async () => {
-    if (!tempDoc || !question.trim()) return;
-    const q = question.trim();
-    setAnswer(null);
-    setQuestion("");
-    setLastQuestion(q);
-    setStage("answering");
-    setStatusMsg("Reading document…");
-
-    try {
-      const { text: finalAnswer } = await callClaude(
-        [{ role: "user", content: [
-          { type: "document", source: { type: "base64", media_type: "application/pdf", data: tempDoc.base64 }, title: tempDoc.name },
-          { type: "text", text: `You are an expert consultant. Answer the following question using ONLY the provided document. Be thorough and precise. If the document does not contain relevant information, say so clearly.\n\nQUESTION: ${q}` }
-        ]}],
-        "You are an expert consultant. Answer using only the provided document.",
-        65536, 2, "gemini-2.5-flash"
-      );
-      setAnswer(finalAnswer);
-      setStage("done");
-      setStatusMsg("Answer ready.");
-    } catch (err) {
-      setStage(null);
-      setStatusMsg("Error: " + err.message);
-    }
-  };
-
   const askQuestion = async () => {
     if ((!vaultIndex && !tempDoc) || !question.trim()) return;
     const q = question.trim();
