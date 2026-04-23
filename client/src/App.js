@@ -1048,7 +1048,7 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
           { type: "text", text: `You are an expert consultant. Answer the following question using ONLY the provided document${tempDocs.length > 1 ? "s" : ""}. Be thorough and precise. If the documents do not contain relevant information, say so clearly.\n\nQUESTION: ${q}` }
         ]}],
         "You are an expert consultant. Answer using only the provided documents.",
-        65536, 2, "gemini-2.5-flash"
+        65536, 2, "gemini-2.5-flash", 240000
       );
       setAnswer(finalAnswer);
       setStage("done");
