@@ -1398,7 +1398,7 @@ export default function App() {
   const [authenticated, setAuthenticated] = useState(null);
   const [passwordInput, setPasswordInput] = useState("");
   const [passwordError, setPasswordError] = useState(false);
-  const [tempDocs, setTempDocs] = useState([]);
+  const [tempDoc, setTempDoc] = useState(null);
   const [tempDocDragOver, setTempDocDragOver] = useState(false);
   const [lastQuestion, setLastQuestion] = useState("");
   const [timedOut, setTimedOut] = useState(false);
@@ -1422,15 +1422,14 @@ export default function App() {
     }
   };
 
-  const loadTempDocs = async (files) => {
-    const pdfs = Array.from(files).filter(f => f.type === "application/pdf");
-    for (const file of pdfs) {
-      const base64 = await fileToBase64(file);
-      setTempDocs(prev => {
-        if (prev.find(d => d.name === file.name)) return prev;
-        return [...prev, { name: file.name, base64 }];
-      });
-    }
+  const loadTempDoc = async (file) => {
+    if (!file || file.type !== "application/pdf") return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const base64 = e.target.result.split(",")[1];
+      setTempDoc({ name: file.name, base64 });
+    };
+    reader.readAsDataURL(file);
   };
 
   const isAdmin = authenticated === "admin";
@@ -1768,40 +1767,8 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     return combinedDocs.length > 0 ? { documents: combinedDocs } : vaultIndex;
   };
 
-  // ── temp doc direct question ─────────────────────────────────────────────────
-  const askTempDocQuestion = async () => {
-    if (!tempDocs.length || !question.trim()) return;
-    const q = question.trim();
-    setAnswer(null);
-    setQuestion("");
-    setLastQuestion(q);
-    setStage("answering");
-    setStatusMsg("Reading document…");
-    try {
-      const docBlocks = tempDocs.map(d => ({
-        type: "document",
-        source: { type: "base64", media_type: "application/pdf", data: d.base64 },
-        title: d.name,
-      }));
-      const { text: finalAnswer } = await callClaude(
-        [{ role: "user", content: [
-          ...docBlocks,
-          { type: "text", text: `You are an expert consultant. Answer the following question using ONLY the provided document${tempDocs.length > 1 ? "s" : ""}. Be thorough and precise. If the documents do not contain relevant information, say so clearly.\n\nQUESTION: ${q}` }
-        ]}],
-        "You are an expert consultant. Answer using only the provided documents.",
-        65536, 2, "gemini-2.5-flash", 240000
-      );
-      setAnswer(finalAnswer);
-      setStage("done");
-      setStatusMsg("Answer ready.");
-    } catch (err) {
-      setStage(null);
-      setStatusMsg("Error: " + err.message);
-    }
-  };
-
   const askQuestion = async () => {
-    if ((!vaultIndex && !tempDocs.length) || !question.trim()) return;
+    if ((!vaultIndex && !tempDoc) || !question.trim()) return;
     const q = question.trim();
     setAnswer(null);
     setCostEst(null);
@@ -2143,15 +2110,13 @@ Rules:
         }
       }
 
-      if (tempDocs.length > 0) {
-        tempDocs.forEach(d => {
-          docBlocks.push({
-            type: "document",
-            source: { type: "base64", media_type: "application/pdf", data: d.base64 },
-            title: `TEMPORARY DOCUMENT (not in vault): ${d.name}`,
-          });
+      if (tempDoc) {
+        docBlocks.push({
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: tempDoc.base64 },
+          title: `TEMPORARY DOCUMENT (not in vault): ${tempDoc.name}`,
         });
-        console.log(`Temp docs included: ${tempDocs.map(d => d.name).join(", ")}`);
+        console.log(`Temp doc included: ${tempDoc.name}`);
       }
 
       setStatusMsg(`Pass 2/3 · ${totalPagesExtracted} specific pages extracted across ${docBlocks.length} document${docBlocks.length !== 1 ? "s" : ""}…`);
@@ -2169,7 +2134,7 @@ Rules:
         ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
         : "";
 
-      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDocs.length > 0 ? `\n\nNOTE: ${tempDocs.length} temporary document${tempDocs.length > 1 ? "s have" : " has"} been included for reference: ${tempDocs.map(d => d.name).join(", ")}. These are not part of the permanent vault — treat them as additional reference documents when answering.` : ""}
+      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `\n\nNOTE: A temporary document has been included for reference: "${tempDoc.name}". This is not part of the permanent vault — treat it as an additional reference document when answering.` : ""}
 
 ${contextBlock}CURRENT QUESTION: ${q}
 
@@ -2484,27 +2449,32 @@ RULES:
 
               {/* Temp doc upload */}
               <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px" }}>
-                <div style={{ padding: "10px 0" }}>
-                  <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Documents</div>
-                  {tempDocs.map((d, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "6px 10px", marginBottom: 4 }}>
-                      <span style={{ fontSize: 11, color: ARC_TERRACOTTA, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {d.name}</span>
-                      <button className="btn" onClick={() => setTempDocs(prev => prev.filter((_, j) => j !== i))} title="Remove"
+                {tempDoc ? (
+                  <div style={{ padding: "10px 0" }}>
+                    <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "8px 10px" }}>
+                      <span style={{ fontSize: 11, color: ARC_TERRACOTTA, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {tempDoc.name}</span>
+                      <button className="btn" onClick={() => setTempDoc(null)} title="Remove"
                         style={{ background: "none", color: ARC_TERRACOTTA, fontSize: 14, padding: "0 2px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
                     </div>
-                  ))}
+                    <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Temporary — will not be saved. Included in all questions.</p>
+                  </div>
+                ) : (
                   <div
                     onDragOver={e => { e.preventDefault(); setTempDocDragOver(true); }}
                     onDragLeave={() => setTempDocDragOver(false)}
-                    onDrop={e => { e.preventDefault(); setTempDocDragOver(false); loadTempDocs(e.dataTransfer.files); }}
+                    onDrop={e => { e.preventDefault(); setTempDocDragOver(false); const f = e.dataTransfer.files[0]; if (f) loadTempDoc(f); }}
                     onClick={() => tempDocInputRef.current.click()}
-                    style={{ border: `1px dashed ${tempDocDragOver ? AD_GREEN : "#ccc"}`, padding: "8px 12px", background: tempDocDragOver ? "#f0f5f6" : "transparent", display: "flex", alignItems: "center", gap: 8, cursor: "pointer", marginTop: tempDocs.length ? 4 : 0 }}>
-                    <span style={{ fontSize: 12, opacity: 0.4 }}>📎</span>
-                    <span style={{ fontSize: 11, color: ARC_NAVY, letterSpacing: "0.01em" }}>Add PDF{tempDocs.length ? "s" : ""}</span>
+                    style={{ padding: "10px 0", cursor: "pointer" }}>
+                    <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
+                    <div style={{ border: `1px dashed ${tempDocDragOver ? AD_GREEN : "#ccc"}`, padding: "10px 12px", background: tempDocDragOver ? "#f0f5f6" : "transparent", display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 12, opacity: 0.4 }}>📎</span>
+                      <span style={{ fontSize: 11, color: ARC_NAVY, letterSpacing: "0.01em" }}>Upload a PDF</span>
+                    </div>
+                    <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Upload a temporary PDF here to include it in your questions. It will not be saved to the vault.</p>
+                    <input ref={tempDocInputRef} type="file" accept="application/pdf" style={{ display: "none" }} onChange={e => { if (e.target.files[0]) loadTempDoc(e.target.files[0]); }} />
                   </div>
-                  <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Temporary — will not be saved. Included in all questions.</p>
-                  <input ref={tempDocInputRef} type="file" accept="application/pdf" multiple style={{ display: "none" }} onChange={e => { if (e.target.files.length) loadTempDocs(e.target.files); }} />
-                </div>
+                )}
               </div>
 
               {/* Admin controls */}
@@ -2539,57 +2509,9 @@ RULES:
             {/* main vault panel */}
             <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
               {!vault ? (
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                  {!tempDocs.length ? (
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                      <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Select a vault</p>
-                      <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Upload documents and query building regulations</p>
-                    </div>
-                  ) : (
-                    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                      <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "20px 32px", flexShrink: 0 }}>
-                        <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>Temporary Documents</h1>
-                        <p style={{ fontSize: 11, color: "#9a9088", marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-                          {tempDocs.map(d => d.name).join(", ")} &nbsp;·&nbsp; <span style={{ color: ARC_TERRACOTTA }}>Not saved to vault</span>
-                        </p>
-                      </div>
-                      <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px" }}>
-                        {isRunning && (
-                          <div style={{ padding: "14px 0", fontSize: 12, color: ARC_NAVY, display: "flex", alignItems: "center", gap: 8, fontWeight: 500 }}>
-                            <Spinner size={12} /> {statusMsg}
-                          </div>
-                        )}
-                        {answer && !isRunning && (
-                          <div style={{ animation: "fadeIn 0.4s ease" }}>
-                            <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #4a7c20", padding: "24px 28px" }}>
-                              <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Response</p>
-                              <AnswerRenderer text={answer} />
-                            </div>
-                          </div>
-                        )}
-                        {!answer && !isRunning && (
-                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10 }}>
-                            <div style={{ width: 32, height: 2, background: ARC_TERRACOTTA }} />
-                            <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Ask a question</p>
-                            <p style={{ fontSize: 11, color: "#9a9088", letterSpacing: "0.03em" }}>Questions will be answered using the temporary documents only</p>
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ padding: "16px 32px 20px", borderTop: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0 }}>
-                        <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
-                          <textarea value={question} onChange={e => setQuestion(e.target.value)}
-                            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askTempDocQuestion(); } }}
-                            placeholder="Ask a question about these documents…"
-                            disabled={isRunning} rows={2} className="arc-input"
-                            style={{ flex: 1, border: "1px solid #ddd8d0", borderRight: "none", padding: "12px 16px", color: ARC_NAVY, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#faf8f5" : "#ffffff", letterSpacing: "0.01em" }} />
-                          <button className="btn" onClick={askTempDocQuestion} disabled={isRunning || !question.trim()}
-                            style={{ background: isRunning || !question.trim() ? "#f0ede8" : ARC_NAVY, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                            {isRunning ? <Spinner size={14} /> : "Search"}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Select a vault</p>
+                  <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Upload documents and query building regulations</p>
                 </div>
               ) : (
                 <>
@@ -2750,7 +2672,7 @@ RULES:
                           </div>
                         )}
 
-                        {!answer && !isRunning && (vaultIndex || tempDocs.length) && vaultHistory.length === 0 && (
+                        {!answer && !isRunning && (vaultIndex || tempDoc) && vaultHistory.length === 0 && (
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10 }}>
                             <div style={{ width: 32, height: 2, background: ARC_TERRACOTTA }} />
                             <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Ask a question</p>
@@ -2758,7 +2680,7 @@ RULES:
                           </div>
                         )}
 
-                        {!vaultIndex && !tempDocs.length && !isRunning && pdfs.length > 0 && (
+                        {!vaultIndex && !tempDoc && !isRunning && pdfs.length > 0 && (
                           <div style={{ border: `1px solid ${ARC_TERRACOTTA}`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 20px", margin: "24px 0", background: "#fdf5f3" }}>
                             <p style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Vault not indexed</p>
                             <p style={{ fontSize: 12, color: "#9a9088" }}>Click Index Vault to prepare documents for searching.</p>
@@ -2773,7 +2695,7 @@ RULES:
                         )}
                       </div>
 
-                      {(vaultIndex || tempDocs.length || (queryScope === "all" && parentMaster)) && (
+                      {(vaultIndex || tempDoc || (queryScope === "all" && parentMaster)) && (
                         <div style={{ padding: "16px 32px 20px", borderTop: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
                           <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
                             <textarea value={question} onChange={e => setQuestion(e.target.value)}
