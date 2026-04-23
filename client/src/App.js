@@ -976,42 +976,46 @@ Rules: probability > 0.5 only, pageHint must be integer, pure JSON only.`;
       // ── PASS 3: Compliance synthesis ──────────────────────────────────────────
       setComplianceStatus(`Pass 3/3 · Assessing compliance…`);
 
-      const compliancePrompt = `You are a building regulations consultant assessing two products for compliance.
+      const compliancePrompt = `You are an expert building regulations consultant assessing two products for compliance against the provided regulatory documents.
 
 PRODUCTS: ${docA.name.replace(".pdf","")} vs ${docB.name.replace(".pdf","")}
-QUESTION: ${complianceQuestion}
+COMPLIANCE QUESTION: ${complianceQuestion}
 
 KEY PRODUCT DIFFERENCES:
 ${compareAnswer.slice(0, 800)}
 
-Using ONLY the provided document pages, give a concise compliance assessment:
+Using ONLY the provided document pages, produce a focused compliance assessment structured as follows:
 
 ## Compliance Assessment — ${vaultObj.name}
 
 ### Verdict
-One or two sentences per product — compliant, non-compliant, or uncertain, and why.
+A short paragraph for each product stating whether it appears compliant, non-compliant, or where compliance is uncertain — and the primary reason why. Reference the specific requirement that determines this.
 
-### Key Findings
-A table of the most relevant requirements and how each product meets them:
+### Key Requirements
+A table mapping the most relevant regulatory requirements to each product:
 
 | Requirement | ${docA.name.replace(".pdf", "")} | ${docB.name.replace(".pdf", "")} |
 |---|---|---|
 
-### Concerns
-Bullet points only. Any specific gaps or non-compliances. If none, state "No concerns identified."
+### Compliance Analysis
+3–5 focused paragraphs covering the most important compliance points. For each point: state the requirement, assess both products against it, and note any differences in how they comply or fail to comply. Do not repeat the table — analyse and interpret.
 
-### References
+### Concerns & Gaps
+Any specific non-compliances, limitations, or areas where further evidence is needed before compliance can be confirmed. Be precise — quote the requirement and explain the gap. If none, state "No concerns identified."
+
+### Regulatory References
+Key clauses cited in this assessment.
 *Document | Page X | Clause title*
 
-PAGE NUMBERS: Use the printed page number on the page, not its position in the extracted set. If unclear, use the numbers in the document title block.
+PAGE NUMBERS: Use the printed page number visible on the page itself, not its position in the extracted set. If unclear, use the page numbers in the document title block (e.g. "BS 9991:2024 — pages 101, 102").
 
-Be concise. Do not repeat information. Do not speculate beyond what the documents state.`;
+Use only the provided document pages. Do not speculate beyond what the documents state.`;
 
       try {
         const { text: complianceText } = await callClaude(
           [{ role: "user", content: [...docBlocks, { type: "text", text: compliancePrompt }] }],
           "You are a building regulations consultant. Be concise and direct. Use only the provided document pages.",
-          16000, 2, "gemini-2.5-flash"
+          65536, 2, "gemini-2.5-flash"
         );
         setComplianceAnswer(complianceText);
         setComplianceStatus("Compliance check complete.");
