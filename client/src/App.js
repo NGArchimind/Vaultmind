@@ -1768,7 +1768,7 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
   };
 
   const askQuestion = async () => {
-    if (!vaultIndex || !question.trim()) return;
+    if ((!vaultIndex && !tempDoc) || !question.trim()) return;
     const q = question.trim();
     setAnswer(null);
     setCostEst(null);
@@ -2672,7 +2672,7 @@ RULES:
                           </div>
                         )}
 
-                        {!answer && !isRunning && vaultIndex && vaultHistory.length === 0 && (
+                        {!answer && !isRunning && (vaultIndex || tempDoc) && vaultHistory.length === 0 && (
                           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10 }}>
                             <div style={{ width: 32, height: 2, background: ARC_TERRACOTTA }} />
                             <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Ask a question</p>
@@ -2680,7 +2680,7 @@ RULES:
                           </div>
                         )}
 
-                        {!vaultIndex && !isRunning && pdfs.length > 0 && (
+                        {!vaultIndex && !tempDoc && !isRunning && pdfs.length > 0 && (
                           <div style={{ border: `1px solid ${ARC_TERRACOTTA}`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 20px", margin: "24px 0", background: "#fdf5f3" }}>
                             <p style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Vault not indexed</p>
                             <p style={{ fontSize: 12, color: "#9a9088" }}>Click Index Vault to prepare documents for searching.</p>
@@ -2695,7 +2695,7 @@ RULES:
                         )}
                       </div>
 
-                      {(vaultIndex || (queryScope === "all" && parentMaster)) && (
+                      {(vaultIndex || tempDoc || (queryScope === "all" && parentMaster)) && (
                         <div style={{ padding: "16px 32px 20px", borderTop: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
                           <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
                             <textarea value={question} onChange={e => setQuestion(e.target.value)}
