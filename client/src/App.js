@@ -197,7 +197,23 @@ function AnswerRenderer({ text }) {
     tableBuffer = []; inTable = false;
   };
 
+  let inCodeBlock = false;
   lines.forEach((line, i) => {
+    // Skip code block delimiters — tables inside code blocks should still render
+    if (line.trim().startsWith("```")) {
+      inCodeBlock = !inCodeBlock;
+      return;
+    }
+    if (inCodeBlock && line.startsWith("|")) {
+      inTable = true;
+      if (tableBuffer._pendingTitle) {
+        tableBuffer._title = tableBuffer._pendingTitle;
+        delete tableBuffer._pendingTitle;
+      }
+      tableBuffer.push(line);
+      return;
+    }
+    if (inCodeBlock) return; // skip non-table lines inside code blocks
     if (line.startsWith(">> ")) {
       inTable = true;
       if (tableBuffer._pendingTitle) {
@@ -1780,50 +1796,83 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
         source: { type: "base64", media_type: "application/pdf", data: d.base64 },
         title: d.name,
       }));
-      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document${tempDocs.length > 1 ? "s" : ""} to answer.
+      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided documents to answer.
 
 CURRENT QUESTION: ${q}
+
+IMPORTANT: You have been provided with ${tempDocs.length} document${tempDocs.length > 1 ? "s" : ""}: ${tempDocs.map(d => d.name).join(", ")}. You MUST check ALL of them for relevant requirements — do not rely on just one document. Cross-reference between documents where requirements interact.
+
+---
+
+TABLES — GLOBAL RULE:
+When reproducing a table from the documents:
+1. Output the table title on its own line in bold: **Table X — Title**
+2. Reproduce the COMPLETE table — EVERY row, EVERY column, NO exceptions
+3. Every row starts and ends with | pipe characters
+4. After the header row output a separator row: | --- | --- | --- |
+5. For the specific row(s) that directly answer the question, prefix that ENTIRE ROW with >> ONCE at the very start: >> | cell | cell | cell |
+6. Do NOT wrap tables in code blocks or backticks
+7. Place the citation immediately below the table
+
+---
 
 RESPONSE FORMAT — output in this exact order every time:
 
 ## Summary
 
-A confident, definitive answer in 2–4 sentences. Must:
+WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences. Must:
 - Open with a direct answer in plain English
-- Cite ALL relevant documents provided
+- Cite ALL relevant documents — not just one
 - Reproduce any table directly relevant to the answer
 
-For each key fact, include the exact supporting phrase and citation:
+For each key fact, include the exact supporting phrase and citation as a consecutive pair:
 
 > "Exact short phrase from document."
-*Document Name | Page X | Clause Title*
+*Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
 
-CITATION FORMAT: *Document | Page X | Clause number and title*
-CRITICAL: Citation MUST start AND end with * asterisk. Every citation on its OWN LINE.
+CITATION FORMAT: *Document | Page X | Clause number and title (Parent section title)*
+CRITICAL: Citation MUST start AND end with * asterisk.
 
-PAGE NUMBERS: Use the printed page number visible on the page. Omit if not clearly visible.
+CITATION PLACEMENT:
+- Every citation goes on its OWN LINE, never embedded within a sentence
+- If multiple documents support the same fact, each citation on its own separate line
+- A citation always ends a paragraph, never appears mid-sentence
+
+PAGE NUMBERS: Use the printed page number visible on the page. Do NOT count from start of PDF. Omit if not clearly visible.
 
 ---
 
 ## Detailed Analysis
 
-Only content that adds value beyond the summary. Concise bullet points, one sentence each. Citation after each bullet:
-*Document Name | Page X | Clause Title*
+WRITE THIS SECOND. Only content that adds value beyond the summary.
 
-If nothing to add: "The summary above fully addresses this question."
+Check ALL of the following — if ANY apply, write detailed bullets:
+- Location/scenario-specific requirements beyond the general rule?
+- Exceptions or conditions where the rule does NOT apply?
+- Requirements from OTHER uploaded documents that interact with this question?
+- Cross-references to other clauses or documents?
+- Do the multiple documents differ or add to each other?
+
+CASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."
+
+CASE 2 — Concise bullet points. One sentence each. Citation after each bullet:
+*Document Name | Page X | X.X.X Clause Title*
+
+Maximum 6 bullets. No repetition of summary content.
 
 ---
 
 ## Regulatory Context
 
-Broader background tightly scoped to the question. 2–4 bullets maximum.
+WRITE THIS THIRD. Broader background tightly scoped to the question. 2–4 bullets maximum.
+Citation after each bullet: *Document Name | Page X | Clause Title*
 If nothing to add: "No additional context required."
 
 ---
 
 ## Contradictions & Conflicts
 
-Any conflicts between documents: state conflict, quote both sides with citations, give practical conclusion.
+WRITE THIS LAST. Any conflicts between documents: state conflict, quote both sides with citations, give practical conclusion.
 If none: "No contradictions identified."
 
 ---
@@ -1831,7 +1880,9 @@ If none: "No contradictions identified."
 RULES:
 - Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions
 - Use ONLY the provided documents — no external knowledge
-- Every factual statement needs a citation
+- Draw from ALL provided documents — never rely on just one
+- Every factual statement needs a citation with opening AND closing asterisks
+- Never wrap tables in code blocks or backticks
 - Omit citations rather than guess page numbers`;
 
       const { text: finalAnswer } = await callClaude(
