@@ -1441,9 +1441,9 @@ WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences. Must:
 For each key fact, include the exact supporting phrase and citation as a consecutive pair:
 
 > "Exact short phrase from document."
-*Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
+*Document Name | X.X.X Clause Title (Parent Section Title)*
 
-CITATION FORMAT: *Document | Page X | Clause number and title (Parent section title)*
+CITATION FORMAT: *Document | Clause number and title (Parent section title)*
 CRITICAL: Citation MUST start AND end with * asterisk.
 
 CITATION PLACEMENT — strictly follow these rules:
@@ -1452,11 +1452,9 @@ CITATION PLACEMENT — strictly follow these rules:
 - Never chain citations with "and": *Citation A* and *Citation B* — WRONG
 - If multiple documents support the same fact, each citation goes on its own separate line:
   > "Quote."
-  *Document A | Page X | Clause*
-  *Document B | Page Y | Clause*
+  *Document A | Clause*
+  *Document B | Clause*
 - A citation always ends a paragraph, never appears mid-sentence
-
-PAGE NUMBERS: Use the printed page number visible on the extracted page. Do NOT count from the start of the PDF file — British Standards have front matter so PDF position ≠ printed page number. Omit if not clearly visible.
 
 ---
 
@@ -1475,12 +1473,11 @@ Check ALL of the following — if ANY apply, write Case 2:
 CASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."
 
 CASE 2 — Concise bullet points. One sentence each. Reproduce any referenced table in full below the bullet. Citation after each bullet or table:
-*Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
+*Document Name | X.X.X Clause Title (Parent Section Title)*
 
 RULES:
 - No repetition of summary content
 - Citations: opening AND closing * required
-- Page numbers: printed page only, never PDF position
 - Cite ALL documents where relevant — never rely on just one
 - Maximum 6 bullets
 
@@ -1489,7 +1486,7 @@ RULES:
 ## Regulatory Context
 
 WRITE THIS THIRD. Broader background tightly scoped to the question. 2–4 bullets maximum.
-Citation after each bullet: *Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
+Citation after each bullet: *Document Name | X.X.X Clause Title (Parent Section Title)*
 If nothing to add: "No additional context required."
 
 ---
@@ -1505,12 +1502,11 @@ RULES:
 - Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions
 - Use ONLY the provided document pages — no external knowledge
 - Every factual statement needs a citation with opening AND closing asterisks
-- Draw from ALL provided documents — never rely on just one
-- Omit citations rather than guess page numbers`;
+- Draw from ALL provided documents — never rely on just one`;
 
       const { text: finalAnswer, usage: answerUsage } = await callClaude(
         [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-        `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Page X | Clause (Section)*. Draw from ALL provided documents.`,
+        `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. Draw from ALL provided documents.`,
         65536
       );
 
@@ -1581,7 +1577,7 @@ RULES:
       <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
         <style>{globalStyles}</style>
         <div style={{ background: ARC_NAVY, padding: "20px 40px", display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-          <span style={{ color: "#ffffff", fontSize: 22, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif" }}>Architectus</span>
+          <span style={{ color: "#ffffff", fontSize: 22, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif" }}>Archimind</span>
           <span style={{ color: "#7a9aaa", fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase" }}>Document Intelligence</span>
         </div>
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: ARC_STONE }}>
@@ -1622,9 +1618,9 @@ RULES:
         />
       )}
 
-      {/* Architectus top nav */}
+      {/* Archimind top nav */}
       <div style={{ background: ARC_NAVY, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, height: 56 }}>
-        <span style={{ color: "#ffffff", fontSize: 20, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif" }}>Architectus</span>
+        <span style={{ color: "#ffffff", fontSize: 20, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif" }}>Archimind</span>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ color: "#7a9aaa", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase" }}>Document Intelligence</span>
           <span style={{ fontSize: 10, color: isAdmin ? ARC_TERRACOTTA : "#7a9aaa", letterSpacing: "0.1em", textTransform: "uppercase", border: `1px solid ${isAdmin ? ARC_TERRACOTTA : "#3a5a6a"}`, padding: "2px 8px" }}>
