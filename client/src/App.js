@@ -2,7 +2,6 @@ import { useState, useRef, useCallback, useEffect } from "react";
 
 const IS_DEMO = false;
 const API_BASE = process.env.REACT_APP_API_URL || "https://archimind.up.railway.app";
-const ANTHROPIC_MODEL = "claude-sonnet-4-20250514";
 const MAX_PAGES_PER_CHUNK = 90;
 
 // ── API helpers ───────────────────────────────────────────────────────────────
@@ -68,7 +67,7 @@ async function splitPdfIntoChunks(base64Data, chunkSize) {
 
 async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash") {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
+  const timeoutId = setTimeout(() => controller.abort(), 240000);
 
   let res;
   try {
@@ -855,11 +854,9 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
         ]}],
         SYSTEM, 65000, 2, "gemini-2.5-flash-lite"
       );
-      console.log(`Raw index response for ${pdfName} (first 200 chars):`, result.slice(0, 200));
       const parsed = tryParse(result);
       if (parsed?.headings?.length > 0) {
         const deduped = dedupe(parsed.headings);
-        console.log(`Indexed ${pdfName}: ${deduped.length} headings`);
         return { headings: deduped };
       }
       console.warn(`${pdfName}: full-PDF index returned no headings, trying chunked…`);
@@ -872,7 +869,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       const CHUNK_SIZE = 60;
       const numChunks = Math.ceil(pageCount / CHUNK_SIZE);
       const allHeadings = [];
-      console.log(`${pdfName}: splitting into ${numChunks} chunks (${pageCount} pages total)`);
 
       for (let chunk = 0; chunk < numChunks; chunk++) {
         const startPage = chunk * CHUNK_SIZE;
@@ -901,7 +897,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
               pageHint: Math.max(1, (h.pageHint || 1) + startPage)
             }));
             allHeadings.push(...offsetHeadings);
-            console.log(`${pdfName} chunk ${chunk + 1}/${numChunks}: ${parsed.headings.length} headings (pages ${startPage + 1}–${endPage})`);
           }
         } catch (e) {
           console.warn(`${pdfName} chunk ${chunk + 1} failed:`, e.message);
@@ -918,7 +913,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
               const parsed2 = tryParse(result2);
               if (parsed2?.headings) {
                 allHeadings.push(...parsed2.headings);
-                console.log(`${pdfName} chunk ${chunk + 1} retry: ${parsed2.headings.length} headings`);
               }
             } catch (e2) {
               console.warn(`${pdfName} chunk ${chunk + 1} retry also failed:`, e2.message);
@@ -928,7 +922,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       }
 
       const deduped = dedupe(allHeadings);
-      console.log(`Indexed ${pdfName}: ${deduped.length} headings (deduped from ${allHeadings.length})`);
       return { headings: deduped };
     } catch (e) {
       console.warn(`${pdfName}: chunked indexing failed:`, e.message);
@@ -1147,15 +1140,6 @@ Rules:
       if (!scoring.selectedDocs || scoring.selectedDocs.length === 0) {
         console.warn("Scoring returned empty — raw response:", scoringText.slice(0, 500));
       }
-      // Debug: log scoring result
-      console.log("Scoring result:", JSON.stringify(scoring).slice(0, 1000));
-      console.log("Selected docs:", (scoring.selectedDocs || []).length);
-      (scoring.selectedDocs || []).forEach(d => {
-        console.log("Doc:", d.docName, "Sections:", (d.sections || []).length);
-        (d.sections || []).forEach(s => {
-          console.log("  Section:", s.heading?.slice(0, 50), "pageHint:", s.pageHint, "prob:", s.probability);
-        });
-      });
 
       // ── PASS 2: Load PDFs and extract pages ──────────────────────────────────
       setStatusMsg("Pass 1/3 · Loading documents for page extraction…");
@@ -1166,8 +1150,6 @@ Rules:
       const selectedDocNames = (scoring.selectedDocs || []).map(d => d.docName);
 
       if (useAllSubVaults) {
-        console.log("All-subvaults mode — selectedDocNames from scoring:", selectedDocNames);
-
         // Build a flat lookup of every PDF across all sub-vaults
         const allSubVaultPdfs = [];
         for (const sv of (parentMaster.subVaults || [])) {
@@ -1184,8 +1166,6 @@ Rules:
             console.warn(`Could not list PDFs for sub-vault ${sv.name}:`, e);
           }
         }
-        console.log("All sub-vault PDFs available:", allSubVaultPdfs.map(p => p.prefixedName));
-
         // Match each selected doc name to a real PDF — try exact first, then fuzzy
         for (const docName of selectedDocNames) {
           if (contentsData.find(c => c.pdf.name === docName)) continue;
@@ -1219,8 +1199,6 @@ Rules:
             continue;
           }
 
-          console.log(`Matched "${docName}" to ${found.subVault.name}/${found.fileName}`);
-
           try {
             const pdfData = await api(`/api/vaults/${encodeURIComponent(found.subVault.id)}/pdfs/${encodeURIComponent(found.fileName)}`);
             contentsData.push({ pdf: { name: found.prefixedName, size: 0 }, base64: pdfData.base64 });
@@ -1228,7 +1206,6 @@ Rules:
             console.warn(`Could not load ${found.fileName} from ${found.subVault.name}:`, e);
           }
         }
-        console.log("contentsData loaded:", contentsData.map(c => c.pdf.name));
       } else {
         // Standard single-vault fetch
         const docsNeeded = pdfs.filter(p =>
@@ -1377,9 +1354,6 @@ Rules:
         }
       });
 
-      const pagesUsed = HARD_PAGE_BUDGET - budgetRemaining;
-      console.log(`Page budget used: ${pagesUsed}/${HARD_PAGE_BUDGET} pages across ${Object.keys(docPageMap).length} documents`);
-
       const docBlocks = [];
       let totalPagesExtracted = 0;
 
@@ -1399,7 +1373,6 @@ Rules:
             source: { type: "base64", media_type: "application/pdf", data: result.base64 },
             title: `${docName} — pages ${result.pageNumbers.join(", ")}`,
           });
-          console.log(`Extracted ${result.pagesExtracted} pages from ${docName}`);
         } catch (e) {
           console.warn(`Page extraction failed for ${docName}, skipping:`, e.message);
         }
@@ -1411,7 +1384,6 @@ Rules:
           source: { type: "base64", media_type: "application/pdf", data: tempDoc.base64 },
           title: `TEMPORARY DOCUMENT (not in vault): ${tempDoc.name}`,
         });
-        console.log(`Temp doc included: ${tempDoc.name}`);
       }
 
       setStatusMsg(`Pass 2/3 · ${totalPagesExtracted} specific pages extracted across ${docBlocks.length} document${docBlocks.length !== 1 ? "s" : ""}…`);
@@ -1554,7 +1526,6 @@ RULES:
       const totalInput = (scoringUsage?.input_tokens || 0) + (answerUsage?.input_tokens || 0);
       const totalOutput = (scoringUsage?.output_tokens || 0) + (answerUsage?.output_tokens || 0);
       const costGBP = ((totalInput / 1_000_000) * GEMINI_INPUT_PRICE_USD + (totalOutput / 1_000_000) * GEMINI_OUTPUT_PRICE_USD) * USD_TO_GBP;
-      console.log(`Token usage — input: ${totalInput}, output: ${totalOutput}, cost: £${costGBP.toFixed(6)}`);
       setCostEst(costGBP);
       setStatusMsg("Answer ready");
     } catch (err) {
