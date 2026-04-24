@@ -65,9 +65,9 @@ async function splitPdfIntoChunks(base64Data, chunkSize) {
   }
 }
 
-async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash") {
+async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash", timeoutMs = 240000, options = {}) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 240000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   let res;
   try {
@@ -75,7 +75,7 @@ async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2,
       method: "POST",
       headers: { "Content-Type": "application/json" },
       signal: controller.signal,
-      body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages }),
+      body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages, ...options }),
     });
   } catch (e) {
     clearTimeout(timeoutId);
@@ -87,12 +87,12 @@ async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2,
   if (res.status === 429 && retries > 0) {
     console.log(`Rate limit hit, waiting 15 seconds before retry (${retries} retries left)…`);
     await new Promise(r => setTimeout(r, 15000));
-    return callClaude(messages, systemPrompt, maxTokens, retries - 1, model);
+    return callClaude(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs, options);
   }
   if ((res.status === 504 || res.status === 502) && retries > 0) {
     console.log(`Gateway error ${res.status}, retrying in 5 seconds…`);
     await new Promise(r => setTimeout(r, 5000));
-    return callClaude(messages, systemPrompt, maxTokens, retries - 1, model);
+    return callClaude(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs, options);
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
@@ -614,9 +614,787 @@ function MenuOption({ icon, title, desc, onClick, disabled, danger }) {
   );
 }
 
+// ── Compare Section ────────────────────────────────────────────────────────────
+
+function CompareSection({ vaults, isAdmin }) {
+  const [docA, setDocA] = useState(null);
+  const [docB, setDocB] = useState(null);
+  const [dragOverA, setDragOverA] = useState(false);
+  const [dragOverB, setDragOverB] = useState(false);
+  const [compareStatus, setCompareStatus] = useState("");
+  const [compareRunning, setCompareRunning] = useState(false);
+  const [compareAnswer, setCompareAnswer] = useState(null);
+  const [compareHistory, setCompareHistory] = useState([]);
+  const [followUp, setFollowUp] = useState("");
+
+  // Compliance check state
+  const [showVaultPicker, setShowVaultPicker] = useState(false);
+  const [selectedVaultId, setSelectedVaultId] = useState("");
+  const [complianceRunning, setComplianceRunning] = useState(false);
+  const [complianceStatus, setComplianceStatus] = useState("");
+  const [complianceProgress, setComplianceProgress] = useState({ select: 0, read: 0, answer: 0 });
+  const [complianceAnswer, setComplianceAnswer] = useState(null);
+
+  // Suggested compliance questions state
+  const [suggestedQuestions, setSuggestedQuestions] = useState([]);
+  const [selectedQuestion, setSelectedQuestion] = useState("");
+  const [questionsLoading, setQuestionsLoading] = useState(false);
+
+  const inputARef = useRef();
+  const inputBRef = useRef();
+
+  const loadDoc = async (file, setter) => {
+    if (!file || file.type !== "application/pdf") return;
+    const base64 = await fileToBase64(file);
+    setter({ name: file.name, base64 });
+  };
+
+  // ── Initial comparison ────────────────────────────────────────────────────────
+  const runComparison = async () => {
+    if (!docA || !docB) return;
+    setCompareRunning(true);
+    setCompareAnswer(null);
+    setCompareHistory([]);
+    setComplianceAnswer(null);
+    setComplianceStatus("");
+    setShowVaultPicker(false);
+    setSuggestedQuestions([]);
+    setSelectedQuestion("");
+    setSelectedVaultId("");
+    setQuestionsLoading(false);
+    setCompareStatus("Analysing both documents…");
+
+    // Two parallel prompts — Call A: Overview + Specifications, Call B: Key Differences + Specifier Notes
+    const promptA = `You are a technical product comparison specialist. High-density technical analysis only, no fluff.
+
+PRODUCTS BEING COMPARED:
+[CONTEXT]
+
+Respond with ONLY these two sections:
+
+## Overview
+One sentence per product — what it is, who makes it, and its primary purpose.
+
+## Specifications
+A table of all quantifiable properties. Only include rows where a value exists for at least one product.
+Table formatting rules: use exactly one space either side of each pipe. Separator row uses exactly three hyphens per column. No extra spaces for alignment.
+
+| Property | ${docA.name.replace(".pdf", "")} | ${docB.name.replace(".pdf", "")} |
+|---|---|---|
+
+Include: dimensions, thickness options, fire ratings, density, thermal conductivity, weight, compliance standards, edge types, colour, and any other measurable specification.`;
+
+    const promptB = `You are a technical product comparison specialist. High-density technical analysis only, no fluff.
+
+PRODUCTS BEING COMPARED:
+[CONTEXT]
+
+Respond with ONLY these two sections:
+
+## Key Differences
+An analysis of the most significant differences between the two products — what they mean in practice for a specifier or designer. Focus on performance, application suitability, and installation. Do not repeat specifications — interpret and analyse. 4–6 paragraphs maximum, each focused on one key area of difference.
+
+## Specifier Notes
+Concise guidance on when to use each product. Include scenarios where one is clearly more suitable than the other, and any limitations or restrictions to be aware of.`;
+
+    const COMPARE_OPTIONS = { temperature: 0.7, thinking: false };
+    const COMPARE_SYSTEM = "You are a technical product comparison specialist. Provide high-density technical analysis without fluff.";
+
+    try {
+      // Attempt text extraction for both PDFs first
+      setCompareStatus("Extracting document content…");
+      const [extractA, extractB] = await Promise.all([
+        api("/api/extract-text", { method: "POST", body: { base64: docA.base64 } }).catch(() => ({ hasText: false, text: "" })),
+        api("/api/extract-text", { method: "POST", body: { base64: docB.base64 } }).catch(() => ({ hasText: false, text: "" })),
+      ]);
+
+      const useTextA = extractA.hasText;
+      const useTextB = extractB.hasText;
+      console.log(`Doc A text extraction: hasText=${useTextA}, chars=${extractA.text?.length}`);
+      console.log(`Doc B text extraction: hasText=${useTextB}, chars=${extractB.text?.length}`);
+
+      // Require text extraction to succeed with meaningful content — no PDF fallback
+      const MIN_CHARS = 200;
+      const thinA = useTextA && extractA.text.replace(/\s/g, "").length < MIN_CHARS;
+      const thinB = useTextB && extractB.text.replace(/\s/g, "").length < MIN_CHARS;
+
+      if (!useTextA || !useTextB || thinA || thinB) {
+        const failedDocs = [
+          (!useTextA || thinA) && docA.name,
+          (!useTextB || thinB) && docB.name,
+        ].filter(Boolean).join(" and ");
+        setCompareStatus(`Unable to extract sufficient text from ${failedDocs}. This document may be image-based or scanned with no text layer — try printing to PDF first to embed a text layer, then re-upload.`);
+        setCompareRunning(false);
+        return;
+      }
+
+      const combinedContext = `DOCUMENT A: ${docA.name}\n\n${extractA.text}\n\n---\n\nDOCUMENT B: ${docB.name}\n\n${extractB.text}`;
+      const contentA = [{ type: "text", text: promptA.replace("[CONTEXT]", combinedContext) }];
+      const contentB = [{ type: "text", text: promptB.replace("[CONTEXT]", combinedContext) }];
+
+      // Fire both calls in parallel
+      setCompareStatus("Analysing both documents…");
+      const [resultA, resultB] = await Promise.all([
+        callClaude([{ role: "user", content: contentA }], COMPARE_SYSTEM, 8000, 2, "gemini-2.5-flash", 240000, COMPARE_OPTIONS),
+        callClaude([{ role: "user", content: contentB }], COMPARE_SYSTEM, 8000, 2, "gemini-2.5-flash", 240000, COMPARE_OPTIONS),
+      ]);
+
+      const text = `${resultA.text}\n\n${resultB.text}`;
+      setCompareAnswer(text);
+      setCompareHistory([{ role: "user", content: `Compare ${docA.name} and ${docB.name}`, isInitial: true }, { role: "assistant", content: text }]);
+      setCompareStatus("Comparison complete.");
+
+      // Auto-generate suggested compliance questions
+      setQuestionsLoading(true);
+      setSuggestedQuestions([]);
+      setSelectedQuestion("");
+      try {
+        const questionPrompt = `Based on the following product comparison, generate exactly 3 specific compliance question suggestions that a building regulations specialist might want to check against regulatory documents.
+
+COMPARISON:
+${text.slice(0, 1500)}
+
+Rules:
+- Each question must be specific to these exact products and their key differences
+- Each question must reference a specific aspect of compliance (fire performance, installation, structural, etc.)
+- Questions should be different from each other — cover different aspects
+- Keep each question to one sentence
+- Do not number them
+
+Return ONLY a JSON array of 3 strings, no other text:
+["question 1", "question 2", "question 3"]`;
+
+        const { text: qText } = await callClaude(
+          [{ role: "user", content: questionPrompt }],
+          "You are a building regulations specialist. Return pure JSON only.",
+          1000, 1, "gemini-2.5-flash-lite"
+        );
+        const clean = qText.replace(/```json|```/g, "").trim();
+        const questions = JSON.parse(clean);
+        if (Array.isArray(questions) && questions.length > 0) {
+          setSuggestedQuestions(questions);
+          setSelectedQuestion(questions[0]);
+        }
+      } catch (e) {
+        console.warn("Failed to generate suggested questions:", e.message);
+      }
+      setQuestionsLoading(false);
+    } catch (e) {
+      setCompareStatus("Error: " + e.message);
+    }
+    setCompareRunning(false);
+  };
+
+  // ── Follow-up question ────────────────────────────────────────────────────────
+  const askFollowUp = async () => {
+    if (!followUp.trim() || compareRunning) return;
+    const q = followUp.trim();
+    setFollowUp("");
+    setCompareRunning(true);
+    setCompareStatus("Thinking…");
+
+    const historyMessages = compareHistory.map(h => ({
+      role: h.role,
+      content: h.isInitial
+        ? [
+            { type: "document", source: { type: "base64", media_type: "application/pdf", data: docA.base64 }, title: docA.name },
+            { type: "document", source: { type: "base64", media_type: "application/pdf", data: docB.base64 }, title: docB.name },
+            { type: "text", text: `Compare these two documents in detail.` }
+          ]
+        : h.content
+    }));
+
+    const messages = [...historyMessages, { role: "user", content: q }];
+
+    try {
+      const { text } = await callClaude(
+        messages,
+        "You are a technical product comparison specialist. You are continuing a conversation about two documents the user has uploaded. Be specific, use tables where helpful.",
+        65000,
+        2,
+        "gemini-2.5-flash",
+        240000
+      );
+      setCompareAnswer(text);
+      setCompareHistory(prev => [...prev, { role: "user", content: q }, { role: "assistant", content: text }]);
+      setCompareStatus("Answer ready.");
+    } catch (e) {
+      setCompareStatus("Error: " + e.message);
+    }
+    setCompareRunning(false);
+  };
+
+  // ── Compliance check against vaults ──────────────────────────────────────────
+  const runComplianceCheck = async () => {
+    if (!selectedVaultId || !compareAnswer) return;
+    setShowVaultPicker(false);
+    setComplianceRunning(true);
+    setComplianceAnswer(null);
+    setComplianceProgress({ select: 0, read: 0, answer: 0 });
+
+    const complianceQuestion = selectedQuestion || `Are these products compliant with the relevant requirements in this vault?`;
+
+    try {
+      // Resolve vault object
+      const vaultObj = (() => {
+        for (const v of vaults) {
+          if (v.id === selectedVaultId) return v;
+          if (v.type === "master") {
+            const sub = (v.subVaults || []).find(sv => sv.id === selectedVaultId);
+            if (sub) return sub;
+          }
+        }
+        return null;
+      })();
+      if (!vaultObj) throw new Error("Vault not found");
+
+      // Load vault index
+      let vaultIndex = null;
+      try { vaultIndex = await api(`/api/vaults/${encodeURIComponent(selectedVaultId)}/index`); } catch (_) {}
+      if (!vaultIndex?.documents?.length) {
+        setComplianceStatus("Vault has no index — please index this vault first.");
+        setComplianceRunning(false);
+        return;
+      }
+
+      // ── PASS 1: Score index (flash-lite for speed) ───────────────────────────
+      setComplianceStatus(`Pass 1/3 · Scoring index…`);
+      setComplianceProgress({ select: 20, read: 0, answer: 0 });
+
+      const BOILERPLATE_HEADINGS = [
+        "the approved documents", "what is an approved document", "approved documents",
+        "list of approved documents", "use of guidance", "how to use this approved document",
+        "other guidance", "the building regulations", "online version", "hm government",
+        "main changes", "approved document", "list of approved documents"
+      ];
+      const isBoilerplate = (title) => {
+        const t = title.toLowerCase().trim();
+        return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
+      };
+
+      const indexSummary = (vaultIndex.documents || []).map(doc => {
+        const pageFrequency = {};
+        (doc.headings || []).forEach(h => {
+          const p = h.pageHint || 1;
+          pageFrequency[p] = (pageFrequency[p] || 0) + 1;
+        });
+        const crowdedPages = new Set(
+          Object.entries(pageFrequency).filter(([, count]) => count > 8).map(([page]) => Number(page))
+        );
+        const headings = (doc.headings || [])
+          .filter(h => !isBoilerplate(h.title))
+          .filter(h => !crowdedPages.has(h.pageHint))
+          .map(h => `  p${h.pageHint || 1}: ${h.title}`)
+          .join("\n");
+        return `DOCUMENT: ${doc.name}\n${headings}`;
+      }).join("\n\n");
+
+      const productContext = `Products being assessed:\n- ${docA.name.replace(".pdf","")}\n- ${docB.name.replace(".pdf","")}\n\nKey differences:\n${compareAnswer.slice(0, 600)}`;
+
+      const scoringPrompt = `You are a technical document analyst. Using ONLY the index below, identify sections most likely to contain requirements relevant to this compliance question.
+
+DOCUMENT INDEX:
+${indexSummary}
+
+COMPLIANCE QUESTION: ${complianceQuestion}
+
+PRODUCT CONTEXT:
+${productContext}
+
+Return ONLY compact JSON:
+{"selectedDocs":[{"docName":"exact filename","sections":[{"heading":"exact heading","pageHint":42,"probability":0.95}]}]}
+
+Rules: probability > 0.5 only, pageHint must be integer, pure JSON only.`;
+
+      let scoring = { selectedDocs: [] };
+      try {
+        const { text: scoringText } = await callClaude(
+          [{ role: "user", content: scoringPrompt }],
+          "You are a technical document analyst. Return pure JSON only.",
+          8000, 2, "gemini-2.5-flash-lite"
+        );
+        const clean = scoringText.replace(/\`\`\`json|\`\`\`/g, "").trim();
+        try { scoring = JSON.parse(clean); }
+        catch { const m = clean.match(/\{[\s\S]*\}/); if (m) try { scoring = JSON.parse(m[0]); } catch {} }
+      } catch (e) { console.warn("Compliance scoring failed:", e); }
+
+      setComplianceProgress({ select: 100, read: 20, answer: 0 });
+
+      // ── PASS 2: Load and extract relevant pages ───────────────────────────────
+      setComplianceStatus(`Pass 2/3 · Extracting relevant pages…`);
+
+      let pdfsInVault = [];
+      try {
+        const pdfsData = await api(`/api/vaults/${encodeURIComponent(selectedVaultId)}/pdfs`);
+        pdfsInVault = pdfsData.pdfs || [];
+      } catch (_) {}
+
+      const selectedDocNames = (scoring.selectedDocs || []).map(d => d.docName);
+      const contentsData = [];
+
+      for (const docName of selectedDocNames) {
+        const matchedPdf = pdfsInVault.find(p =>
+          p.name === docName || p.name.includes(docName) || docName.includes(p.name)
+        );
+        if (!matchedPdf) continue;
+        try {
+          const pdfData = await api(`/api/vaults/${encodeURIComponent(selectedVaultId)}/pdfs/${encodeURIComponent(matchedPdf.name)}`);
+          contentsData.push({ pdf: matchedPdf, base64: pdfData.base64 });
+        } catch (_) {}
+      }
+
+      if (contentsData.length === 0 && pdfsInVault.length > 0) {
+        for (const pdf of pdfsInVault.slice(0, 2)) {
+          try {
+            const pdfData = await api(`/api/vaults/${encodeURIComponent(selectedVaultId)}/pdfs/${encodeURIComponent(pdf.name)}`);
+            contentsData.push({ pdf, base64: pdfData.base64 });
+          } catch (_) {}
+        }
+      }
+
+      const docPageMap = {};
+      const HARD_PAGE_BUDGET = 60;
+      let budgetRemaining = HARD_PAGE_BUDGET;
+
+      (scoring.selectedDocs || []).forEach(selectedDoc => {
+        const matchedDoc = contentsData.find(d =>
+          d.pdf.name.includes(selectedDoc.docName) || selectedDoc.docName.includes(d.pdf.name)
+        );
+        if (!matchedDoc) return;
+        (selectedDoc.sections || []).sort((a, b) => (b.probability || 0) - (a.probability || 0)).forEach(section => {
+          if (budgetRemaining <= 0) return;
+          const pageHint = typeof section.pageHint === "number" ? section.pageHint : parseInt(String(section.pageHint)) || 1;
+          const key = matchedDoc.pdf.name;
+          if (!docPageMap[key]) docPageMap[key] = { contentsDoc: matchedDoc, pages: new Set() };
+          [0, 1].forEach(offset => {
+            const pg = pageHint + offset;
+            if (pg > 0 && !docPageMap[key].pages.has(pg) && budgetRemaining > 0) {
+              docPageMap[key].pages.add(pg);
+              budgetRemaining--;
+            }
+          });
+        });
+      });
+
+      if (Object.keys(docPageMap).length === 0 && contentsData.length > 0) {
+        contentsData.slice(0, 2).forEach(d => {
+          docPageMap[d.pdf.name] = { contentsDoc: d, pages: new Set([1, 2, 3, 4, 5]) };
+        });
+      }
+
+      const docBlocks = [];
+      for (const [docName, { contentsDoc, pages }] of Object.entries(docPageMap)) {
+        const pageList = Array.from(pages).sort((a, b) => a - b);
+        if (pageList.length === 0) continue;
+        try {
+          const result = await api("/api/extract-pages", {
+            method: "POST",
+            body: { base64: contentsDoc.base64, pages: pageList }
+          });
+          docBlocks.push({
+            type: "document",
+            source: { type: "base64", media_type: "application/pdf", data: result.base64 },
+            title: `${docName} — pages ${result.pageNumbers.join(", ")}`,
+          });
+        } catch (_) {}
+      }
+
+      setComplianceProgress({ select: 100, read: 100, answer: 20 });
+
+      if (docBlocks.length === 0) {
+        setComplianceStatus("Could not extract relevant pages from this vault.");
+        setComplianceRunning(false);
+        return;
+      }
+
+      // ── PASS 3: Compliance synthesis ──────────────────────────────────────────
+      setComplianceStatus(`Pass 3/3 · Assessing compliance…`);
+
+      const compliancePrompt = `You are an expert building regulations consultant assessing two products for compliance against the provided regulatory documents.
+
+PRODUCTS: ${docA.name.replace(".pdf","")} vs ${docB.name.replace(".pdf","")}
+COMPLIANCE QUESTION: ${complianceQuestion}
+
+KEY PRODUCT DIFFERENCES:
+${compareAnswer.slice(0, 800)}
+
+Using ONLY the provided document pages, produce a focused compliance assessment structured as follows:
+
+## Compliance Assessment — ${vaultObj.name}
+
+### Verdict
+A short paragraph for each product stating whether it appears compliant, non-compliant, or where compliance is uncertain — and the primary reason why. Reference the specific requirement that determines this.
+
+### Key Requirements
+A table mapping the most relevant regulatory requirements to each product:
+
+| Requirement | ${docA.name.replace(".pdf", "")} | ${docB.name.replace(".pdf", "")} |
+|---|---|---|
+
+### Compliance Analysis
+3–5 focused paragraphs covering the most important compliance points. For each point: state the requirement, assess both products against it, and note any differences in how they comply or fail to comply. Do not repeat the table — analyse and interpret.
+
+### Concerns & Gaps
+Any specific non-compliances, limitations, or areas where further evidence is needed before compliance can be confirmed. Be precise — quote the requirement and explain the gap. If none, state "No concerns identified."
+
+### Regulatory References
+Key clauses cited in this assessment.
+*Document | Clause title*
+
+Use only the provided document pages. Do not speculate beyond what the documents state.`;
+
+      try {
+        const { text: complianceText } = await callClaude(
+          [{ role: "user", content: [...docBlocks, { type: "text", text: compliancePrompt }] }],
+          "You are a building regulations consultant. Be concise and direct. Use only the provided document pages.",
+          65536, 2, "gemini-2.5-flash"
+        );
+        setComplianceAnswer(complianceText);
+        setComplianceStatus("Compliance check complete.");
+      } catch (e) {
+        setComplianceStatus("Error: " + e.message);
+      }
+
+      setComplianceProgress({ select: 100, read: 100, answer: 100 });
+    } catch (e) {
+      setComplianceStatus("Error: " + e.message);
+    }
+    setComplianceRunning(false);
+  };
+
+  // ── Build flat vault options list for picker ──────────────────────────────────
+  const vaultOptions = [];
+  vaults.forEach(v => {
+    if (v.type === "master") {
+      (v.subVaults || []).forEach(sv => {
+        vaultOptions.push({ id: sv.id, name: `${v.name} / ${sv.name}` });
+      });
+    } else {
+      vaultOptions.push({ id: v.id, name: v.name });
+    }
+  });
+
+  const selectVaultForCompliance = (id) => {
+    setSelectedVaultId(id);
+  };
+
+  const DropZone = ({ doc, setDoc, label, dragOver, setDragOver, inputRef }) => (
+    <div style={{ flex: 1 }}>
+      <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
+      {doc ? (
+        <div style={{ border: `1px solid ${AD_GREEN}`, background: "#f0f5f6", padding: "20px 24px", display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 24 }}>📄</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</div>
+            <div style={{ fontSize: 11, color: AD_GREEN, marginTop: 2 }}>Ready</div>
+          </div>
+          <button className="btn" onClick={() => setDoc(null)}
+            style={{ background: "none", color: "#9a9088", fontSize: 18, padding: "0 4px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
+        </div>
+      ) : (
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) loadDoc(f, setDoc); }}
+          onClick={() => inputRef.current.click()}
+          style={{
+            border: `2px dashed ${dragOver ? AD_GREEN : "#c8c0b8"}`,
+            padding: "40px 24px",
+            textAlign: "center",
+            cursor: "pointer",
+            background: dragOver ? "#f0f5f6" : "#faf8f5",
+            transition: "all 0.2s",
+          }}>
+          <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.4 }}>📄</div>
+          <p style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500, marginBottom: 4 }}>Drop PDF here</p>
+          <p style={{ fontSize: 11, color: "#9a9088" }}>or click to browse</p>
+          <input ref={inputRef} type="file" accept="application/pdf" style={{ display: "none" }}
+            onChange={e => { if (e.target.files[0]) loadDoc(e.target.files[0], setDoc); }} />
+        </div>
+      )}
+    </div>
+  );
+
+  const chatHistory = compareHistory.filter(h => !h.isInitial && h.role === "user");
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+
+      {/* Header */}
+      <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "20px 32px", flexShrink: 0 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>Compare</h1>
+        <p style={{ fontSize: 11, color: "#9a9088", marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+          Upload two documents to compare — then check against your vaults for compliance
+        </p>
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+
+        {/* Upload zone */}
+        <div style={{ display: "flex", gap: 20, marginBottom: 24 }}>
+          <DropZone doc={docA} setDoc={setDocA} label="Document A" dragOver={dragOverA} setDragOver={setDragOverA} inputRef={inputARef} />
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 40, flexShrink: 0 }}>
+            <span style={{ fontSize: 20, color: "#c8c0b8" }}>vs</span>
+          </div>
+          <DropZone doc={docB} setDoc={setDocB} label="Document B" dragOver={dragOverB} setDragOver={setDragOverB} inputRef={inputBRef} />
+        </div>
+
+        {/* Compare button */}
+        {docA && docB && !compareAnswer && (
+          <div style={{ marginBottom: 24 }}>
+            <button className="btn" onClick={runComparison} disabled={compareRunning}
+              style={{ background: compareRunning ? "#c8c0b8" : ARC_NAVY, color: "#ffffff", padding: "12px 32px", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 10 }}>
+              {compareRunning ? <><Spinner size={14} /> Comparing…</> : "Compare Documents"}
+            </button>
+          </div>
+        )}
+
+        {/* Status */}
+        {compareStatus && (
+          <div style={{ marginBottom: 16, fontSize: 12, color: "#505a5f", display: "flex", alignItems: "center", gap: 8 }}>
+            {compareRunning && <Spinner size={12} />}
+            <span>{compareStatus}</span>
+          </div>
+        )}
+
+        {/* Chat history (prior questions) */}
+        {chatHistory.length > 0 && (
+          <div style={{ marginBottom: 16 }}>
+            {chatHistory.map((h, i) => (
+              <div key={i} style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", marginBottom: 6, display: "flex", gap: 12, alignItems: "center" }}>
+                <span style={{ color: AD_GREEN, fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                <span style={{ flex: 1 }}>{h.content}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Comparison answer */}
+        {compareAnswer && (
+          <div style={{ animation: "fadeIn 0.4s ease", marginBottom: 24 }}>
+            <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: `4px solid ${AD_GREEN}`, padding: "24px 28px", marginBottom: 16 }}>
+              <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Comparison — {docA.name.replace(".pdf", "")} vs {docB.name.replace(".pdf", "")}
+              </p>
+              <AnswerRenderer text={compareAnswer} />
+            </div>
+
+            {/* Follow-up input */}
+            {!compareRunning && (
+              <div style={{ background: "#ffffff", border: "1px solid #e8e0d5", padding: "16px 20px", marginBottom: 20 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Ask a follow-up question</div>
+                <div style={{ display: "flex", gap: 0 }}>
+                  <textarea value={followUp} onChange={e => setFollowUp(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
+                    placeholder="e.g. What are the fire performance differences between the two products?"
+                    rows={2} className="arc-input"
+                    style={{ flex: 1, border: `1px solid #ddd8d0`, borderRight: "none", padding: "10px 14px", fontSize: 13, color: ARC_NAVY, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif" }} />
+                  <button className="btn" onClick={askFollowUp} disabled={!followUp.trim()}
+                    style={{ background: followUp.trim() ? ARC_NAVY : "#f0ede8", color: followUp.trim() ? "#ffffff" : "#9a9088", padding: "0 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", border: `1px solid ${followUp.trim() ? ARC_NAVY : "#ddd8d0"}`, minWidth: 80 }}>
+                    Ask
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Vault compliance check */}
+            {!complianceRunning && !complianceAnswer && (
+              <div style={{ marginBottom: 20 }}>
+                {!showVaultPicker ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <button className="btn" onClick={() => setShowVaultPicker(true)}
+                      style={{ background: ARC_TERRACOTTA, color: "#ffffff", padding: "12px 28px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8 }}>
+                      🔍 Check Compliance Against Vaults
+                    </button>
+                    {questionsLoading && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#9a9088" }}>
+                        <Spinner size={11} /> Generating compliance questions…
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div style={{ background: "#ffffff", border: `1px solid #e8e0d5`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "20px 24px" }}>
+
+                    {/* Suggested questions */}
+                    {suggestedQuestions.length > 0 && (
+                      <div style={{ marginBottom: 20 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Select a compliance question</div>
+                        <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 12, lineHeight: 1.6 }}>
+                          Choose one of the suggested questions or write your own below.
+                        </p>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
+                          {suggestedQuestions.map((q, i) => (
+                            <label key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 14px", background: selectedQuestion === q ? "#f0f5f6" : "transparent", border: `1px solid ${selectedQuestion === q ? AD_GREEN : "#e8e0d5"}`, transition: "all 0.15s" }}>
+                              <input type="radio" name="complianceQ" checked={selectedQuestion === q} onChange={() => setSelectedQuestion(q)}
+                                style={{ accentColor: AD_GREEN, marginTop: 2, flexShrink: 0 }} />
+                              <span style={{ fontSize: 12, color: ARC_NAVY, lineHeight: 1.6 }}>{q}</span>
+                            </label>
+                          ))}
+                          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 14px", background: !suggestedQuestions.includes(selectedQuestion) ? "#f0f5f6" : "transparent", border: `1px solid ${!suggestedQuestions.includes(selectedQuestion) ? AD_GREEN : "#e8e0d5"}`, transition: "all 0.15s" }}>
+                            <input type="radio" name="complianceQ" checked={!suggestedQuestions.includes(selectedQuestion)} onChange={() => setSelectedQuestion("")}
+                              style={{ accentColor: AD_GREEN, marginTop: 2, flexShrink: 0 }} />
+                            <span style={{ fontSize: 12, color: "#9a9088", lineHeight: 1.6 }}>Write my own question…</span>
+                          </label>
+                        </div>
+                        {!suggestedQuestions.includes(selectedQuestion) && (
+                          <textarea value={selectedQuestion} onChange={e => setSelectedQuestion(e.target.value)}
+                            placeholder="Type your compliance question here…"
+                            rows={2} className="arc-input"
+                            style={{ width: "100%", border: `1px solid #ddd8d0`, padding: "10px 14px", fontSize: 12, color: ARC_NAVY, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", marginBottom: 12 }} />
+                        )}
+                      </div>
+                    )}
+
+                    {/* Vault picker */}
+                    <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Select a vault to check against</div>
+                    <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 12, lineHeight: 1.6 }}>
+                      Only indexed vaults can be used.
+                    </p>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16, maxHeight: 200, overflowY: "auto" }}>
+                      {vaultOptions.length === 0 && (
+                        <p style={{ fontSize: 12, color: "#9a9088", fontStyle: "italic" }}>No vaults available.</p>
+                      )}
+                      {vaultOptions.map(v => (
+                        <label key={v.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 12px", background: selectedVaultId === v.id ? "#f0f5f6" : "transparent", border: `1px solid ${selectedVaultId === v.id ? AD_GREEN : "#e8e0d5"}` }}>
+                          <input type="radio" name="vaultSelect" checked={selectedVaultId === v.id} onChange={() => selectVaultForCompliance(v.id)}
+                            style={{ accentColor: AD_GREEN }} />
+                          <span style={{ fontSize: 13, color: ARC_NAVY }}>{v.name}</span>
+                        </label>
+                      ))}
+                    </div>
+                    <div style={{ display: "flex", gap: 10 }}>
+                      <button className="btn" onClick={runComplianceCheck} disabled={!selectedVaultId || !selectedQuestion.trim()}
+                        style={{ background: selectedVaultId && selectedQuestion.trim() ? ARC_TERRACOTTA : "#c8c0b8", color: "#ffffff", padding: "10px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                        Run Compliance Check
+                      </button>
+                      <button className="btn" onClick={() => setShowVaultPicker(false)}
+                        style={{ background: "transparent", color: "#9a9088", padding: "10px 16px", fontSize: 11, border: "1px solid #ccc" }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Compliance running */}
+            {complianceRunning && (
+              <div style={{ background: "#ffffff", border: "1px solid #e8e0d5", padding: "20px 24px", marginBottom: 20 }}>
+                <div style={{ fontSize: 12, color: ARC_NAVY, marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontWeight: 500 }}>
+                  <Spinner size={12} /> {complianceStatus}
+                </div>
+                <ProgressBar label="Pass 1 · Index scoring" pct={complianceProgress.select} color={AD_GREEN} />
+                <ProgressBar label="Pass 2 · Page extraction" pct={complianceProgress.read} color={ARC_TERRACOTTA} />
+                <ProgressBar label="Pass 3 · Compliance synthesis" pct={complianceProgress.answer} color={ARC_NAVY} />
+              </div>
+            )}
+
+            {/* Compliance answer */}
+            {complianceAnswer && (
+              <div style={{ animation: "fadeIn 0.4s ease" }}>
+                <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: `4px solid ${ARC_TERRACOTTA}`, padding: "24px 28px", marginBottom: 12 }}>
+                  <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                    Compliance Assessment
+                  </p>
+                  <AnswerRenderer text={complianceAnswer} />
+                </div>
+                {/* Option to run another compliance check against different vaults */}
+                <button className="btn" onClick={() => { setComplianceAnswer(null); setComplianceStatus(""); setSelectedVaultId(""); setShowVaultPicker(true); }}
+                  style={{ background: "transparent", color: AD_GREEN, padding: "8px 0", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", border: "none", textDecoration: "underline" }}>
+                  Check against different vaults
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Empty state */}
+        {!docA && !docB && (
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 0", gap: 10 }}>
+            <div style={{ width: 32, height: 2, background: ARC_TERRACOTTA }} />
+            <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Upload two documents to compare</p>
+            <p style={{ fontSize: 11, color: "#9a9088", letterSpacing: "0.03em" }}>Product datasheets, specifications, or any technical documents</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── Landing Page ───────────────────────────────────────────────────────────────
+
+function LandingPage({ onSelect, isAdmin }) {
+  const [hoverVault, setHoverVault] = useState(false);
+  const [hoverCompare, setHoverCompare] = useState(false);
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: ARC_STONE, padding: "40px 24px" }}>
+      <div style={{ marginBottom: 48, textAlign: "center" }}>
+        <p style={{ fontSize: 13, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Select a tool to get started</p>
+      </div>
+
+      <div style={{ display: "flex", gap: 24, width: "100%", maxWidth: 800 }}>
+
+        {/* Vault tile */}
+        <button className="btn" onClick={() => onSelect("vault")}
+          onMouseEnter={() => setHoverVault(true)}
+          onMouseLeave={() => setHoverVault(false)}
+          style={{
+            flex: 1, background: hoverVault ? ARC_NAVY : "#ffffff",
+            border: `2px solid ${hoverVault ? ARC_NAVY : "#ddd8d0"}`,
+            padding: "48px 32px", textAlign: "left", cursor: "pointer",
+            transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 16,
+          }}>
+          <div style={{ fontSize: 40 }}>🗄️</div>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 300, color: hoverVault ? "#ffffff" : ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
+              Vault
+            </div>
+            <div style={{ fontSize: 13, color: hoverVault ? "#b8d4da" : "#9a9088", lineHeight: 1.7, fontFamily: "Inter, Arial, sans-serif" }}>
+              Query your building regulations documents. Upload PDFs, index vaults, and ask natural language questions across Approved Documents, British Standards, and NHBC guidance.
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: hoverVault ? AD_GREEN_MID : AD_GREEN, display: "flex", alignItems: "center", gap: 6 }}>
+              Open Vault →
+            </span>
+          </div>
+        </button>
+
+        {/* Compare tile */}
+        <button className="btn" onClick={() => onSelect("compare")}
+          onMouseEnter={() => setHoverCompare(true)}
+          onMouseLeave={() => setHoverCompare(false)}
+          style={{
+            flex: 1, background: hoverCompare ? ARC_TERRACOTTA : "#ffffff",
+            border: `2px solid ${hoverCompare ? ARC_TERRACOTTA : "#ddd8d0"}`,
+            padding: "48px 32px", textAlign: "left", cursor: "pointer",
+            transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 16,
+          }}>
+          <div style={{ fontSize: 40 }}>⚖️</div>
+          <div>
+            <div style={{ fontSize: 22, fontWeight: 300, color: hoverCompare ? "#ffffff" : ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
+              Compare
+            </div>
+            <div style={{ fontSize: 13, color: hoverCompare ? "#f0d0cb" : "#9a9088", lineHeight: 1.7, fontFamily: "Inter, Arial, sans-serif" }}>
+              Upload two product datasheets or technical documents. Get a detailed AI comparison of key differences, then check both products against your vault documents for compliance.
+            </div>
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: hoverCompare ? "#f0d0cb" : ARC_TERRACOTTA, display: "flex", alignItems: "center", gap: 6 }}>
+              Open Compare →
+            </span>
+          </div>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── main app ──────────────────────────────────────────────────────────────────
 
 export default function App() {
+  const [appSection, setAppSection] = useState("home"); // "home" | "vault" | "compare"
   const [vaults, setVaults] = useState([]);
   const [selectedVault, setSelectedVault] = useState(null);
   // queryScope: "single" | "all" — only relevant when vault is a sub-vault
@@ -1441,9 +2219,9 @@ WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences. Must:
 For each key fact, include the exact supporting phrase and citation as a consecutive pair:
 
 > "Exact short phrase from document."
-*Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
+*Document Name | X.X.X Clause Title (Parent Section Title)*
 
-CITATION FORMAT: *Document | Page X | Clause number and title (Parent section title)*
+CITATION FORMAT: *Document | Clause number and title (Parent section title)*
 CRITICAL: Citation MUST start AND end with * asterisk.
 
 CITATION PLACEMENT — strictly follow these rules:
@@ -1452,11 +2230,9 @@ CITATION PLACEMENT — strictly follow these rules:
 - Never chain citations with "and": *Citation A* and *Citation B* — WRONG
 - If multiple documents support the same fact, each citation goes on its own separate line:
   > "Quote."
-  *Document A | Page X | Clause*
-  *Document B | Page Y | Clause*
+  *Document A | Clause*
+  *Document B | Clause*
 - A citation always ends a paragraph, never appears mid-sentence
-
-PAGE NUMBERS: Use the printed page number visible on the extracted page. Do NOT count from the start of the PDF file — British Standards have front matter so PDF position ≠ printed page number. Omit if not clearly visible.
 
 ---
 
@@ -1475,12 +2251,11 @@ Check ALL of the following — if ANY apply, write Case 2:
 CASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."
 
 CASE 2 — Concise bullet points. One sentence each. Reproduce any referenced table in full below the bullet. Citation after each bullet or table:
-*Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
+*Document Name | X.X.X Clause Title (Parent Section Title)*
 
 RULES:
 - No repetition of summary content
 - Citations: opening AND closing * required
-- Page numbers: printed page only, never PDF position
 - Cite ALL documents where relevant — never rely on just one
 - Maximum 6 bullets
 
@@ -1489,7 +2264,7 @@ RULES:
 ## Regulatory Context
 
 WRITE THIS THIRD. Broader background tightly scoped to the question. 2–4 bullets maximum.
-Citation after each bullet: *Document Name | Page X | X.X.X Clause Title (Parent Section Title)*
+Citation after each bullet: *Document Name | X.X.X Clause Title (Parent Section Title)*
 If nothing to add: "No additional context required."
 
 ---
@@ -1505,12 +2280,11 @@ RULES:
 - Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions
 - Use ONLY the provided document pages — no external knowledge
 - Every factual statement needs a citation with opening AND closing asterisks
-- Draw from ALL provided documents — never rely on just one
-- Omit citations rather than guess page numbers`;
+- Draw from ALL provided documents — never rely on just one`;
 
       const { text: finalAnswer, usage: answerUsage } = await callClaude(
         [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-        `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Page X | Clause (Section)*. Draw from ALL provided documents.`,
+        `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. Draw from ALL provided documents.`,
         65536
       );
 
@@ -1581,7 +2355,7 @@ RULES:
       <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
         <style>{globalStyles}</style>
         <div style={{ background: ARC_NAVY, padding: "20px 40px", display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-          <span style={{ color: "#ffffff", fontSize: 22, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif" }}>Architectus</span>
+          <span style={{ color: "#ffffff", fontSize: 22, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif" }}>Archimind</span>
           <span style={{ color: "#7a9aaa", fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase" }}>Document Intelligence</span>
         </div>
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: ARC_STONE }}>
@@ -1622,9 +2396,22 @@ RULES:
         />
       )}
 
-      {/* Architectus top nav */}
+      {/* Archimind top nav */}
       <div style={{ background: ARC_NAVY, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, height: 56 }}>
-        <span style={{ color: "#ffffff", fontSize: 20, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif" }}>Architectus</span>
+        <button className="btn" onClick={() => setAppSection("home")}
+          style={{ background: "none", color: "#ffffff", fontSize: 20, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif", padding: 0 }}>
+          Archimind
+        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <button className="btn" onClick={() => setAppSection("vault")}
+            style={{ background: appSection === "vault" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "vault" ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === "vault" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
+            Vault
+          </button>
+          <button className="btn" onClick={() => setAppSection("compare")}
+            style={{ background: appSection === "compare" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "compare" ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === "compare" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
+            Compare
+          </button>
+        </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ color: "#7a9aaa", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase" }}>Document Intelligence</span>
           <span style={{ fontSize: 10, color: isAdmin ? ARC_TERRACOTTA : "#7a9aaa", letterSpacing: "0.1em", textTransform: "uppercase", border: `1px solid ${isAdmin ? ARC_TERRACOTTA : "#3a5a6a"}`, padding: "2px 8px" }}>
@@ -1634,6 +2421,19 @@ RULES:
       </div>
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden", maxHeight: "calc(100vh - 56px)" }}>
+
+        {/* ── HOME landing page ─────────────────────────────────────────── */}
+        {appSection === "home" && (
+          <LandingPage onSelect={setAppSection} isAdmin={isAdmin} />
+        )}
+
+        {/* ── COMPARE ───────────────────────────────────────────────────── */}
+        {appSection === "compare" && (
+          <CompareSection vaults={vaults} isAdmin={isAdmin} />
+        )}
+
+        {/* ── VAULT ─────────────────────────────────────────────────────── */}
+        {appSection === "vault" && <>
 
         {/* sidebar */}
         <div style={{ width: 260, borderRight: "1px solid #e8e0d5", background: ARC_STONE, display: "flex", flexDirection: "column", flexShrink: 0 }}>
@@ -1968,6 +2768,9 @@ RULES:
             </>
           )}
         </div>
+
+        </> /* end vault section */}
+
       </div>
     </div>
   );

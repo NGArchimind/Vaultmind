@@ -77,7 +77,7 @@ app.post("/api/claude", async (req, res) => {
   if (!apiKey) return res.status(500).json({ error: "GEMINI_API_KEY not set." });
 
   try {
-    const { model, max_tokens, system, messages } = req.body;
+    const { model, max_tokens, system, messages, temperature, thinking } = req.body;
     const requestedModel = model && model.startsWith("gemini-") ? model : "gemini-2.5-flash";
 
     const contents = [];
@@ -113,11 +113,19 @@ app.post("/api/claude", async (req, res) => {
 
     let response;
     try {
+      const generationConfig = {
+        maxOutputTokens: max_tokens || 65000,
+        temperature: temperature !== undefined ? temperature : 0.1,
+      };
+      if (thinking === false) {
+        generationConfig.thinkingConfig = { thinkingBudget: 0 };
+      }
+
       response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
-        body: JSON.stringify({ contents, generationConfig: { maxOutputTokens: max_tokens || 65000, temperature: 0.1 } }),
+        body: JSON.stringify({ contents, generationConfig }),
       });
     } finally {
       clearTimeout(timeoutId);
@@ -395,6 +403,41 @@ app.get("/api/vaults/*/index", async (req, res) => {
   } catch (err) {
     if (err.name === "NoSuchKey") return res.json(null);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── text extraction — server side ────────────────────────────────────────────
+app.post("/api/extract-text", async (req, res) => {
+  const { base64 } = req.body;
+  if (!base64) return res.status(400).json({ error: "base64 required" });
+
+  const pdfBytes = Buffer.from(base64, "base64");
+
+  try {
+    const mupdf = await import("mupdf");
+    const doc = new mupdf.PDFDocument(pdfBytes);
+    const pageCount = doc.countPages();
+    const pages = [];
+
+    for (let i = 0; i < pageCount; i++) {
+      const page = doc.loadPage(i);
+      try {
+        const structured = page.toStructuredText("preserve-whitespace");
+        const text = structured.asText();
+        pages.push({ page: i + 1, text: text.trim() });
+      } catch (_) {
+        pages.push({ page: i + 1, text: "" });
+      }
+    }
+
+    const fullText = pages.map(p => `[Page ${p.page}]\n${p.text}`).join("\n\n");
+    const hasText = fullText.replace(/\[Page \d+\]/g, "").trim().length > 100;
+
+    console.log(`Text extraction: ${pageCount} pages, hasText: ${hasText}, chars: ${fullText.length}`);
+    return res.json({ text: fullText, hasText, pageCount });
+  } catch (err) {
+    console.warn("mupdf text extraction failed:", err.message);
+    return res.json({ text: "", hasText: false, pageCount: 0 });
   }
 });
 
