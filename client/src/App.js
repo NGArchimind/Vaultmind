@@ -753,7 +753,16 @@ Concise guidance on when to use each product. Include scenarios where one is cle
           const existingKeys = new Set((existing || []).map(p => p.file_key));
 
           for (const doc of [docA, docB]) {
-            if (existingKeys.has(doc.name)) continue; // already in library
+            // Check duplicate by filename suffix
+            const isDuplicate = [...existingKeys].some(k => k && k.endsWith(doc.name.replace(/[^a-zA-Z0-9._-]/g, "_")));
+            if (isDuplicate) continue;
+
+            // Upload PDF to R2 first
+            let fileKey = doc.name;
+            try {
+              const uploadResult = await api("/api/products/upload-pdf", { method: "POST", body: { base64: doc.base64, filename: doc.name } });
+              fileKey = uploadResult.key;
+            } catch (_) { /* use filename as fallback */ }
             const extractionPrompt = `You are a technical product data specialist. Extract ALL meaningful technical attributes from this product datasheet.
 
 Return ONLY a JSON object in this exact format — no preamble, no markdown:
@@ -787,7 +796,7 @@ Extract every relevant technical attribute you can find: dimensions, weights, th
                 body: {
                   name: parsed.name || doc.name.replace(".pdf", ""),
                   manufacturer: parsed.manufacturer || null,
-                  file_key: doc.name,
+                  file_key: fileKey,
                   raw_text: doc.extractedText || "",
                   attributes: parsed.attributes || [],
                 }
@@ -1484,13 +1493,18 @@ function DatasheetsLibrarySection() {
     try {
       const base64 = await fileToBase64(file);
 
-      // Check duplicate by filename
-      const existing = products.find(p => p.file_key === file.name);
+      // Check duplicate by filename (against stored R2 keys)
+      const existing = products.find(p => p.file_key && p.file_key.endsWith(file.name.replace(/[^a-zA-Z0-9._-]/g, "_")));
       if (existing) {
         setUploadStatus(`"${file.name}" is already in the library.`);
         setUploading(false);
         return;
       }
+
+      // Upload PDF to R2
+      setUploadStatus(`Uploading ${file.name}…`);
+      const uploadResult = await api("/api/products/upload-pdf", { method: "POST", body: { base64, filename: file.name } });
+      const fileKey = uploadResult.key;
 
       // Extract text
       const extraction = await api("/api/extract-text", { method: "POST", body: { base64 } });
@@ -1544,7 +1558,7 @@ Extract every relevant technical attribute you can find: dimensions, weights, th
         body: {
           name: parsed.name || file.name.replace(".pdf", ""),
           manufacturer: parsed.manufacturer || null,
-          file_key: file.name,
+          file_key: fileKey,
           raw_text: extraction.text,
           attributes: parsed.attributes || [],
         }
