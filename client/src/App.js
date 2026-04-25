@@ -1526,9 +1526,16 @@ Extract every relevant technical attribute you can find: dimensions, weights, th
       try {
         const first = result.indexOf("{");
         const last = result.lastIndexOf("}");
-        if (first === -1 || last === -1) throw new Error("No JSON object found");
+        if (first === -1 || last === -1) {
+          alert("DEBUG - no JSON found. Raw response:\n" + result.slice(0, 800));
+          throw new Error("No JSON object found");
+        }
         const clean = result.slice(first, last + 1);
-        parsed = JSON.parse(clean);
+        try { parsed = JSON.parse(clean); }
+        catch(e) {
+          alert("DEBUG - JSON parse failed.\nRaw:\n" + result.slice(0, 800) + "\n\nExtracted:\n" + clean.slice(0, 400));
+          throw e;
+        }
       } catch {
         setUploadStatus("Failed to parse extraction result. Please try again.");
         setUploading(false);
