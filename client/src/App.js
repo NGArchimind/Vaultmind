@@ -1983,7 +1983,13 @@ Use only the provided document pages. Do not speculate beyond what the documents
             style={{ background: LIBRARY_BLUE, color: "#ffffff", padding: "6px 18px", fontSize: 12, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", opacity: uploading ? 0.6 : 1 }}>
             {uploading ? "Processing…" : "+ Upload"}
           </button>
-          <input ref={inputRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={e => { if (e.target.files[0]) handleUpload(e.target.files[0]); e.target.value = ""; }} />
+          <input ref={inputRef} type="file" accept=".pdf" multiple style={{ display: "none" }} onChange={async e => {
+            const files = Array.from(e.target.files);
+            e.target.value = "";
+            for (const file of files) {
+              await handleUpload(file);
+            }
+          }} />
         </div>
       </div>
 
