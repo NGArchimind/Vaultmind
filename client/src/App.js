@@ -1460,7 +1460,7 @@ function LandingPage({ onSelect, isAdmin }) {
 const LIBRARY_BLUE = "#2a6496";
 const LIBRARY_BLUE_LIGHT = "#eef4f8";
 
-function DatasheetsLibrarySection({ vaults }) {
+function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
@@ -1472,6 +1472,9 @@ function DatasheetsLibrarySection({ vaults }) {
   const [editingType, setEditingType] = useState(null); // product id being edited
   const [showCustomInput, setShowCustomInput] = useState(false); // show free text input
   const [pendingNewType, setPendingNewType] = useState(null); // { product, type } awaiting confirm
+  const [showTypeManager, setShowTypeManager] = useState(false); // type manager panel open
+  const [typeManagerEdits, setTypeManagerEdits] = useState({}); // { oldType: newName }
+  const [pendingTypeChange, setPendingTypeChange] = useState(null); // { oldType, newType, affectedCount } awaiting confirm
   const customTypeRef = useRef();
   const [filterManufacturer, setFilterManufacturer] = useState("");
   const [filterType, setFilterType] = useState("");
@@ -1697,6 +1700,56 @@ Extract every relevant technical attribute: dimensions, weights, thermal values,
   function submitCustomType(product) {
     const val = customTypeRef.current?.value?.trim();
     if (val) handleTypeUpdate(product, val);
+  }
+
+  // ── Type manager ──────────────────────────────────────────────────────────────
+  function openTypeManager() {
+    // Initialise edits with all current types
+    const allTypes = [...new Set([
+      ...PRODUCT_TYPES,
+      ...products.map(p => p.product_type).filter(Boolean)
+    ])].sort();
+    const edits = {};
+    allTypes.forEach(t => edits[t] = t);
+    setTypeManagerEdits(edits);
+    setShowTypeManager(true);
+  }
+
+  function handleTypeManagerChange(oldType, newValue) {
+    setTypeManagerEdits(prev => ({ ...prev, [oldType]: newValue }));
+  }
+
+  function submitTypeChange(oldType) {
+    const newType = (typeManagerEdits[oldType] || "").trim();
+    if (newType === oldType) return; // no change
+    const affectedCount = products.filter(p => p.product_type === oldType).length;
+    setPendingTypeChange({ oldType, newType: newType || null, affectedCount });
+  }
+
+  async function commitTypeChange() {
+    if (!pendingTypeChange) return;
+    const { oldType, newType } = pendingTypeChange;
+    try {
+      // Update all products with this type
+      const affected = products.filter(p => p.product_type === oldType);
+      await Promise.all(affected.map(p =>
+        api(`/api/products/${p.id}`, { method: "PATCH", body: { product_type: newType || null } })
+      ));
+      setProducts(prev => prev.map(p =>
+        p.product_type === oldType ? { ...p, product_type: newType || null } : p
+      ));
+      // Update the edit map
+      setTypeManagerEdits(prev => {
+        const next = { ...prev };
+        delete next[oldType];
+        if (newType) next[newType] = newType;
+        return next;
+      });
+      if (filterType === oldType) setFilterType(newType || "");
+    } catch (e) {
+      setUploadStatus("Failed to update type: " + e.message);
+    }
+    setPendingTypeChange(null);
   }
 
   // ── Compliance check ──────────────────────────────────────────────────────────
@@ -1985,6 +2038,95 @@ Use only the provided document pages. Do not speculate beyond what the documents
         </div>
       )}
 
+      {/* Type manager panel */}
+      {showTypeManager && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#ffffff", padding: "28px 32px", maxWidth: 480, width: "90%", fontFamily: "Inter, Arial, sans-serif", maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 6 }}>Manage Product Types</div>
+            <div style={{ fontSize: 12, color: "#9a9088", marginBottom: 20, lineHeight: 1.5 }}>
+              Rename or delete types. Changes apply to all products with that type. Deleting a type sets affected products to unset.
+            </div>
+            <div style={{ overflowY: "auto", flex: 1, marginBottom: 20 }}>
+              {Object.keys(typeManagerEdits).sort().map(oldType => {
+                const affectedCount = products.filter(p => p.product_type === oldType).length;
+                const currentVal = typeManagerEdits[oldType];
+                const isDeleted = currentVal === "";
+                return (
+                  <div key={oldType} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "8px 12px", background: isDeleted ? "#fff5f5" : "#f9f7f5", border: `1px solid ${isDeleted ? "#f5c0b8" : "#e8e0d5"}` }}>
+                    <input
+                      value={isDeleted ? "" : currentVal}
+                      onChange={e => handleTypeManagerChange(oldType, e.target.value)}
+                      disabled={isDeleted}
+                      style={{ flex: 1, fontSize: 12, padding: "5px 8px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", background: isDeleted ? "#f9f0ef" : "#ffffff", color: isDeleted ? "#b0a898" : ARC_NAVY, textDecoration: isDeleted ? "line-through" : "none" }}
+                    />
+                    <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0, minWidth: 60, textAlign: "right" }}>
+                      {affectedCount} product{affectedCount !== 1 ? "s" : ""}
+                    </span>
+                    {!isDeleted && currentVal !== oldType && (
+                      <button className="btn" onClick={() => submitTypeChange(oldType)}
+                        style={{ fontSize: 11, padding: "4px 10px", background: ARC_NAVY, color: "#ffffff", flexShrink: 0 }}>
+                        Save
+                      </button>
+                    )}
+                    {isDeleted ? (
+                      <button className="btn" onClick={() => handleTypeManagerChange(oldType, oldType)}
+                        style={{ fontSize: 11, padding: "4px 10px", background: "none", border: "1px solid #ddd8d0", color: "#9a9088", flexShrink: 0 }}>
+                        Undo
+                      </button>
+                    ) : (
+                      <button className="btn" onClick={() => {
+                        if (currentVal !== oldType) {
+                          // Reset unsaved rename before deleting
+                          handleTypeManagerChange(oldType, oldType);
+                        } else {
+                          setPendingTypeChange({ oldType, newType: null, affectedCount });
+                        }
+                      }}
+                        style={{ fontSize: 11, padding: "4px 10px", background: "none", border: `1px solid ${ARC_TERRACOTTA}`, color: ARC_TERRACOTTA, flexShrink: 0 }}>
+                        Delete
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button className="btn" onClick={() => setShowTypeManager(false)}
+                style={{ fontSize: 12, padding: "7px 20px", background: ARC_NAVY, color: "#ffffff", fontWeight: 600 }}>
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm type change dialog */}
+      {pendingTypeChange && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#ffffff", padding: "28px 32px", maxWidth: 420, width: "90%", fontFamily: "Inter, Arial, sans-serif" }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 10 }}>
+              {pendingTypeChange.newType ? "Rename type?" : "Delete type?"}
+            </div>
+            <div style={{ fontSize: 13, color: "#5a5048", marginBottom: 20, lineHeight: 1.6 }}>
+              {pendingTypeChange.newType
+                ? <>Renaming <strong>"{pendingTypeChange.oldType}"</strong> to <strong>"{pendingTypeChange.newType}"</strong> will update <strong>{pendingTypeChange.affectedCount} product{pendingTypeChange.affectedCount !== 1 ? "s" : ""}</strong> immediately.</>
+                : <>Deleting <strong>"{pendingTypeChange.oldType}"</strong> will set <strong>{pendingTypeChange.affectedCount} product{pendingTypeChange.affectedCount !== 1 ? "s" : ""}</strong> to unset. This cannot be undone.</>
+              }
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="btn" onClick={() => { setPendingTypeChange(null); handleTypeManagerChange(pendingTypeChange.oldType, pendingTypeChange.oldType); }}
+                style={{ fontSize: 12, padding: "7px 16px", background: "none", border: "1px solid #ddd8d0", color: "#5a5048" }}>
+                Cancel
+              </button>
+              <button className="btn" onClick={commitTypeChange}
+                style={{ fontSize: 12, padding: "7px 16px", background: pendingTypeChange.newType ? ARC_NAVY : ARC_TERRACOTTA, color: "#ffffff", fontWeight: 600 }}>
+                {pendingTypeChange.newType ? "Rename" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "16px 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 16, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 24, flex: 1, flexWrap: "wrap" }}>
@@ -2009,6 +2151,12 @@ Use only the provided document pages. Do not speculate beyond what the documents
               <button className="btn" onClick={() => { setFilterManufacturer(""); setFilterType(""); }}
                 style={{ fontSize: 11, color: ARC_TERRACOTTA, background: "none", border: "none", padding: "4px 6px", cursor: "pointer" }}>
                 Clear
+              </button>
+            )}
+            {isAdmin && (
+              <button className="btn" onClick={openTypeManager}
+                style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}>
+                Manage types
               </button>
             )}
           </div>
@@ -3302,7 +3450,7 @@ RULES:
 
         {/* ── DATASHEET LIBRARY ─────────────────────────────────────────── */}
         {appSection === "library" && (
-          <DatasheetsLibrarySection vaults={vaults} />
+          <DatasheetsLibrarySection vaults={vaults} isAdmin={isAdmin} />
         )}
 
         {/* ── VAULT ─────────────────────────────────────────────────────── */}
