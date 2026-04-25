@@ -505,6 +505,27 @@ app.post("/api/extract-pages", async (req, res) => {
 
 // ── Product Library routes ────────────────────────────────────────────────────
 
+// POST /api/products/upload-pdf — store datasheet PDF in R2, return key
+app.post("/api/products/upload-pdf", async (req, res) => {
+  const { base64, filename } = req.body;
+  if (!base64 || !filename) return res.status(400).json({ error: "base64 and filename required" });
+
+  const buffer = Buffer.from(base64, "base64");
+  const key = `products/${Date.now()}-${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+
+  try {
+    await r2.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: "application/pdf",
+    }));
+    res.json({ key });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/products — list all products
 app.get("/api/products", async (req, res) => {
   try {
@@ -567,14 +588,50 @@ app.post("/api/products", async (req, res) => {
   }
 });
 
-// DELETE /api/products/:id — delete a product and its attributes
+// GET /api/products/:id/pdf — fetch PDF from R2 and return as base64
+app.get("/api/products/:id/pdf", async (req, res) => {
+  try {
+    const { data: product, error } = await supabase
+      .from("products")
+      .select("file_key, name")
+      .eq("id", req.params.id)
+      .single();
+    if (error) throw error;
+    if (!product.file_key) return res.status(404).json({ error: "No PDF stored for this product" });
+
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: product.file_key }));
+    const buffer = await streamToBuffer(result.Body);
+    res.json({ base64: buffer.toString("base64"), name: product.name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/products/:id — delete product from Supabase and PDF from R2
 app.delete("/api/products/:id", async (req, res) => {
   try {
+    // Get file_key before deleting
+    const { data: product, error: fetchError } = await supabase
+      .from("products")
+      .select("file_key")
+      .eq("id", req.params.id)
+      .single();
+    if (fetchError) throw fetchError;
+
+    // Delete from Supabase (cascades to attributes)
     const { error } = await supabase
       .from("products")
       .delete()
       .eq("id", req.params.id);
     if (error) throw error;
+
+    // Delete PDF from R2 if stored
+    if (product.file_key && product.file_key.startsWith("products/")) {
+      try {
+        await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: product.file_key }));
+      } catch (_) { /* best effort */ }
+    }
+
     res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
