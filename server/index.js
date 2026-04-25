@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand } = require("@aws-sdk/client-s3");
+const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 app.use(cors());
@@ -23,6 +24,12 @@ const r2 = new S3Client({
 });
 
 const BUCKET = process.env.R2_BUCKET || "archimind-docs";
+
+// ── Supabase client ───────────────────────────────────────────────────────────
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
 async function streamToBuffer(stream) {
   const chunks = [];
@@ -433,7 +440,6 @@ app.post("/api/extract-text", async (req, res) => {
     const fullText = pages.map(p => `[Page ${p.page}]\n${p.text}`).join("\n\n");
     const hasText = fullText.replace(/\[Page \d+\]/g, "").trim().length > 100;
 
-    console.log(`Text extraction: ${pageCount} pages, hasText: ${hasText}, chars: ${fullText.length}`);
     return res.json({ text: fullText, hasText, pageCount });
   } catch (err) {
     console.warn("mupdf text extraction failed:", err.message);
@@ -494,6 +500,158 @@ app.post("/api/extract-pages", async (req, res) => {
   } catch (pdfLibErr) {
     console.error("All extraction methods failed:", pdfLibErr.message);
     return res.status(500).json({ error: pdfLibErr.message });
+  }
+});
+
+// ── Product Library routes ────────────────────────────────────────────────────
+
+// POST /api/products/upload-pdf — store datasheet PDF in R2, return key
+app.post("/api/products/upload-pdf", async (req, res) => {
+  const { base64, filename } = req.body;
+  if (!base64 || !filename) return res.status(400).json({ error: "base64 and filename required" });
+
+  const buffer = Buffer.from(base64, "base64");
+  const key = `products/${Date.now()}-${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+
+  try {
+    await r2.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: buffer,
+      ContentType: "application/pdf",
+    }));
+    res.json({ key });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/products — list all products
+app.get("/api/products", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .select("id, created_at, name, manufacturer, file_key, product_type")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    res.json({ products: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/products/:id — get a single product with its attributes
+app.get("/api/products/:id", async (req, res) => {
+  try {
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .select("*")
+      .eq("id", req.params.id)
+      .single();
+    if (productError) throw productError;
+
+    const { data: attributes, error: attrError } = await supabase
+      .from("product_attributes")
+      .select("*")
+      .eq("product_id", req.params.id)
+      .order("attribute");
+    if (attrError) throw attrError;
+
+    res.json({ product, attributes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/products/:id — update product fields (e.g. product_type)
+app.patch("/api/products/:id", async (req, res) => {
+  const { product_type } = req.body;
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .update({ product_type })
+      .eq("id", req.params.id)
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ product: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/products — create a new product record
+app.post("/api/products", async (req, res) => {
+  const { name, manufacturer, file_key, raw_text, product_type, attributes = [] } = req.body;
+  if (!name) return res.status(400).json({ error: "name required" });
+
+  try {
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .insert({ name, manufacturer, file_key, raw_text, product_type })
+      .select()
+      .single();
+    if (productError) throw productError;
+
+    if (attributes.length > 0) {
+      const rows = attributes.map(a => ({ product_id: product.id, attribute: a.attribute, value: a.value, unit: a.unit || null }));
+      const { error: attrError } = await supabase.from("product_attributes").insert(rows);
+      if (attrError) throw attrError;
+    }
+
+    res.json({ product });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/products/:id/pdf — fetch PDF from R2 and return as base64
+app.get("/api/products/:id/pdf", async (req, res) => {
+  try {
+    const { data: product, error } = await supabase
+      .from("products")
+      .select("file_key, name")
+      .eq("id", req.params.id)
+      .single();
+    if (error) throw error;
+    if (!product.file_key) return res.status(404).json({ error: "No PDF stored for this product" });
+
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: product.file_key }));
+    const buffer = await streamToBuffer(result.Body);
+    res.json({ base64: buffer.toString("base64"), name: product.name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/products/:id — delete product from Supabase and PDF from R2
+app.delete("/api/products/:id", async (req, res) => {
+  try {
+    // Get file_key before deleting
+    const { data: product, error: fetchError } = await supabase
+      .from("products")
+      .select("file_key")
+      .eq("id", req.params.id)
+      .single();
+    if (fetchError) throw fetchError;
+
+    // Delete from Supabase (cascades to attributes)
+    const { error } = await supabase
+      .from("products")
+      .delete()
+      .eq("id", req.params.id);
+    if (error) throw error;
+
+    // Delete PDF from R2 if stored
+    if (product.file_key && product.file_key.startsWith("products/")) {
+      try {
+        await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: product.file_key }));
+      } catch (_) { /* best effort */ }
+    }
+
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
