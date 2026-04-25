@@ -531,7 +531,7 @@ app.get("/api/products", async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("products")
-      .select("id, created_at, name, manufacturer, file_key")
+      .select("id, created_at, name, manufacturer, file_key, product_type")
       .order("created_at", { ascending: false });
     if (error) throw error;
     res.json({ products: data });
@@ -563,15 +563,32 @@ app.get("/api/products/:id", async (req, res) => {
   }
 });
 
+// PATCH /api/products/:id — update product fields (e.g. product_type)
+app.patch("/api/products/:id", async (req, res) => {
+  const { product_type } = req.body;
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .update({ product_type })
+      .eq("id", req.params.id)
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ product: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/products — create a new product record
 app.post("/api/products", async (req, res) => {
-  const { name, manufacturer, file_key, raw_text, attributes = [] } = req.body;
+  const { name, manufacturer, file_key, raw_text, product_type, attributes = [] } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
 
   try {
     const { data: product, error: productError } = await supabase
       .from("products")
-      .insert({ name, manufacturer, file_key, raw_text })
+      .insert({ name, manufacturer, file_key, raw_text, product_type })
       .select()
       .single();
     if (productError) throw productError;
