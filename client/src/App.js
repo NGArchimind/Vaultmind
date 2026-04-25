@@ -1470,6 +1470,8 @@ function DatasheetsLibrarySection({ vaults }) {
   const [deleting, setDeleting] = useState(null);
   const [selected, setSelected] = useState(null); // single selected product id
   const [editingType, setEditingType] = useState(null); // product id being edited
+  const [customTypeInput, setCustomTypeInput] = useState(""); // free text input value
+  const [pendingNewType, setPendingNewType] = useState(null); // { product, type } awaiting confirm
   const [filterManufacturer, setFilterManufacturer] = useState("");
   const [filterType, setFilterType] = useState("");
   const [downloading, setDownloading] = useState(false);
@@ -1662,7 +1664,20 @@ Extract every relevant technical attribute: dimensions, weights, thermal values,
   }
 
   // ── Update product type ───────────────────────────────────────────────────────
+  const PRODUCT_TYPES = ["Insulation", "Fire Door", "Cavity Barrier", "Membrane", "Sealant", "Fixings", "Structural", "Glazing", "Roofing", "Cladding", "Flooring", "Acoustic", "Other"];
+
   async function handleTypeUpdate(product, newType) {
+    if (!newType) { setEditingType(null); setCustomTypeInput(""); return; }
+    // If it's a new type not in the existing list, ask for confirmation
+    const isNew = !PRODUCT_TYPES.includes(newType) && !types.includes(newType);
+    if (isNew) {
+      setPendingNewType({ product, type: newType });
+      return;
+    }
+    await commitTypeUpdate(product, newType);
+  }
+
+  async function commitTypeUpdate(product, newType) {
     try {
       await api(`/api/products/${product.id}`, { method: "PATCH", body: { product_type: newType } });
       setProducts(prev => prev.map(p => p.id === product.id ? { ...p, product_type: newType } : p));
@@ -1670,6 +1685,8 @@ Extract every relevant technical attribute: dimensions, weights, thermal values,
       setUploadStatus("Failed to update type: " + e.message);
     }
     setEditingType(null);
+    setCustomTypeInput("");
+    setPendingNewType(null);
   }
 
   // ── Compliance check ──────────────────────────────────────────────────────────
@@ -1932,11 +1949,31 @@ Use only the provided document pages. Do not speculate beyond what the documents
 
   const selectedProduct = selected ? products.find(p => p.id === selected) : null;
 
-  const PRODUCT_TYPES = ["Insulation", "Fire Door", "Cavity Barrier", "Membrane", "Sealant", "Fixings", "Structural", "Glazing", "Roofing", "Cladding", "Flooring", "Acoustic", "Other"];
-
   // ── Render ────────────────────────────────────────────────────────────────────
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f9f7f5" }}>
+
+      {/* Confirm new type dialog */}
+      {pendingNewType && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#ffffff", padding: "28px 32px", maxWidth: 400, width: "90%", fontFamily: "Inter, Arial, sans-serif" }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 10 }}>Add new product type?</div>
+            <div style={{ fontSize: 13, color: "#5a5048", marginBottom: 20, lineHeight: 1.6 }}>
+              "<strong>{pendingNewType.type}</strong>" is not in the standard list. Adding it will make it available as a filter option for all products. Are you sure?
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button className="btn" onClick={() => { setPendingNewType(null); setEditingType(null); setCustomTypeInput(""); }}
+                style={{ fontSize: 12, padding: "7px 16px", background: "none", border: "1px solid #ddd8d0", color: "#5a5048" }}>
+                Cancel
+              </button>
+              <button className="btn" onClick={() => commitTypeUpdate(pendingNewType.product, pendingNewType.type)}
+                style={{ fontSize: 12, padding: "7px 16px", background: ARC_NAVY, color: "#ffffff", fontWeight: 600 }}>
+                Add type
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "16px 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 16, flexWrap: "wrap" }}>
@@ -2040,16 +2077,42 @@ Use only the provided document pages. Do not speculate beyond what the documents
                       {/* Product type badge — editable */}
                       <div style={{ flexShrink: 0 }}>
                         {editingType === product.id ? (
-                          <select autoFocus
-                            defaultValue={product.product_type || ""}
-                            onBlur={e => handleTypeUpdate(product, e.target.value || null)}
-                            onChange={e => handleTypeUpdate(product, e.target.value || null)}
-                            style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_BLUE}`, fontFamily: "Inter, Arial, sans-serif" }}>
-                            <option value="">— unset —</option>
-                            {PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                          </select>
+                          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+                            <select
+                              value={customTypeInput || product.product_type || ""}
+                              onChange={e => {
+                                if (e.target.value === "__custom__") {
+                                  setCustomTypeInput("");
+                                } else {
+                                  handleTypeUpdate(product, e.target.value || null);
+                                }
+                              }}
+                              style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_BLUE}`, fontFamily: "Inter, Arial, sans-serif" }}>
+                              <option value="">— unset —</option>
+                              {[...PRODUCT_TYPES, ...types.filter(t => !PRODUCT_TYPES.includes(t))].map(t => (
+                                <option key={t} value={t}>{t}</option>
+                              ))}
+                              <option value="__custom__">+ Add new type…</option>
+                            </select>
+                            {customTypeInput !== null && customTypeInput !== undefined && (
+                              customTypeInput === "" ? null :
+                              <input autoFocus value={customTypeInput} onChange={e => setCustomTypeInput(e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === "Enter" && customTypeInput.trim()) handleTypeUpdate(product, customTypeInput.trim());
+                                  if (e.key === "Escape") { setEditingType(null); setCustomTypeInput(""); }
+                                }}
+                                placeholder="Type name…"
+                                style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_BLUE}`, fontFamily: "Inter, Arial, sans-serif", width: 110 }} />
+                            )}
+                            {customTypeInput && (
+                              <button className="btn" onClick={() => { if (customTypeInput.trim()) handleTypeUpdate(product, customTypeInput.trim()); }}
+                                style={{ fontSize: 11, padding: "3px 8px", background: ARC_NAVY, color: "#ffffff" }}>✓</button>
+                            )}
+                            <button className="btn" onClick={() => { setEditingType(null); setCustomTypeInput(""); }}
+                              style={{ fontSize: 11, padding: "3px 8px", background: "none", border: "1px solid #ddd8d0", color: "#9a9088" }}>✕</button>
+                          </div>
                         ) : (
-                          <span onClick={() => setEditingType(product.id)} title="Click to edit type"
+                          <span onClick={() => { setEditingType(product.id); setCustomTypeInput(""); }} title="Click to edit type"
                             style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: product.product_type ? LIBRARY_BLUE : "#b0a898", background: product.product_type ? LIBRARY_BLUE_LIGHT : "#f0ede8", padding: "3px 8px", cursor: "pointer", userSelect: "none" }}>
                             {product.product_type || "Set type"}
                           </span>
