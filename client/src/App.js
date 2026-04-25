@@ -1521,20 +1521,23 @@ Extract every relevant technical attribute you can find: dimensions, weights, th
         ]}],
         null, 4000, 1, "gemini-2.5-flash", 120000, { temperature: 0.1, thinking: false }
       );
+      setUploadStatus("DEBUG: Got response, length=" + (result?.length || "null") + " starts: " + (result || "").slice(0, 100));
 
       let parsed;
       try {
         const first = result.indexOf("{");
         const last = result.lastIndexOf("}");
         if (first === -1 || last === -1) {
-          alert("DEBUG - no JSON found. Raw response:\n" + result.slice(0, 800));
-          throw new Error("No JSON object found");
+          setUploadStatus("DEBUG: No JSON found. Response starts: " + result.slice(0, 200));
+          setUploading(false);
+          return;
         }
         const clean = result.slice(first, last + 1);
         try { parsed = JSON.parse(clean); }
         catch(e) {
-          alert("DEBUG - JSON parse failed.\nRaw:\n" + result.slice(0, 800) + "\n\nExtracted:\n" + clean.slice(0, 400));
-          throw e;
+          setUploadStatus("DEBUG: Parse failed. Extracted: " + clean.slice(0, 200));
+          setUploading(false);
+          return;
         }
       } catch {
         setUploadStatus("Failed to parse extraction result. Please try again.");
