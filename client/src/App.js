@@ -710,8 +710,10 @@ Concise guidance on when to use each product. Include scenarios where one is cle
 
       const useTextA = extractA.hasText;
       const useTextB = extractB.hasText;
-      console.log(`Doc A text extraction: hasText=${useTextA}, chars=${extractA.text?.length}`);
-      console.log(`Doc B text extraction: hasText=${useTextB}, chars=${extractB.text?.length}`);
+
+      // Attach extracted text to doc objects for library save
+      docA.extractedText = extractA.text || "";
+      docB.extractedText = extractB.text || "";
 
       // Require text extraction to succeed with meaningful content — no PDF fallback
       const MIN_CHARS = 200;
@@ -743,6 +745,53 @@ Concise guidance on when to use each product. Include scenarios where one is cle
       setCompareAnswer(text);
       setCompareHistory([{ role: "user", content: `Compare ${docA.name} and ${docB.name}`, isInitial: true }, { role: "assistant", content: text }]);
       setCompareStatus("Comparison complete.");
+
+      // Silently save both datasheets to the library (duplicate check by filename)
+      (async () => {
+        try {
+          const { products: existing } = await api("/api/products");
+          const existingKeys = new Set((existing || []).map(p => p.file_key));
+
+          for (const doc of [docA, docB]) {
+            if (existingKeys.has(doc.name)) continue; // already in library
+            const extractionPrompt = `You are a technical product data specialist. Extract ALL meaningful technical attributes from this product datasheet.
+
+Return ONLY a JSON object in this exact format — no preamble, no markdown:
+{
+  "name": "Full product name",
+  "manufacturer": "Manufacturer name",
+  "attributes": [
+    { "attribute": "Attribute name", "value": "Value", "unit": "Unit or null" }
+  ]
+}
+
+Extract every relevant technical attribute you can find: dimensions, weights, thermal values, fire ratings, acoustic ratings, compressive strength, standards compliance, application temperature ranges, finishes, colours, certifications, installation requirements — anything technical and specific. Do not include marketing language. If a value has a unit, separate it into the unit field.`;
+
+            const result = await callClaude(
+              [{ role: "user", content: [
+                { type: "document", source: { type: "base64", media_type: "application/pdf", data: doc.base64 } },
+                { type: "text", text: extractionPrompt }
+              ]}],
+              null, 4000, 1, "gemini-2.5-flash", 120000, { temperature: 0.1, thinking: false }
+            );
+
+            try {
+              const clean = result.replace(/```json|```/g, "").trim();
+              const parsed = JSON.parse(clean);
+              await api("/api/products", {
+                method: "POST",
+                body: {
+                  name: parsed.name || doc.name.replace(".pdf", ""),
+                  manufacturer: parsed.manufacturer || null,
+                  file_key: doc.name,
+                  raw_text: doc.extractedText || "",
+                  attributes: parsed.attributes || [],
+                }
+              });
+            } catch (_) { /* silent — don't break compare flow */ }
+          }
+        } catch (_) { /* silent */ }
+      })();
 
       // Auto-generate suggested compliance questions
       setQuestionsLoading(true);
@@ -1326,6 +1375,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
 function LandingPage({ onSelect, isAdmin }) {
   const [hoverVault, setHoverVault] = useState(false);
   const [hoverCompare, setHoverCompare] = useState(false);
+  const [hoverLibrary, setHoverLibrary] = useState(false);
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: ARC_STONE, padding: "40px 24px" }}>
@@ -1333,7 +1383,7 @@ function LandingPage({ onSelect, isAdmin }) {
         <p style={{ fontSize: 13, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Select a tool to get started</p>
       </div>
 
-      <div style={{ display: "flex", gap: 24, width: "100%", maxWidth: 800 }}>
+      <div style={{ display: "flex", gap: 24, width: "100%", maxWidth: 1200 }}>
 
         {/* Vault tile */}
         <button className="btn" onClick={() => onSelect("vault")}
@@ -1390,6 +1440,250 @@ function LandingPage({ onSelect, isAdmin }) {
     </div>
   );
 }
+
+
+// ── Datasheet Library Section ─────────────────────────────────────────────────
+
+const LIBRARY_BLUE = "#2a6496";
+const LIBRARY_BLUE_LIGHT = "#eef4f8";
+
+function DatasheetsLibrarySection() {
+  const [products, setProducts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(null); // product id
+  const [expandedAttrs, setExpandedAttrs] = useState({}); // id -> attributes array
+  const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
+  const [deleting, setDeleting] = useState(null);
+  const inputRef = useRef();
+
+  useEffect(() => { loadProducts(); }, []);
+
+  async function loadProducts() {
+    setLoading(true);
+    try {
+      const data = await api("/api/products");
+      setProducts(data.products || []);
+    } catch (e) {
+      setUploadStatus("Failed to load products: " + e.message);
+    }
+    setLoading(false);
+  }
+
+  async function handleUpload(file) {
+    if (!file || !file.name.endsWith(".pdf")) {
+      setUploadStatus("Please upload a PDF file.");
+      return;
+    }
+    setUploading(true);
+    setUploadStatus(`Extracting text from ${file.name}…`);
+    try {
+      const base64 = await fileToBase64(file);
+
+      // Check duplicate by filename
+      const existing = products.find(p => p.file_key === file.name);
+      if (existing) {
+        setUploadStatus(`"${file.name}" is already in the library.`);
+        setUploading(false);
+        return;
+      }
+
+      // Extract text
+      const extraction = await api("/api/extract-text", { method: "POST", body: { base64 } });
+      if (!extraction.hasText) {
+        setUploadStatus(`Could not extract text from "${file.name}". The file may be scanned or image-based — try printing to PDF first.`);
+        setUploading(false);
+        return;
+      }
+
+      // LLM extraction
+      setUploadStatus(`Analysing ${file.name}…`);
+      const extractionPrompt = `You are a technical product data specialist. Extract ALL meaningful technical attributes from this product datasheet.
+
+Return ONLY a JSON object in this exact format — no preamble, no markdown:
+{
+  "name": "Full product name",
+  "manufacturer": "Manufacturer name",
+  "attributes": [
+    { "attribute": "Attribute name", "value": "Value", "unit": "Unit or null" }
+  ]
+}
+
+Extract every relevant technical attribute you can find: dimensions, weights, thermal values, fire ratings, acoustic ratings, compressive strength, standards compliance, application temperature ranges, finishes, colours, certifications, installation requirements — anything technical and specific. Do not include marketing language. If a value has a unit, separate it into the unit field.`;
+
+      const result = await callClaude(
+        [{ role: "user", content: [
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
+          { type: "text", text: extractionPrompt }
+        ]}],
+        null, 4000, 1, "gemini-2.5-flash", 120000, { temperature: 0.1, thinking: false }
+      );
+
+      let parsed;
+      try {
+        const clean = result.replace(/```json|```/g, "").trim();
+        parsed = JSON.parse(clean);
+      } catch {
+        setUploadStatus("Failed to parse extraction result. Please try again.");
+        setUploading(false);
+        return;
+      }
+
+      // Save to Supabase via server
+      setUploadStatus(`Saving ${parsed.name || file.name}…`);
+      await api("/api/products", {
+        method: "POST",
+        body: {
+          name: parsed.name || file.name.replace(".pdf", ""),
+          manufacturer: parsed.manufacturer || null,
+          file_key: file.name,
+          raw_text: extraction.text,
+          attributes: parsed.attributes || [],
+        }
+      });
+
+      setUploadStatus(`"${parsed.name || file.name}" added to library.`);
+      await loadProducts();
+    } catch (e) {
+      setUploadStatus("Upload failed: " + e.message);
+    }
+    setUploading(false);
+  }
+
+  async function loadAttributes(productId) {
+    if (expandedAttrs[productId]) return; // already loaded
+    try {
+      const data = await api(`/api/products/${productId}`);
+      setExpandedAttrs(prev => ({ ...prev, [productId]: data.attributes || [] }));
+    } catch (e) {
+      setExpandedAttrs(prev => ({ ...prev, [productId]: [] }));
+    }
+  }
+
+  async function handleExpand(productId) {
+    if (expanded === productId) {
+      setExpanded(null);
+    } else {
+      setExpanded(productId);
+      await loadAttributes(productId);
+    }
+  }
+
+  async function handleDelete(product) {
+    if (deleting) return;
+    setDeleting(product.id);
+    try {
+      await api(`/api/products/${product.id}`, { method: "DELETE" });
+      setProducts(prev => prev.filter(p => p.id !== product.id));
+      if (expanded === product.id) setExpanded(null);
+      setUploadStatus(`"${product.name}" removed from library.`);
+    } catch (e) {
+      setUploadStatus("Delete failed: " + e.message);
+    }
+    setDeleting(null);
+  }
+
+  return (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f9f7f5" }}>
+
+      {/* Header */}
+      <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "20px 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <div>
+          <h2 style={{ fontSize: 20, fontWeight: 300, color: ARC_NAVY, margin: 0, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.01em" }}>Datasheet Library</h2>
+          <p style={{ fontSize: 12, color: "#9a9088", margin: "4px 0 0", fontFamily: "Inter, Arial, sans-serif" }}>
+            {products.length} product{products.length !== 1 ? "s" : ""} stored
+          </p>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          {uploadStatus && (
+            <span style={{ fontSize: 12, color: uploadStatus.includes("failed") || uploadStatus.includes("Failed") || uploadStatus.includes("Could not") ? ARC_TERRACOTTA : "#5a7a6a", fontFamily: "Inter, Arial, sans-serif" }}>
+              {uploadStatus}
+            </span>
+          )}
+          <button className="btn" onClick={() => inputRef.current?.click()} disabled={uploading}
+            style={{ background: LIBRARY_BLUE, color: "#ffffff", padding: "8px 20px", fontSize: 12, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", opacity: uploading ? 0.6 : 1 }}>
+            {uploading ? "Processing…" : "+ Upload Datasheet"}
+          </button>
+          <input ref={inputRef} type="file" accept=".pdf" style={{ display: "none" }} onChange={e => { if (e.target.files[0]) handleUpload(e.target.files[0]); e.target.value = ""; }} />
+        </div>
+      </div>
+
+      {/* Product list */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px 40px" }}>
+        {loading ? (
+          <p style={{ color: "#9a9088", fontSize: 13, fontFamily: "Inter, Arial, sans-serif" }}>Loading…</p>
+        ) : products.length === 0 ? (
+          <div style={{ textAlign: "center", padding: "80px 40px" }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>📋</div>
+            <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>No datasheets yet</p>
+            <p style={{ fontSize: 13, color: "#9a9088", fontFamily: "Inter, Arial, sans-serif" }}>Upload a product datasheet to get started</p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {products.map(product => (
+              <div key={product.id} style={{ background: "#ffffff", border: `1px solid ${expanded === product.id ? LIBRARY_BLUE : "#e8e0d5"}`, transition: "border-color 0.15s" }}>
+
+                {/* Product row */}
+                <div style={{ display: "flex", alignItems: "center", padding: "14px 20px", cursor: "pointer", gap: 16 }}
+                  onClick={() => handleExpand(product.id)}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>{product.name}</div>
+                    {product.manufacturer && (
+                      <div style={{ fontSize: 12, color: "#9a9088", marginTop: 2, fontFamily: "Inter, Arial, sans-serif" }}>{product.manufacturer}</div>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#9a9088", fontFamily: "Inter, Arial, sans-serif", flexShrink: 0 }}>
+                    {new Date(product.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  </div>
+                  <div style={{ fontSize: 12, color: LIBRARY_BLUE, fontFamily: "Inter, Arial, sans-serif", flexShrink: 0, fontWeight: 500 }}>
+                    {expanded === product.id ? "▲ Hide" : "▼ Details"}
+                  </div>
+                </div>
+
+                {/* Expanded attributes */}
+                {expanded === product.id && (
+                  <div style={{ borderTop: "1px solid #e8e0d5", padding: "16px 20px" }}>
+                    {!expandedAttrs[product.id] ? (
+                      <p style={{ fontSize: 12, color: "#9a9088", fontFamily: "Inter, Arial, sans-serif" }}>Loading…</p>
+                    ) : expandedAttrs[product.id].length === 0 ? (
+                      <p style={{ fontSize: 12, color: "#9a9088", fontFamily: "Inter, Arial, sans-serif" }}>No attributes extracted.</p>
+                    ) : (
+                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "Inter, Arial, sans-serif" }}>
+                        <thead>
+                          <tr>
+                            <th style={{ background: ARC_NAVY, color: "#ffffff", padding: "7px 14px", textAlign: "left", fontWeight: 500, fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase", width: "35%" }}>Attribute</th>
+                            <th style={{ background: ARC_NAVY, color: "#ffffff", padding: "7px 14px", textAlign: "left", fontWeight: 500, fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase" }}>Value</th>
+                            <th style={{ background: ARC_NAVY, color: "#ffffff", padding: "7px 14px", textAlign: "left", fontWeight: 500, fontSize: 11, letterSpacing: "0.05em", textTransform: "uppercase", width: "15%" }}>Unit</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {expandedAttrs[product.id].map((attr, i) => (
+                            <tr key={i} style={{ background: i % 2 === 0 ? "#f9f7f5" : "#ffffff" }}>
+                              <td style={{ padding: "8px 14px", borderBottom: "1px solid #e8e0d5", color: "#5a5048", fontWeight: 500 }}>{attr.attribute}</td>
+                              <td style={{ padding: "8px 14px", borderBottom: "1px solid #e8e0d5", color: ARC_NAVY }}>{attr.value}</td>
+                              <td style={{ padding: "8px 14px", borderBottom: "1px solid #e8e0d5", color: "#9a9088" }}>{attr.unit || "—"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                    <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
+                      <button className="btn" onClick={() => handleDelete(product)} disabled={deleting === product.id}
+                        style={{ fontSize: 11, color: ARC_TERRACOTTA, background: "none", border: `1px solid ${ARC_TERRACOTTA}`, padding: "4px 12px", opacity: deleting === product.id ? 0.5 : 1 }}>
+                        {deleting === product.id ? "Deleting…" : "Remove from library"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 
 // ── main app ──────────────────────────────────────────────────────────────────
 
@@ -2411,6 +2705,10 @@ RULES:
             style={{ background: appSection === "compare" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "compare" ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === "compare" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
             Compare
           </button>
+          <button className="btn" onClick={() => setAppSection("library")}
+            style={{ background: appSection === "library" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "library" ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === "library" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
+            Library
+          </button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ color: "#7a9aaa", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase" }}>Document Intelligence</span>
@@ -2430,6 +2728,11 @@ RULES:
         {/* ── COMPARE ───────────────────────────────────────────────────── */}
         {appSection === "compare" && (
           <CompareSection vaults={vaults} isAdmin={isAdmin} />
+        )}
+
+        {/* ── DATASHEET LIBRARY ─────────────────────────────────────────── */}
+        {appSection === "library" && (
+          <DatasheetsLibrarySection />
         )}
 
         {/* ── VAULT ─────────────────────────────────────────────────────── */}
