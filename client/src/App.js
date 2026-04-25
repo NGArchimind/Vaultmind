@@ -776,10 +776,11 @@ Extract every relevant technical attribute you can find: dimensions, weights, th
             );
 
             try {
-              const first = result.indexOf("{");
-              const last = result.lastIndexOf("}");
+              const resultText = result.text || "";
+              const first = resultText.indexOf("{");
+              const last = resultText.lastIndexOf("}");
               if (first === -1 || last === -1) throw new Error("No JSON object found");
-              const clean = result.slice(first, last + 1);
+              const clean = resultText.slice(first, last + 1);
               const parsed = JSON.parse(clean);
               await api("/api/products", {
                 method: "POST",
@@ -1521,24 +1522,15 @@ Extract every relevant technical attribute you can find: dimensions, weights, th
         ]}],
         null, 4000, 1, "gemini-2.5-flash", 120000, { temperature: 0.1, thinking: false }
       );
-      setUploadStatus("DEBUG: Got response, length=" + (result?.length || "null") + " starts: " + (result || "").slice(0, 100));
+      const resultText = result.text || "";
 
       let parsed;
       try {
-        const first = result.indexOf("{");
-        const last = result.lastIndexOf("}");
-        if (first === -1 || last === -1) {
-          setUploadStatus("DEBUG: No JSON found. Response starts: " + result.slice(0, 200));
-          setUploading(false);
-          return;
-        }
-        const clean = result.slice(first, last + 1);
-        try { parsed = JSON.parse(clean); }
-        catch(e) {
-          setUploadStatus("DEBUG: Parse failed. Extracted: " + clean.slice(0, 200));
-          setUploading(false);
-          return;
-        }
+        const first = resultText.indexOf("{");
+        const last = resultText.lastIndexOf("}");
+        if (first === -1 || last === -1) throw new Error("No JSON object found");
+        const clean = resultText.slice(first, last + 1);
+        parsed = JSON.parse(clean);
       } catch {
         setUploadStatus("Failed to parse extraction result. Please try again.");
         setUploading(false);
