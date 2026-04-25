@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand } = require("@aws-sdk/client-s3");
+const { createClient } = require("@supabase/supabase-js");
 
 const app = express();
 app.use(cors());
@@ -22,7 +23,13 @@ const r2 = new S3Client({
   },
 });
 
-const BUCKET = process.env.R2_BUCKET || "vaultmind-docs";
+const BUCKET = process.env.R2_BUCKET || "archimind-docs";
+
+// ── Supabase client ───────────────────────────────────────────────────────────
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_KEY
+);
 
 async function streamToBuffer(stream) {
   const chunks = [];
@@ -73,7 +80,6 @@ async function deletePrefix(prefix) {
 
 // ── Gemini AI proxy ───────────────────────────────────────────────────────────
 app.post("/api/claude", async (req, res) => {
-  console.log("Gemini request received");
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "GEMINI_API_KEY not set." });
 
@@ -141,8 +147,6 @@ app.post("/api/claude", async (req, res) => {
     const data = await response.json();
     let text = data.candidates?.[0]?.content?.parts?.map(p => p.text || "").join("") || "";
     text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
-    console.log("Gemini cleaned response (first 500 chars):", text.slice(0, 500));
-
     const usage = data.usageMetadata || {};
     res.json({
       content: [{ type: "text", text }],
@@ -436,7 +440,6 @@ app.post("/api/extract-text", async (req, res) => {
     const fullText = pages.map(p => `[Page ${p.page}]\n${p.text}`).join("\n\n");
     const hasText = fullText.replace(/\[Page \d+\]/g, "").trim().length > 100;
 
-    console.log(`Text extraction: ${pageCount} pages, hasText: ${hasText}, chars: ${fullText.length}`);
     return res.json({ text: fullText, hasText, pageCount });
   } catch (err) {
     console.warn("mupdf text extraction failed:", err.message);
@@ -470,11 +473,9 @@ app.post("/api/extract-pages", async (req, res) => {
       outDoc.insertPage(-1, newPageRef);
     }
     const outPageCount = outDoc.countPages();
-    console.log(`mupdf: inserted ${validPages.length} pages, outDoc has ${outPageCount} pages`);
     if (outPageCount === 0) throw new Error("mupdf produced empty document");
     const rawBuffer = outDoc.saveToBuffer("compress,garbage");
     const outBytes = Buffer.from(rawBuffer.asUint8Array());
-    console.log(`mupdf extracted ${validPages.length} pages successfully`);
     return res.json({ base64: outBytes.toString("base64"), pagesExtracted: validPages.length, pageNumbers: validPages });
   } catch (mupdfErr) {
     console.warn("mupdf extraction failed, trying pdf-lib:", mupdfErr.message);
@@ -491,7 +492,6 @@ app.post("/api/extract-pages", async (req, res) => {
     const copiedPages = await extractedDoc.copyPages(srcDoc, pageIndices);
     copiedPages.forEach(p => extractedDoc.addPage(p));
     const extractedBytes = await extractedDoc.save();
-    console.log(`pdf-lib extracted ${pageIndices.length} pages successfully`);
     return res.json({
       base64: Buffer.from(extractedBytes).toString("base64"),
       pagesExtracted: pageIndices.length,
@@ -503,8 +503,86 @@ app.post("/api/extract-pages", async (req, res) => {
   }
 });
 
+// ── Product Library routes ────────────────────────────────────────────────────
+
+// GET /api/products — list all products
+app.get("/api/products", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("products")
+      .select("id, created_at, name, manufacturer, file_key")
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    res.json({ products: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/products/:id — get a single product with its attributes
+app.get("/api/products/:id", async (req, res) => {
+  try {
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .select("*")
+      .eq("id", req.params.id)
+      .single();
+    if (productError) throw productError;
+
+    const { data: attributes, error: attrError } = await supabase
+      .from("product_attributes")
+      .select("*")
+      .eq("product_id", req.params.id)
+      .order("attribute");
+    if (attrError) throw attrError;
+
+    res.json({ product, attributes });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/products — create a new product record
+app.post("/api/products", async (req, res) => {
+  const { name, manufacturer, file_key, raw_text, attributes = [] } = req.body;
+  if (!name) return res.status(400).json({ error: "name required" });
+
+  try {
+    const { data: product, error: productError } = await supabase
+      .from("products")
+      .insert({ name, manufacturer, file_key, raw_text })
+      .select()
+      .single();
+    if (productError) throw productError;
+
+    if (attributes.length > 0) {
+      const rows = attributes.map(a => ({ product_id: product.id, attribute: a.attribute, value: a.value, unit: a.unit || null }));
+      const { error: attrError } = await supabase.from("product_attributes").insert(rows);
+      if (attrError) throw attrError;
+    }
+
+    res.json({ product });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/products/:id — delete a product and its attributes
+app.delete("/api/products/:id", async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from("products")
+      .delete()
+      .eq("id", req.params.id);
+    if (error) throw error;
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`VaultMind server running on port ${PORT}`));
+app.listen(PORT, () => console.log(`Archimind server running on port ${PORT}`));
