@@ -2078,34 +2078,36 @@ Use only the provided document pages. Do not speculate beyond what the documents
                       <div style={{ flexShrink: 0 }}>
                         {editingType === product.id ? (
                           <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                            <select
-                              value={customTypeInput || product.product_type || ""}
-                              onChange={e => {
-                                if (e.target.value === "__custom__") {
-                                  setCustomTypeInput("");
-                                } else {
-                                  handleTypeUpdate(product, e.target.value || null);
-                                }
-                              }}
-                              style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_BLUE}`, fontFamily: "Inter, Arial, sans-serif" }}>
-                              <option value="">— unset —</option>
-                              {[...PRODUCT_TYPES, ...types.filter(t => !PRODUCT_TYPES.includes(t))].map(t => (
-                                <option key={t} value={t}>{t}</option>
-                              ))}
-                              <option value="__custom__">+ Add new type…</option>
-                            </select>
-                            {customTypeInput !== null && customTypeInput !== undefined && (
-                              customTypeInput === "" ? null :
-                              <input autoFocus value={customTypeInput} onChange={e => setCustomTypeInput(e.target.value)}
+                            {customTypeInput !== "__custom__" ? (
+                              <select
+                                value={product.product_type || ""}
+                                onChange={e => {
+                                  if (e.target.value === "__custom__") {
+                                    setCustomTypeInput("__custom__");
+                                  } else {
+                                    handleTypeUpdate(product, e.target.value || null);
+                                  }
+                                }}
+                                style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_BLUE}`, fontFamily: "Inter, Arial, sans-serif" }}>
+                                <option value="">— unset —</option>
+                                {[...PRODUCT_TYPES, ...types.filter(t => !PRODUCT_TYPES.includes(t))].map(t => (
+                                  <option key={t} value={t}>{t}</option>
+                                ))}
+                                <option value="__custom__">+ Add new type…</option>
+                              </select>
+                            ) : (
+                              <input autoFocus value={customTypeInput === "__custom__" ? "" : customTypeInput}
+                                onChange={e => setCustomTypeInput(e.target.value || "__custom__")}
                                 onKeyDown={e => {
-                                  if (e.key === "Enter" && customTypeInput.trim()) handleTypeUpdate(product, customTypeInput.trim());
+                                  const val = (customTypeInput === "__custom__" ? "" : customTypeInput).trim();
+                                  if (e.key === "Enter" && val) handleTypeUpdate(product, val);
                                   if (e.key === "Escape") { setEditingType(null); setCustomTypeInput(""); }
                                 }}
-                                placeholder="Type name…"
-                                style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_BLUE}`, fontFamily: "Inter, Arial, sans-serif", width: 110 }} />
+                                placeholder="New type name…"
+                                style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_BLUE}`, fontFamily: "Inter, Arial, sans-serif", width: 130 }} />
                             )}
-                            {customTypeInput && (
-                              <button className="btn" onClick={() => { if (customTypeInput.trim()) handleTypeUpdate(product, customTypeInput.trim()); }}
+                            {customTypeInput && customTypeInput !== "__custom__" && (
+                              <button className="btn" onClick={() => handleTypeUpdate(product, customTypeInput.trim())}
                                 style={{ fontSize: 11, padding: "3px 8px", background: ARC_NAVY, color: "#ffffff" }}>✓</button>
                             )}
                             <button className="btn" onClick={() => { setEditingType(null); setCustomTypeInput(""); }}
