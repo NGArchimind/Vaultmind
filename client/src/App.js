@@ -5,6 +5,7 @@ import { Spinner, ProgressBar } from "./components/common/Spinner";
 import VaultManagementModal from "./components/VaultManagementModal";
 import CompareSection from "./components/CompareSection";
 import LandingPage from "./components/LandingPage";
+import ProjectsSection from "./components/ProjectsSection";
 import DatasheetsLibrarySection from "./components/DatasheetsLibrarySection";
 import { AD_GREEN, AD_GREEN_LIGHT, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, MAX_PAGES_PER_CHUNK } from "./constants";
 
@@ -969,7 +970,7 @@ RULES:
           Archimind
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          {["vault", "compare", "library"].map(section => (
+          {["vault", "compare", "library", "projects"].map(section => (
             <button key={section} className="btn" onClick={() => setAppSection(section)}
               style={{ background: appSection === section ? "rgba(255,255,255,0.12)" : "none", color: appSection === section ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === section ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
               {section.charAt(0).toUpperCase() + section.slice(1)}
@@ -989,6 +990,7 @@ RULES:
         {appSection === "home" && <LandingPage onSelect={setAppSection} isAdmin={isAdmin} />}
         {appSection === "compare" && <CompareSection vaults={vaults} isAdmin={isAdmin} />}
         {appSection === "library" && <DatasheetsLibrarySection vaults={vaults} isAdmin={isAdmin} />}
+{appSection === "projects" && <ProjectsSection isAdmin={isAdmin} />}
 
         {/* ── VAULT ─────────────────────────────────────────────────────── */}
         {appSection === "vault" && <>
