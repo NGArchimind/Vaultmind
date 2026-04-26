@@ -661,7 +661,7 @@ app.get("/api/projects", async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("projects")
-      .select("id, name, job_number, client, location, stage, status, created_at")
+      .select("id, name, job_number, client, location, stage, status, project_lead, created_at")
       .order("created_at", { ascending: false });
     if (error) throw error;
     res.json({ projects: data });
@@ -674,30 +674,19 @@ app.get("/api/projects", async (req, res) => {
 app.get("/api/projects/:id", async (req, res) => {
   try {
     const { data: project, error: projectError } = await supabase
-      .from("projects")
-      .select("*")
-      .eq("id", req.params.id)
-      .single();
+      .from("projects").select("*").eq("id", req.params.id).single();
     if (projectError) throw projectError;
 
     const { data: consultants, error: consultantsError } = await supabase
-      .from("project_consultants")
-      .select("*")
-      .eq("project_id", req.params.id)
-      .order("created_at");
+      .from("project_consultants").select("*").eq("project_id", req.params.id).order("created_at");
     if (consultantsError) throw consultantsError;
 
     const { data: uvalues, error: uvaluesError } = await supabase
-      .from("project_uvalues")
-      .select("*")
-      .eq("project_id", req.params.id);
+      .from("project_uvalues").select("*").eq("project_id", req.params.id);
     if (uvaluesError) throw uvaluesError;
 
     const { data: notes, error: notesError } = await supabase
-      .from("project_notes")
-      .select("*")
-      .eq("project_id", req.params.id)
-      .order("sort_order");
+      .from("project_notes").select("*").eq("project_id", req.params.id).order("sort_order");
     if (notesError) throw notesError;
 
     res.json({ project, consultants, uvalues, notes });
@@ -708,29 +697,21 @@ app.get("/api/projects/:id", async (req, res) => {
 
 // POST /api/projects — create a new project
 app.post("/api/projects", async (req, res) => {
-  const { name, job_number, client, location, stage, description, status = "active" } = req.body;
+  const { name, job_number, client, location, stage, description, status = "active", project_lead } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
 
   try {
     const { data: project, error } = await supabase
       .from("projects")
-      .insert({ name, job_number, client, location, stage, description, status })
-      .select()
-      .single();
+      .insert({ name, job_number, client, location, stage, description, status, project_lead })
+      .select().single();
     if (error) throw error;
 
-    // Seed default U-value elements
     const DEFAULT_UVALUES = [
-      { element: "Roof", target: null, achieved: null, notes: null },
-      { element: "External Wall", target: null, achieved: null, notes: null },
-      { element: "Ground Floor", target: null, achieved: null, notes: null },
-      { element: "Party Wall", target: null, achieved: null, notes: null },
-      { element: "Windows / Glazing", target: null, achieved: null, notes: null },
-      { element: "Doors", target: null, achieved: null, notes: null },
-      { element: "Rooflights", target: null, achieved: null, notes: null },
+      { element: "Roof" }, { element: "External Wall" }, { element: "Ground Floor" },
+      { element: "Party Wall" }, { element: "Windows / Glazing" }, { element: "Doors" }, { element: "Rooflights" },
     ];
-    const uvalueRows = DEFAULT_UVALUES.map(u => ({ ...u, project_id: project.id }));
-    await supabase.from("project_uvalues").insert(uvalueRows);
+    await supabase.from("project_uvalues").insert(DEFAULT_UVALUES.map(u => ({ ...u, project_id: project.id, target: null, achieved: null, notes: null })));
 
     res.json({ project });
   } catch (err) {
@@ -740,14 +721,12 @@ app.post("/api/projects", async (req, res) => {
 
 // PATCH /api/projects/:id — update project core fields
 app.patch("/api/projects/:id", async (req, res) => {
-  const { name, job_number, client, location, stage, description, status } = req.body;
+  const { name, job_number, client, location, stage, description, status, project_lead } = req.body;
   try {
     const { data, error } = await supabase
       .from("projects")
-      .update({ name, job_number, client, location, stage, description, status, updated_at: new Date().toISOString() })
-      .eq("id", req.params.id)
-      .select()
-      .single();
+      .update({ name, job_number, client, location, stage, description, status, project_lead, updated_at: new Date().toISOString() })
+      .eq("id", req.params.id).select().single();
     if (error) throw error;
     res.json({ project: data });
   } catch (err) {
@@ -755,13 +734,10 @@ app.patch("/api/projects/:id", async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id — delete project and all related data (cascades via FK)
+// DELETE /api/projects/:id
 app.delete("/api/projects/:id", async (req, res) => {
   try {
-    const { error } = await supabase
-      .from("projects")
-      .delete()
-      .eq("id", req.params.id);
+    const { error } = await supabase.from("projects").delete().eq("id", req.params.id);
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
@@ -771,15 +747,12 @@ app.delete("/api/projects/:id", async (req, res) => {
 
 // ── Consultants ───────────────────────────────────────────────────────────────
 
-// POST /api/projects/:id/consultants
 app.post("/api/projects/:id/consultants", async (req, res) => {
   const { discipline, company, contact_name, email, phone } = req.body;
   try {
-    const { data, error } = await supabase
-      .from("project_consultants")
+    const { data, error } = await supabase.from("project_consultants")
       .insert({ project_id: req.params.id, discipline, company, contact_name, email, phone })
-      .select()
-      .single();
+      .select().single();
     if (error) throw error;
     res.json({ consultant: data });
   } catch (err) {
@@ -787,17 +760,12 @@ app.post("/api/projects/:id/consultants", async (req, res) => {
   }
 });
 
-// PATCH /api/projects/:id/consultants/:cid
 app.patch("/api/projects/:id/consultants/:cid", async (req, res) => {
   const { discipline, company, contact_name, email, phone } = req.body;
   try {
-    const { data, error } = await supabase
-      .from("project_consultants")
+    const { data, error } = await supabase.from("project_consultants")
       .update({ discipline, company, contact_name, email, phone })
-      .eq("id", req.params.cid)
-      .eq("project_id", req.params.id)
-      .select()
-      .single();
+      .eq("id", req.params.cid).eq("project_id", req.params.id).select().single();
     if (error) throw error;
     res.json({ consultant: data });
   } catch (err) {
@@ -805,14 +773,10 @@ app.patch("/api/projects/:id/consultants/:cid", async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id/consultants/:cid
 app.delete("/api/projects/:id/consultants/:cid", async (req, res) => {
   try {
-    const { error } = await supabase
-      .from("project_consultants")
-      .delete()
-      .eq("id", req.params.cid)
-      .eq("project_id", req.params.id);
+    const { error } = await supabase.from("project_consultants")
+      .delete().eq("id", req.params.cid).eq("project_id", req.params.id);
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
@@ -822,17 +786,12 @@ app.delete("/api/projects/:id/consultants/:cid", async (req, res) => {
 
 // ── U-values ──────────────────────────────────────────────────────────────────
 
-// PATCH /api/projects/:id/uvalues/:uid
 app.patch("/api/projects/:id/uvalues/:uid", async (req, res) => {
   const { target, achieved, notes } = req.body;
   try {
-    const { data, error } = await supabase
-      .from("project_uvalues")
+    const { data, error } = await supabase.from("project_uvalues")
       .update({ target, achieved, notes })
-      .eq("id", req.params.uid)
-      .eq("project_id", req.params.id)
-      .select()
-      .single();
+      .eq("id", req.params.uid).eq("project_id", req.params.id).select().single();
     if (error) throw error;
     res.json({ uvalue: data });
   } catch (err) {
@@ -840,16 +799,13 @@ app.patch("/api/projects/:id/uvalues/:uid", async (req, res) => {
   }
 });
 
-// POST /api/projects/:id/uvalues — add a custom U-value element
 app.post("/api/projects/:id/uvalues", async (req, res) => {
   const { element, target, achieved, notes } = req.body;
   if (!element) return res.status(400).json({ error: "element required" });
   try {
-    const { data, error } = await supabase
-      .from("project_uvalues")
+    const { data, error } = await supabase.from("project_uvalues")
       .insert({ project_id: req.params.id, element, target, achieved, notes })
-      .select()
-      .single();
+      .select().single();
     if (error) throw error;
     res.json({ uvalue: data });
   } catch (err) {
@@ -857,14 +813,10 @@ app.post("/api/projects/:id/uvalues", async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id/uvalues/:uid
 app.delete("/api/projects/:id/uvalues/:uid", async (req, res) => {
   try {
-    const { error } = await supabase
-      .from("project_uvalues")
-      .delete()
-      .eq("id", req.params.uid)
-      .eq("project_id", req.params.id);
+    const { error } = await supabase.from("project_uvalues")
+      .delete().eq("id", req.params.uid).eq("project_id", req.params.id);
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
@@ -872,17 +824,14 @@ app.delete("/api/projects/:id/uvalues/:uid", async (req, res) => {
   }
 });
 
-// ── Project notes (misc info) ─────────────────────────────────────────────────
+// ── Project notes ─────────────────────────────────────────────────────────────
 
-// POST /api/projects/:id/notes
 app.post("/api/projects/:id/notes", async (req, res) => {
   const { label, value, sort_order = 0 } = req.body;
   try {
-    const { data, error } = await supabase
-      .from("project_notes")
+    const { data, error } = await supabase.from("project_notes")
       .insert({ project_id: req.params.id, label, value, sort_order })
-      .select()
-      .single();
+      .select().single();
     if (error) throw error;
     res.json({ note: data });
   } catch (err) {
@@ -890,17 +839,12 @@ app.post("/api/projects/:id/notes", async (req, res) => {
   }
 });
 
-// PATCH /api/projects/:id/notes/:nid
 app.patch("/api/projects/:id/notes/:nid", async (req, res) => {
   const { label, value, sort_order } = req.body;
   try {
-    const { data, error } = await supabase
-      .from("project_notes")
+    const { data, error } = await supabase.from("project_notes")
       .update({ label, value, sort_order })
-      .eq("id", req.params.nid)
-      .eq("project_id", req.params.id)
-      .select()
-      .single();
+      .eq("id", req.params.nid).eq("project_id", req.params.id).select().single();
     if (error) throw error;
     res.json({ note: data });
   } catch (err) {
@@ -908,14 +852,10 @@ app.patch("/api/projects/:id/notes/:nid", async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id/notes/:nid
 app.delete("/api/projects/:id/notes/:nid", async (req, res) => {
   try {
-    const { error } = await supabase
-      .from("project_notes")
-      .delete()
-      .eq("id", req.params.nid)
-      .eq("project_id", req.params.id);
+    const { error } = await supabase.from("project_notes")
+      .delete().eq("id", req.params.nid).eq("project_id", req.params.id);
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
