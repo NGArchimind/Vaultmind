@@ -1,32 +1,15 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { api, callClaude, fileToBase64 } from "./api/client";
+import AnswerRenderer from "./components/common/AnswerRenderer";
+import { Spinner, ProgressBar } from "./components/common/Spinner";
+import VaultManagementModal from "./components/VaultManagementModal";
+import CompareSection from "./components/CompareSection";
+import LandingPage from "./components/LandingPage";
+import DatasheetsLibrarySection from "./components/DatasheetsLibrarySection";
+import { AD_GREEN, AD_GREEN_LIGHT, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, MAX_PAGES_PER_CHUNK } from "./constants";
 
 const IS_DEMO = false;
-const API_BASE = process.env.REACT_APP_API_URL || "https://archimind.up.railway.app";
-const MAX_PAGES_PER_CHUNK = 90;
-
-// ── API helpers ───────────────────────────────────────────────────────────────
-
-async function api(path, options = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `API error ${res.status}`);
-  }
-  return res.json();
-}
-
-function fileToBase64(file) {
-  return new Promise((res, rej) => {
-    const r = new FileReader();
-    r.onload = () => res(r.result.split(",")[1]);
-    r.onerror = () => rej(new Error("Read failed"));
-    r.readAsDataURL(file);
-  });
-}
+const MAX_PAGES_PER_CHUNK_LOCAL = MAX_PAGES_PER_CHUNK;
 
 async function splitPdfIntoChunks(base64Data, chunkSize) {
   try {
@@ -65,2351 +48,10 @@ async function splitPdfIntoChunks(base64Data, chunkSize) {
   }
 }
 
-async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash", timeoutMs = 240000, options = {}) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-  let res;
-  try {
-    res = await fetch(`${API_BASE}/api/claude`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages, ...options }),
-    });
-  } catch (e) {
-    clearTimeout(timeoutId);
-    if (e.name === "AbortError") throw new Error("TIMEOUT");
-    throw e;
-  }
-  clearTimeout(timeoutId);
-
-  if (res.status === 429 && retries > 0) {
-    console.log(`Rate limit hit, waiting 15 seconds before retry (${retries} retries left)…`);
-    await new Promise(r => setTimeout(r, 15000));
-    return callClaude(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs, options);
-  }
-  if ((res.status === 504 || res.status === 502) && retries > 0) {
-    console.log(`Gateway error ${res.status}, retrying in 5 seconds…`);
-    await new Promise(r => setTimeout(r, 5000));
-    return callClaude(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs, options);
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || `API error ${res.status}`);
-  }
-  const data = await res.json();
-  return {
-    text: data.content.map(b => b.text || "").join("\n"),
-    usage: data.usage || { input_tokens: 0, output_tokens: 0 }
-  };
-}
-
-// ── sub-components ────────────────────────────────────────────────────────────
-
-function Spinner({ size = 18 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" style={{ animation: "spin 0.8s linear infinite", flexShrink: 0 }}>
-      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function ProgressBar({ label, pct, color = "#0d6478" }) {
-  return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#9a9088", marginBottom: 4, letterSpacing: "0.04em" }}>
-        <span style={{ fontWeight: 500 }}>{label}</span><span>{Math.round(pct)}%</span>
-      </div>
-      <div style={{ height: 3, background: "#e8e0d5" }}>
-        <div style={{ height: "100%", width: `${pct}%`, background: color, transition: "width 0.4s ease" }} />
-      </div>
-    </div>
-  );
-}
-
-function formatInline(text) {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
-  return parts.map((p, i) => {
-    if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} style={{ color: "#e8d5a3" }}>{p.slice(2, -2)}</strong>;
-    if (p.startsWith("`") && p.endsWith("`")) return <code key={i} style={{ background: "#1e1e1e", color: "#c8a96e", padding: "1px 5px", borderRadius: 3, fontSize: 12 }}>{p.slice(1, -1)}</code>;
-    return p;
-  });
-}
-
-const AD_GREEN = "#0d6478";
-const AD_GREEN_LIGHT = "#f0f5f6";
-const AD_GREEN_MID = "#b8d4da";
-const ARC_NAVY = "#1e2a35";
-const ARC_TERRACOTTA = "#c25a45";
-const ARC_STONE = "#e8e0d5";
-
-function AnswerRenderer({ text }) {
-  if (!text) return null;
-  const lines = text.split("\n");
-  const elements = [];
-  let tableBuffer = [];
-  let inTable = false;
-
-  const flushTable = (key) => {
-    if (tableBuffer.length === 0) return;
-    const parseRow = (r) => {
-      // Detect >> at start of row OR >> appearing in most cells (Gemini sometimes prefixes each cell)
-      const startsWithChevron = r.startsWith(">> ");
-      const hasPerCellChevron = (r.match(/>> /g) || []).length >= 2;
-      const highlighted = startsWithChevron || hasPerCellChevron;
-      // Strip >> prefix from start of row or from each cell
-      const clean = startsWithChevron ? r.slice(3) : r.replace(/>> /g, "");
-      // Split on | but keep empty cells — only strip leading/trailing pipe
-      const stripped = clean.replace(/^\s*\|/, "").replace(/\|\s*$/, "");
-      const cells = stripped.split("|").map(c => c.trim());
-      return { cells, highlighted };
-    };
-    const rows = tableBuffer.map(parseRow);
-    const header = rows[0].cells;
-    const colCount = header.length;
-    // Pad all rows to header length so highlighted rows don't lose trailing cells
-    const body = rows.slice(2).map(row => ({
-      ...row,
-      cells: Array.from({ length: colCount }, (_, i) => row.cells[i] ?? "")
-    }));
-    const tableTitle = tableBuffer._title || null;
-    elements.push(
-      <div key={`tbl-${key}`} style={{ overflowX: "auto", margin: "16px 0", border: "1px solid #aaa" }}>
-        {tableTitle && (
-          <div style={{ background: "#f5f3f0", borderBottom: "1px solid #ccc", padding: "7px 14px", fontSize: 11, fontWeight: 600, color: ARC_NAVY, letterSpacing: "0.03em" }}>{tableTitle}</div>
-        )}
-        <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
-          <thead>
-            <tr>{header.map((h, i) => (
-              <th key={i} style={{ background: ARC_NAVY, color: "#ffffff", padding: "8px 14px", border: "none", textAlign: "left", fontWeight: 500, fontSize: 11, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</th>
-            ))}</tr>
-          </thead>
-          <tbody>
-            {body.map((row, ri) => (
-              <tr key={ri} style={{ background: row.highlighted ? "#fff8e8" : ri % 2 === 0 ? "#ffffff" : "#f5f9fa" }}>
-                {row.cells.map((cell, ci) => (
-                  <td key={ci} style={{ padding: "9px 14px", border: "none", borderBottom: "1px solid #e8e0d5", color: row.highlighted ? "#7a4f00" : ARC_NAVY, fontWeight: row.highlighted ? 600 : 400, verticalAlign: "top", fontSize: 12, lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif" }}>{cell}</td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-    tableBuffer = []; inTable = false;
-  };
-
-  lines.forEach((line, i) => {
-    // Detect highlighted table row — must check before blockquote handler
-    // Model outputs: ">> | cell | cell |" for relevant rows
-    if (line.startsWith(">> ")) {
-      inTable = true;
-      if (tableBuffer._pendingTitle) {
-        tableBuffer._title = tableBuffer._pendingTitle;
-        delete tableBuffer._pendingTitle;
-      }
-      // Normalise: ensure the row has proper pipe format
-      const chevronContent = line.slice(3).trim();
-      const normalised = chevronContent.startsWith("|") ? `>> ${chevronContent}` : `>> | ${chevronContent} |`;
-      tableBuffer.push(normalised);
-      return;
-    }
-    if (line.startsWith("|")) {
-      inTable = true;
-      if (tableBuffer._pendingTitle) {
-        tableBuffer._title = tableBuffer._pendingTitle;
-        delete tableBuffer._pendingTitle;
-      }
-      tableBuffer.push(line);
-      return;
-    }
-    if (inTable) flushTable(i);
-
-    // Detect table title — bold **Table X** or plain "Table X — title" line before a table
-    const trimmedLine = line.trim();
-    const isBoldTitle = (trimmedLine.startsWith("**") && trimmedLine.endsWith("**") && /table|figure/i.test(trimmedLine));
-    const isPlainTitle = (!trimmedLine.startsWith("|") && !trimmedLine.startsWith(">") && !trimmedLine.startsWith("*") && /^(table|figure)\s+\d+/i.test(trimmedLine) && !trimmedLine.includes("  "));
-    if (isBoldTitle || isPlainTitle) {
-      tableBuffer._pendingTitle = trimmedLine.replace(/\*\*/g, "").trim();
-      return;
-    }
-
-    // Detect header rows that use | as separator but don't start with | 
-    // e.g. "Part of building | Minimum provisions | Method of exposure"
-    // Only treat as table row if we already have a pending title (i.e. we're about to start a table)
-    if (!trimmedLine.startsWith("|") && !trimmedLine.startsWith(">") && trimmedLine.includes(" | ") && tableBuffer._pendingTitle && !inTable) {
-      inTable = true;
-      if (tableBuffer._pendingTitle) {
-        tableBuffer._title = tableBuffer._pendingTitle;
-        delete tableBuffer._pendingTitle;
-      }
-      // Add leading/trailing pipes to normalise
-      tableBuffer.push(`| ${trimmedLine} |`);
-      // Auto-generate separator row
-      const colCount = trimmedLine.split(" | ").length;
-      tableBuffer.push(`|${Array(colCount).fill("---").join("|")}|`);
-      return;
-    }
-
-    if (line.startsWith("### ")) {
-      elements.push(
-        <h3 key={i} style={{ color: ARC_TERRACOTTA, fontSize: 11, fontWeight: 600, margin: "20px 0 6px", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "Inter, Arial, sans-serif" }}>
-          {line.slice(4)}
-        </h3>
-      );
-    } else if (line.startsWith("## ")) {
-      const text = line.slice(3);
-      const isSummary = text.toLowerCase().includes("summary");
-      const isContext = text.toLowerCase().includes("regulatory context");
-      if (isSummary) {
-        elements.push(
-          <div key={i} style={{ background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${AD_GREEN}`, padding: "14px 18px", margin: "16px 0 8px" }}>
-            <h2 style={{ color: AD_GREEN, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
-          </div>
-        );
-      } else if (isContext) {
-        elements.push(
-          <div key={i} style={{ background: "#faf6f0", border: `1px solid #e0d5c5`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 18px", margin: "24px 0 8px" }}>
-            <h2 style={{ color: ARC_TERRACOTTA, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
-          </div>
-        );
-      } else {
-        elements.push(
-          <div key={i} style={{ borderBottom: `1px solid #e8e0d5`, marginTop: 28, marginBottom: 10, paddingBottom: 6 }}>
-            <h2 style={{ color: ARC_NAVY, fontSize: 16, fontWeight: 400, margin: 0, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.02em" }}>{text}</h2>
-          </div>
-        );
-      }
-    } else if (line.startsWith("# ")) {
-      elements.push(
-        <div key={i} style={{ borderBottom: `2px solid ${ARC_TERRACOTTA}`, marginTop: 32, marginBottom: 14, paddingBottom: 6 }}>
-          <h1 style={{ color: ARC_NAVY, fontSize: 20, fontWeight: 300, margin: 0, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.02em" }}>{line.slice(2)}</h1>
-        </div>
-      );
-    } else if (line.startsWith("> ")) {
-      const quoteText = line.slice(2);
-      const isCitation = quoteText.startsWith("*") && quoteText.endsWith("*");
-      const isTableRow = quoteText.startsWith("|");
-      const isSeparatorRow = /^\|[\s:|-]+\|/.test(quoteText);
-      if (isCitation) {
-        elements.push(
-          <p key={i} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif" }}>
-            {quoteText.slice(1, -1)}
-          </p>
-        );
-      } else if (isTableRow && !isSeparatorRow) {
-        inTable = true; tableBuffer.push(quoteText);
-      } else if (isSeparatorRow) {
-        if (inTable) tableBuffer.push(quoteText);
-      } else {
-        elements.push(
-          <div key={i} style={{ borderLeft: `2px solid #d0ccc8`, padding: "2px 0 2px 14px", margin: "4px 0", fontStyle: "italic", fontSize: 13, color: "#4a5568", lineHeight: 1.8, fontFamily: "Inter, Arial, sans-serif" }}>
-            {quoteText}
-          </div>
-        );
-      }
-    } else if (line.startsWith("- ") || line.startsWith("* ")) {
-      // Check if this is actually a standalone citation (*text*) before treating as a bullet
-      const trimmedBullet = line.trim();
-      const isBulletCitationWrapped = trimmedBullet.startsWith("*") && trimmedBullet.endsWith("*") && trimmedBullet.length > 2 && !trimmedBullet.startsWith("**");
-      const isBulletCitationUnwrapped = trimmedBullet.startsWith("*") && !trimmedBullet.startsWith("**") && trimmedBullet.includes("|") && trimmedBullet.length > 10;
-      if (isBulletCitationWrapped || isBulletCitationUnwrapped) {
-        const citationText = isBulletCitationWrapped ? trimmedBullet.slice(1, -1) : trimmedBullet.slice(1).trim();
-        elements.push(
-          <p key={i} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif" }}>
-            {citationText}
-          </p>
-        );
-      } else {
-        elements.push(<li key={i} style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.7, marginLeft: 20, marginBottom: 4, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(line.slice(2))}</li>);
-      }
-    } else if (line.match(/^\d+\.\d+ /)) {
-      const numMatch = line.match(/^(\d+\.\d+) (.+)/);
-      if (numMatch) {
-        elements.push(
-          <div key={i} style={{ display: "flex", gap: 12, margin: "6px 0", fontFamily: "Arial, sans-serif" }}>
-            <span style={{ color: ARC_TERRACOTTA, fontWeight: 600, fontSize: 12, flexShrink: 0, minWidth: 28 }}>{numMatch[1]}</span>
-            <p style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.7, margin: 0, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(numMatch[2])}</p>
-          </div>
-        );
-      }
-    } else if (line.match(/^\d+\. /)) {
-      elements.push(<li key={i} style={{ color: "#0b0c0c", fontSize: 14, lineHeight: 1.7, marginLeft: 20, marginBottom: 3, listStyleType: "decimal", fontFamily: "Arial, sans-serif" }}>{formatInline(line.replace(/^\d+\. /, ""))}</li>);
-    } else if (line === "") {
-      elements.push(<div key={i} style={{ height: 10 }} />);
-    } else {
-      const trimmed = line.trim();
-      // Match properly wrapped citations *text* OR lines starting with * containing | (citation pattern)
-      const isWrappedCitation = trimmed.startsWith("*") && trimmed.endsWith("*") && trimmed.length > 2 && !trimmed.startsWith("**");
-      const isUnwrappedCitation = trimmed.startsWith("*") && !trimmed.startsWith("**") && trimmed.includes("|") && trimmed.length > 10;
-      if (isWrappedCitation || isUnwrappedCitation) {
-        const citationText = isWrappedCitation ? trimmed.slice(1, -1) : trimmed.slice(1).trim();
-        elements.push(
-          <p key={i} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif" }}>
-            {citationText}
-          </p>
-        );
-      } else {
-        elements.push(<p key={i} style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.8, margin: "6px 0", fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.01em" }}>{formatInline(line)}</p>);
-      }
-    }
-  });
-  if (inTable) flushTable("end");
-  return <div>{elements}</div>;
-}
-
-// ── Vault Management Modal ─────────────────────────────────────────────────────
-
-function VaultManagementModal({ vaults, onClose, onRefresh, isAdmin }) {
-  const [mode, setMode] = useState("menu"); // menu | createMaster | createSub | adopt | rename | delete
-  const [targetVault, setTargetVault] = useState(null); // vault being acted on
-  const [inputName, setInputName] = useState("");
-  const [selectedParent, setSelectedParent] = useState("");
-  const [selectedSource, setSelectedSource] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-
-  const masterVaults = vaults.filter(v => v.type === "master");
-  const flatVaults = vaults.filter(v => v.type === "vault");
-
-  const reset = () => { setMode("menu"); setTargetVault(null); setInputName(""); setSelectedParent(""); setSelectedSource(""); setError(""); };
-
-  const doCreateMaster = async () => {
-    if (!inputName.trim()) return;
-    setBusy(true); setError("");
-    try {
-      await api("/api/vaults", { method: "POST", body: { name: inputName.trim(), type: "master" } });
-      await onRefresh(); reset();
-    } catch (e) { setError(e.message); }
-    setBusy(false);
-  };
-
-  const doCreateSub = async () => {
-    if (!inputName.trim() || !selectedParent) return;
-    setBusy(true); setError("");
-    try {
-      await api("/api/vaults", { method: "POST", body: { name: inputName.trim(), parentVault: selectedParent } });
-      await onRefresh(); reset();
-    } catch (e) { setError(e.message); }
-    setBusy(false);
-  };
-
-  const doAdopt = async () => {
-    if (!selectedSource || !selectedParent) return;
-    setBusy(true); setError("");
-    try {
-      await api(`/api/vaults/${encodeURIComponent(selectedParent)}/adopt`, { method: "POST", body: { sourceVault: selectedSource } });
-      await onRefresh(); reset();
-    } catch (e) { setError(e.message); }
-    setBusy(false);
-  };
-
-  const doRename = async () => {
-    if (!inputName.trim() || !targetVault) return;
-    setBusy(true); setError("");
-    try {
-      await api(`/api/vaults/${encodeURIComponent(targetVault.id)}`, { method: "PATCH", body: { name: inputName.trim() } });
-      await onRefresh(); reset();
-    } catch (e) { setError(e.message); }
-    setBusy(false);
-  };
-
-  const doDelete = async () => {
-    if (!targetVault) return;
-    setBusy(true); setError("");
-    try {
-      await api(`/api/vaults/${encodeURIComponent(targetVault.id)}`, { method: "DELETE" });
-      await onRefresh(); reset();
-    } catch (e) { setError(e.message); }
-    setBusy(false);
-  };
-
-  const modalStyle = {
-    position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex",
-    alignItems: "center", justifyContent: "center", zIndex: 1000,
-  };
-  const cardStyle = {
-    background: "#fff", width: 480, maxHeight: "80vh", overflow: "auto",
-    borderTop: `3px solid ${ARC_TERRACOTTA}`, padding: "32px 36px",
-    fontFamily: "Inter, Arial, sans-serif",
-  };
-  const label = (txt) => (
-    <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", display: "block", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>{txt}</label>
-  );
-  const inputEl = (val, set, placeholder, autoFocus = false) => (
-    <input value={val} onChange={e => set(e.target.value)} placeholder={placeholder} autoFocus={autoFocus}
-      className="arc-input"
-      style={{ width: "100%", border: `1px solid #ccc`, padding: "9px 12px", fontSize: 13, color: ARC_NAVY, marginBottom: 14, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }} />
-  );
-  const selectEl = (val, set, options, placeholder) => (
-    <select value={val} onChange={e => set(e.target.value)}
-      style={{ width: "100%", border: `1px solid #ccc`, padding: "9px 12px", fontSize: 13, color: val ? ARC_NAVY : "#9a9088", marginBottom: 14, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }}>
-      <option value="">{placeholder}</option>
-      {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-    </select>
-  );
-  const btn = (label, onClick, variant = "primary") => (
-    <button className="btn" onClick={onClick} disabled={busy}
-      style={{
-        background: variant === "primary" ? ARC_NAVY : variant === "danger" ? ARC_TERRACOTTA : "transparent",
-        color: variant === "ghost" ? "#9a9088" : "#fff",
-        border: variant === "ghost" ? "1px solid #ccc" : "none",
-        padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginRight: 8,
-      }}>{busy ? <Spinner size={12} /> : label}</button>
-  );
-
-  // ── All vault tree for rename/delete picker ─────────────────────────────────
-  const allVaultOptions = [];
-  vaults.forEach(v => {
-    allVaultOptions.push({ id: v.id, label: v.name });
-    if (v.type === "master") {
-      (v.subVaults || []).forEach(sv => {
-        allVaultOptions.push({ id: sv.id, label: `  ↳ ${sv.name} (in ${v.name})` });
-      });
-    }
-  });
-
-  return (
-    <div style={modalStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={cardStyle}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 500, color: ARC_NAVY, letterSpacing: "0.02em" }}>
-            {mode === "menu" ? "Manage Vaults" :
-             mode === "createMaster" ? "New Master Vault" :
-             mode === "createSub" ? "New Sub-Vault" :
-             mode === "adopt" ? "Adopt Vault into Master" :
-             mode === "rename" ? "Rename Vault" :
-             mode === "delete" ? "Delete Vault" : "Manage Vaults"}
-          </h2>
-          <button className="btn" onClick={onClose} style={{ background: "none", color: "#9a9088", fontSize: 20, padding: "0 4px" }}>×</button>
-        </div>
-
-        {error && <div style={{ background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "10px 14px", marginBottom: 16, fontSize: 12, color: ARC_TERRACOTTA }}>{error}</div>}
-
-        {/* ── MENU ── */}
-        {mode === "menu" && (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <MenuOption icon="📁" title="New Master Vault" desc="Create a top-level folder to organise sub-vaults" onClick={() => setMode("createMaster")} />
-            <MenuOption icon="📂" title="New Sub-Vault" desc="Add a sub-vault inside an existing master vault" onClick={() => setMode("createSub")} disabled={masterVaults.length === 0} />
-            <MenuOption icon="📥" title="Adopt Vault into Master" desc="Move an existing flat vault inside a master vault" onClick={() => setMode("adopt")} disabled={masterVaults.length === 0 || flatVaults.length === 0} />
-            <MenuOption icon="✏️" title="Rename Vault" desc="Rename any vault or sub-vault" onClick={() => setMode("rename")} disabled={vaults.length === 0} />
-            <MenuOption icon="🗑" title="Delete Vault" desc="Permanently delete a vault and all its documents" onClick={() => setMode("delete")} disabled={vaults.length === 0} danger />
-          </div>
-        )}
-
-        {/* ── CREATE MASTER ── */}
-        {mode === "createMaster" && (
-          <>
-            {label("Master vault name")}
-            {inputEl(inputName, setInputName, "e.g. British Standards", true)}
-            <div style={{ display: "flex" }}>
-              {btn("Create", doCreateMaster)}
-              {btn("Cancel", reset, "ghost")}
-            </div>
-          </>
-        )}
-
-        {/* ── CREATE SUB ── */}
-        {mode === "createSub" && (
-          <>
-            {label("Parent master vault")}
-            {selectEl(selectedParent, setSelectedParent, masterVaults.map(v => ({ id: v.id, label: v.name })), "Select master vault…")}
-            {label("Sub-vault name")}
-            {inputEl(inputName, setInputName, "e.g. BS 9991:2021")}
-            <div style={{ display: "flex" }}>
-              {btn("Create", doCreateSub)}
-              {btn("Cancel", reset, "ghost")}
-            </div>
-          </>
-        )}
-
-        {/* ── ADOPT ── */}
-        {mode === "adopt" && (
-          <>
-            <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 16, lineHeight: 1.6 }}>
-              This will move all documents and the index from the flat vault into the master vault. The original vault will be removed.
-            </p>
-            {label("Vault to adopt")}
-            {selectEl(selectedSource, setSelectedSource, flatVaults.map(v => ({ id: v.id, label: v.name })), "Select flat vault to move…")}
-            {label("Move into master vault")}
-            {selectEl(selectedParent, setSelectedParent, masterVaults.map(v => ({ id: v.id, label: v.name })), "Select master vault…")}
-            <div style={{ display: "flex" }}>
-              {btn("Adopt", doAdopt)}
-              {btn("Cancel", reset, "ghost")}
-            </div>
-          </>
-        )}
-
-        {/* ── RENAME ── */}
-        {mode === "rename" && (
-          <>
-            {label("Select vault to rename")}
-            {selectEl(
-              targetVault?.id || "",
-              (id) => setTargetVault(allVaultOptions.find(o => o.id === id)),
-              allVaultOptions,
-              "Select vault…"
-            )}
-            {targetVault && (
-              <>
-                {label("New name")}
-                {inputEl(inputName, setInputName, "Enter new name…", true)}
-              </>
-            )}
-            <div style={{ display: "flex" }}>
-              {btn("Rename", doRename)}
-              {btn("Cancel", reset, "ghost")}
-            </div>
-          </>
-        )}
-
-        {/* ── DELETE ── */}
-        {mode === "delete" && (
-          <>
-            <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 16, lineHeight: 1.6 }}>
-              This permanently deletes the vault and <strong>all documents inside it</strong>. This cannot be undone.
-            </p>
-            {label("Select vault to delete")}
-            {selectEl(
-              targetVault?.id || "",
-              (id) => setTargetVault(allVaultOptions.find(o => o.id === id)),
-              allVaultOptions,
-              "Select vault…"
-            )}
-            {targetVault && (
-              <div style={{ background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "12px 16px", marginBottom: 16 }}>
-                <p style={{ fontSize: 12, color: ARC_TERRACOTTA, fontWeight: 600 }}>
-                  Delete "{targetVault.label.trim()}"? This cannot be undone.
-                </p>
-              </div>
-            )}
-            <div style={{ display: "flex" }}>
-              {btn("Delete permanently", doDelete, "danger")}
-              {btn("Cancel", reset, "ghost")}
-            </div>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function MenuOption({ icon, title, desc, onClick, disabled, danger }) {
-  return (
-    <button className="btn" onClick={onClick} disabled={disabled}
-      style={{
-        background: "transparent", border: `1px solid ${disabled ? "#eee" : danger ? "#f0d0cb" : ARC_STONE}`,
-        padding: "12px 16px", textAlign: "left", width: "100%",
-        opacity: disabled ? 0.4 : 1, cursor: disabled ? "not-allowed" : "pointer",
-      }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <span style={{ fontSize: 18 }}>{icon}</span>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: danger ? ARC_TERRACOTTA : ARC_NAVY, letterSpacing: "0.01em" }}>{title}</div>
-          <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>{desc}</div>
-        </div>
-      </div>
-    </button>
-  );
-}
-
-// ── Compare Section ────────────────────────────────────────────────────────────
-
-function CompareSection({ vaults, isAdmin }) {
-  const [docA, setDocA] = useState(null);
-  const [docB, setDocB] = useState(null);
-  const [dragOverA, setDragOverA] = useState(false);
-  const [dragOverB, setDragOverB] = useState(false);
-  const [compareStatus, setCompareStatus] = useState("");
-  const [compareRunning, setCompareRunning] = useState(false);
-  const [compareAnswer, setCompareAnswer] = useState(null);
-  const [compareHistory, setCompareHistory] = useState([]);
-  const [followUp, setFollowUp] = useState("");
-
-  // Compliance check state
-  const [showVaultPicker, setShowVaultPicker] = useState(false);
-  const [selectedVaultId, setSelectedVaultId] = useState("");
-  const [complianceRunning, setComplianceRunning] = useState(false);
-  const [complianceStatus, setComplianceStatus] = useState("");
-  const [complianceProgress, setComplianceProgress] = useState({ select: 0, read: 0, answer: 0 });
-  const [complianceAnswer, setComplianceAnswer] = useState(null);
-
-  // Suggested compliance questions state
-  const [suggestedQuestions, setSuggestedQuestions] = useState([]);
-  const [selectedQuestion, setSelectedQuestion] = useState("");
-  const [questionsLoading, setQuestionsLoading] = useState(false);
-
-  const inputARef = useRef();
-  const inputBRef = useRef();
-
-  const loadDoc = async (file, setter) => {
-    if (!file || file.type !== "application/pdf") return;
-    const base64 = await fileToBase64(file);
-    setter({ name: file.name, base64 });
-  };
-
-  // ── Initial comparison ────────────────────────────────────────────────────────
-  const runComparison = async () => {
-    if (!docA || !docB) return;
-    setCompareRunning(true);
-    setCompareAnswer(null);
-    setCompareHistory([]);
-    setComplianceAnswer(null);
-    setComplianceStatus("");
-    setShowVaultPicker(false);
-    setSuggestedQuestions([]);
-    setSelectedQuestion("");
-    setSelectedVaultId("");
-    setQuestionsLoading(false);
-    setCompareStatus("Analysing both documents…");
-
-    // Two parallel prompts — Call A: Overview + Specifications, Call B: Key Differences + Specifier Notes
-    const promptA = `You are a technical product comparison specialist. High-density technical analysis only, no fluff.
-
-PRODUCTS BEING COMPARED:
-[CONTEXT]
-
-Respond with ONLY these two sections:
-
-## Overview
-One sentence per product — what it is, who makes it, and its primary purpose.
-
-## Specifications
-A table of all quantifiable properties. Only include rows where a value exists for at least one product.
-Table formatting rules: use exactly one space either side of each pipe. Separator row uses exactly three hyphens per column. No extra spaces for alignment.
-
-| Property | ${docA.name.replace(".pdf", "")} | ${docB.name.replace(".pdf", "")} |
-|---|---|---|
-
-Include: dimensions, thickness options, fire ratings, density, thermal conductivity, weight, compliance standards, edge types, colour, and any other measurable specification.`;
-
-    const promptB = `You are a technical product comparison specialist. High-density technical analysis only, no fluff.
-
-PRODUCTS BEING COMPARED:
-[CONTEXT]
-
-Respond with ONLY these two sections:
-
-## Key Differences
-An analysis of the most significant differences between the two products — what they mean in practice for a specifier or designer. Focus on performance, application suitability, and installation. Do not repeat specifications — interpret and analyse. 4–6 paragraphs maximum, each focused on one key area of difference.
-
-## Specifier Notes
-Concise guidance on when to use each product. Include scenarios where one is clearly more suitable than the other, and any limitations or restrictions to be aware of.`;
-
-    const COMPARE_OPTIONS = { temperature: 0.7, thinking: false };
-    const COMPARE_SYSTEM = "You are a technical product comparison specialist. Provide high-density technical analysis without fluff.";
-
-    try {
-      // Attempt text extraction for both PDFs first
-      setCompareStatus("Extracting document content…");
-      const [extractA, extractB] = await Promise.all([
-        api("/api/extract-text", { method: "POST", body: { base64: docA.base64 } }).catch(() => ({ hasText: false, text: "" })),
-        api("/api/extract-text", { method: "POST", body: { base64: docB.base64 } }).catch(() => ({ hasText: false, text: "" })),
-      ]);
-
-      const useTextA = extractA.hasText;
-      const useTextB = extractB.hasText;
-
-      // Attach extracted text to doc objects for library save
-      docA.extractedText = extractA.text || "";
-      docB.extractedText = extractB.text || "";
-
-      // Require text extraction to succeed with meaningful content — no PDF fallback
-      const MIN_CHARS = 200;
-      const thinA = useTextA && extractA.text.replace(/\s/g, "").length < MIN_CHARS;
-      const thinB = useTextB && extractB.text.replace(/\s/g, "").length < MIN_CHARS;
-
-      if (!useTextA || !useTextB || thinA || thinB) {
-        const failedDocs = [
-          (!useTextA || thinA) && docA.name,
-          (!useTextB || thinB) && docB.name,
-        ].filter(Boolean).join(" and ");
-        setCompareStatus(`Unable to extract sufficient text from ${failedDocs}. This document may be image-based or scanned with no text layer — try printing to PDF first to embed a text layer, then re-upload.`);
-        setCompareRunning(false);
-        return;
-      }
-
-      const combinedContext = `DOCUMENT A: ${docA.name}\n\n${extractA.text}\n\n---\n\nDOCUMENT B: ${docB.name}\n\n${extractB.text}`;
-      const contentA = [{ type: "text", text: promptA.replace("[CONTEXT]", combinedContext) }];
-      const contentB = [{ type: "text", text: promptB.replace("[CONTEXT]", combinedContext) }];
-
-      // Fire both calls in parallel
-      setCompareStatus("Analysing both documents…");
-      const [resultA, resultB] = await Promise.all([
-        callClaude([{ role: "user", content: contentA }], COMPARE_SYSTEM, 8000, 2, "gemini-2.5-flash", 240000, COMPARE_OPTIONS),
-        callClaude([{ role: "user", content: contentB }], COMPARE_SYSTEM, 8000, 2, "gemini-2.5-flash", 240000, COMPARE_OPTIONS),
-      ]);
-
-      const text = `${resultA.text}\n\n${resultB.text}`;
-      setCompareAnswer(text);
-      setCompareHistory([{ role: "user", content: `Compare ${docA.name} and ${docB.name}`, isInitial: true }, { role: "assistant", content: text }]);
-      setCompareStatus("Comparison complete.");
-
-      // Silently save both datasheets to the library (duplicate check by filename)
-      (async () => {
-        try {
-          const { products: existing } = await api("/api/products");
-          const existingKeys = new Set((existing || []).map(p => p.file_key));
-
-          for (const doc of [docA, docB]) {
-            // Check duplicate by filename suffix
-            const isDuplicate = [...existingKeys].some(k => k && k.endsWith(doc.name.replace(/[^a-zA-Z0-9._-]/g, "_")));
-            if (isDuplicate) continue;
-
-            // Upload PDF to R2 first
-            let fileKey = doc.name;
-            try {
-              const uploadResult = await api("/api/products/upload-pdf", { method: "POST", body: { base64: doc.base64, filename: doc.name } });
-              fileKey = uploadResult.key;
-            } catch (_) { /* use filename as fallback */ }
-            const extractionPrompt = `You are a technical product data specialist. Extract ALL meaningful technical attributes from this product datasheet.
-
-Return ONLY a JSON object in this exact format — no preamble, no markdown:
-{
-  "name": "Full product name",
-  "manufacturer": "Manufacturer name",
-  "attributes": [
-    { "attribute": "Attribute name", "value": "Value", "unit": "Unit or null" }
-  ]
-}
-
-Extract every relevant technical attribute you can find: dimensions, weights, thermal values, fire ratings, acoustic ratings, compressive strength, standards compliance, application temperature ranges, finishes, colours, certifications, installation requirements — anything technical and specific. Do not include marketing language. If a value has a unit, separate it into the unit field.`;
-
-            const result = await callClaude(
-              [{ role: "user", content: [
-                { type: "document", source: { type: "base64", media_type: "application/pdf", data: doc.base64 } },
-                { type: "text", text: extractionPrompt }
-              ]}],
-              null, 4000, 1, "gemini-2.5-flash", 120000, { temperature: 0.1, thinking: false }
-            );
-
-            try {
-              const resultText = result.text || "";
-              const first = resultText.indexOf("{");
-              const last = resultText.lastIndexOf("}");
-              if (first === -1 || last === -1) throw new Error("No JSON object found");
-              const clean = resultText.slice(first, last + 1);
-              const parsed = JSON.parse(clean);
-              await api("/api/products", {
-                method: "POST",
-                body: {
-                  name: parsed.name || doc.name.replace(".pdf", ""),
-                  manufacturer: parsed.manufacturer || null,
-                  file_key: fileKey,
-                  raw_text: doc.extractedText || "",
-                  attributes: parsed.attributes || [],
-                }
-              });
-            } catch (_) { /* silent — don't break compare flow */ }
-          }
-        } catch (_) { /* silent */ }
-      })();
-
-      // Auto-generate suggested compliance questions
-      setQuestionsLoading(true);
-      setSuggestedQuestions([]);
-      setSelectedQuestion("");
-      try {
-        const questionPrompt = `Based on the following product comparison, generate exactly 3 specific compliance question suggestions that a building regulations specialist might want to check against regulatory documents.
-
-COMPARISON:
-${text.slice(0, 1500)}
-
-Rules:
-- Each question must be specific to these exact products and their key differences
-- Each question must reference a specific aspect of compliance (fire performance, installation, structural, etc.)
-- Questions should be different from each other — cover different aspects
-- Keep each question to one sentence
-- Do not number them
-
-Return ONLY a JSON array of 3 strings, no other text:
-["question 1", "question 2", "question 3"]`;
-
-        const { text: qText } = await callClaude(
-          [{ role: "user", content: questionPrompt }],
-          "You are a building regulations specialist. Return pure JSON only.",
-          1000, 1, "gemini-2.5-flash-lite"
-        );
-        const clean = qText.replace(/```json|```/g, "").trim();
-        const questions = JSON.parse(clean);
-        if (Array.isArray(questions) && questions.length > 0) {
-          setSuggestedQuestions(questions);
-          setSelectedQuestion(questions[0]);
-        }
-      } catch (e) {
-        console.warn("Failed to generate suggested questions:", e.message);
-      }
-      setQuestionsLoading(false);
-    } catch (e) {
-      setCompareStatus("Error: " + e.message);
-    }
-    setCompareRunning(false);
-  };
-
-  // ── Follow-up question ────────────────────────────────────────────────────────
-  const askFollowUp = async () => {
-    if (!followUp.trim() || compareRunning) return;
-    const q = followUp.trim();
-    setFollowUp("");
-    setCompareRunning(true);
-    setCompareStatus("Thinking…");
-
-    const historyMessages = compareHistory.map(h => ({
-      role: h.role,
-      content: h.isInitial
-        ? [
-            { type: "document", source: { type: "base64", media_type: "application/pdf", data: docA.base64 }, title: docA.name },
-            { type: "document", source: { type: "base64", media_type: "application/pdf", data: docB.base64 }, title: docB.name },
-            { type: "text", text: `Compare these two documents in detail.` }
-          ]
-        : h.content
-    }));
-
-    const messages = [...historyMessages, { role: "user", content: q }];
-
-    try {
-      const { text } = await callClaude(
-        messages,
-        "You are a technical product comparison specialist. You are continuing a conversation about two documents the user has uploaded. Be specific, use tables where helpful.",
-        65000,
-        2,
-        "gemini-2.5-flash",
-        240000
-      );
-      setCompareAnswer(text);
-      setCompareHistory(prev => [...prev, { role: "user", content: q }, { role: "assistant", content: text }]);
-      setCompareStatus("Answer ready.");
-    } catch (e) {
-      setCompareStatus("Error: " + e.message);
-    }
-    setCompareRunning(false);
-  };
-
-  // ── Compliance check against vaults ──────────────────────────────────────────
-  const runComplianceCheck = async () => {
-    if (!selectedVaultId || !compareAnswer) return;
-    setShowVaultPicker(false);
-    setComplianceRunning(true);
-    setComplianceAnswer(null);
-    setComplianceProgress({ select: 0, read: 0, answer: 0 });
-
-    const complianceQuestion = selectedQuestion || `Are these products compliant with the relevant requirements in this vault?`;
-
-    try {
-      // Resolve vault object
-      const vaultObj = (() => {
-        for (const v of vaults) {
-          if (v.id === selectedVaultId) return v;
-          if (v.type === "master") {
-            const sub = (v.subVaults || []).find(sv => sv.id === selectedVaultId);
-            if (sub) return sub;
-          }
-        }
-        return null;
-      })();
-      if (!vaultObj) throw new Error("Vault not found");
-
-      // Load vault index
-      let vaultIndex = null;
-      try { vaultIndex = await api(`/api/vaults/${encodeURIComponent(selectedVaultId)}/index`); } catch (_) {}
-      if (!vaultIndex?.documents?.length) {
-        setComplianceStatus("Vault has no index — please index this vault first.");
-        setComplianceRunning(false);
-        return;
-      }
-
-      // ── PASS 1: Score index (flash-lite for speed) ───────────────────────────
-      setComplianceStatus(`Pass 1/3 · Scoring index…`);
-      setComplianceProgress({ select: 20, read: 0, answer: 0 });
-
-      const BOILERPLATE_HEADINGS = [
-        "the approved documents", "what is an approved document", "approved documents",
-        "list of approved documents", "use of guidance", "how to use this approved document",
-        "other guidance", "the building regulations", "online version", "hm government",
-        "main changes", "approved document", "list of approved documents"
-      ];
-      const isBoilerplate = (title) => {
-        const t = title.toLowerCase().trim();
-        return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
-      };
-
-      const indexSummary = (vaultIndex.documents || []).map(doc => {
-        const pageFrequency = {};
-        (doc.headings || []).forEach(h => {
-          const p = h.pageHint || 1;
-          pageFrequency[p] = (pageFrequency[p] || 0) + 1;
-        });
-        const crowdedPages = new Set(
-          Object.entries(pageFrequency).filter(([, count]) => count > 8).map(([page]) => Number(page))
-        );
-        const headings = (doc.headings || [])
-          .filter(h => !isBoilerplate(h.title))
-          .filter(h => !crowdedPages.has(h.pageHint))
-          .map(h => `  p${h.pageHint || 1}: ${h.title}`)
-          .join("\n");
-        return `DOCUMENT: ${doc.name}\n${headings}`;
-      }).join("\n\n");
-
-      const productContext = `Products being assessed:\n- ${docA.name.replace(".pdf","")}\n- ${docB.name.replace(".pdf","")}\n\nKey differences:\n${compareAnswer.slice(0, 600)}`;
-
-      const scoringPrompt = `You are a technical document analyst. Using ONLY the index below, identify sections most likely to contain requirements relevant to this compliance question.
-
-DOCUMENT INDEX:
-${indexSummary}
-
-COMPLIANCE QUESTION: ${complianceQuestion}
-
-PRODUCT CONTEXT:
-${productContext}
-
-Return ONLY compact JSON:
-{"selectedDocs":[{"docName":"exact filename","sections":[{"heading":"exact heading","pageHint":42,"probability":0.95}]}]}
-
-Rules: probability > 0.5 only, pageHint must be integer, pure JSON only.`;
-
-      let scoring = { selectedDocs: [] };
-      try {
-        const { text: scoringText } = await callClaude(
-          [{ role: "user", content: scoringPrompt }],
-          "You are a technical document analyst. Return pure JSON only.",
-          8000, 2, "gemini-2.5-flash-lite"
-        );
-        const clean = scoringText.replace(/\`\`\`json|\`\`\`/g, "").trim();
-        try { scoring = JSON.parse(clean); }
-        catch { const m = clean.match(/\{[\s\S]*\}/); if (m) try { scoring = JSON.parse(m[0]); } catch {} }
-      } catch (e) { console.warn("Compliance scoring failed:", e); }
-
-      setComplianceProgress({ select: 100, read: 20, answer: 0 });
-
-      // ── PASS 2: Load and extract relevant pages ───────────────────────────────
-      setComplianceStatus(`Pass 2/3 · Extracting relevant pages…`);
-
-      let pdfsInVault = [];
-      try {
-        const pdfsData = await api(`/api/vaults/${encodeURIComponent(selectedVaultId)}/pdfs`);
-        pdfsInVault = pdfsData.pdfs || [];
-      } catch (_) {}
-
-      const selectedDocNames = (scoring.selectedDocs || []).map(d => d.docName);
-      const contentsData = [];
-
-      for (const docName of selectedDocNames) {
-        const matchedPdf = pdfsInVault.find(p =>
-          p.name === docName || p.name.includes(docName) || docName.includes(p.name)
-        );
-        if (!matchedPdf) continue;
-        try {
-          const pdfData = await api(`/api/vaults/${encodeURIComponent(selectedVaultId)}/pdfs/${encodeURIComponent(matchedPdf.name)}`);
-          contentsData.push({ pdf: matchedPdf, base64: pdfData.base64 });
-        } catch (_) {}
-      }
-
-      if (contentsData.length === 0 && pdfsInVault.length > 0) {
-        for (const pdf of pdfsInVault.slice(0, 2)) {
-          try {
-            const pdfData = await api(`/api/vaults/${encodeURIComponent(selectedVaultId)}/pdfs/${encodeURIComponent(pdf.name)}`);
-            contentsData.push({ pdf, base64: pdfData.base64 });
-          } catch (_) {}
-        }
-      }
-
-      const docPageMap = {};
-      const HARD_PAGE_BUDGET = 60;
-      let budgetRemaining = HARD_PAGE_BUDGET;
-
-      (scoring.selectedDocs || []).forEach(selectedDoc => {
-        const matchedDoc = contentsData.find(d =>
-          d.pdf.name.includes(selectedDoc.docName) || selectedDoc.docName.includes(d.pdf.name)
-        );
-        if (!matchedDoc) return;
-        (selectedDoc.sections || []).sort((a, b) => (b.probability || 0) - (a.probability || 0)).forEach(section => {
-          if (budgetRemaining <= 0) return;
-          const pageHint = typeof section.pageHint === "number" ? section.pageHint : parseInt(String(section.pageHint)) || 1;
-          const key = matchedDoc.pdf.name;
-          if (!docPageMap[key]) docPageMap[key] = { contentsDoc: matchedDoc, pages: new Set() };
-          [0, 1].forEach(offset => {
-            const pg = pageHint + offset;
-            if (pg > 0 && !docPageMap[key].pages.has(pg) && budgetRemaining > 0) {
-              docPageMap[key].pages.add(pg);
-              budgetRemaining--;
-            }
-          });
-        });
-      });
-
-      if (Object.keys(docPageMap).length === 0 && contentsData.length > 0) {
-        contentsData.slice(0, 2).forEach(d => {
-          docPageMap[d.pdf.name] = { contentsDoc: d, pages: new Set([1, 2, 3, 4, 5]) };
-        });
-      }
-
-      const docBlocks = [];
-      for (const [docName, { contentsDoc, pages }] of Object.entries(docPageMap)) {
-        const pageList = Array.from(pages).sort((a, b) => a - b);
-        if (pageList.length === 0) continue;
-        try {
-          const result = await api("/api/extract-pages", {
-            method: "POST",
-            body: { base64: contentsDoc.base64, pages: pageList }
-          });
-          docBlocks.push({
-            type: "document",
-            source: { type: "base64", media_type: "application/pdf", data: result.base64 },
-            title: `${docName} — pages ${result.pageNumbers.join(", ")}`,
-          });
-        } catch (_) {}
-      }
-
-      setComplianceProgress({ select: 100, read: 100, answer: 20 });
-
-      if (docBlocks.length === 0) {
-        setComplianceStatus("Could not extract relevant pages from this vault.");
-        setComplianceRunning(false);
-        return;
-      }
-
-      // ── PASS 3: Compliance synthesis ──────────────────────────────────────────
-      setComplianceStatus(`Pass 3/3 · Assessing compliance…`);
-
-      const compliancePrompt = `You are an expert building regulations consultant assessing two products for compliance against the provided regulatory documents.
-
-PRODUCTS: ${docA.name.replace(".pdf","")} vs ${docB.name.replace(".pdf","")}
-COMPLIANCE QUESTION: ${complianceQuestion}
-
-KEY PRODUCT DIFFERENCES:
-${compareAnswer.slice(0, 800)}
-
-Using ONLY the provided document pages, produce a focused compliance assessment structured as follows:
-
-## Compliance Assessment — ${vaultObj.name}
-
-### Verdict
-A short paragraph for each product stating whether it appears compliant, non-compliant, or where compliance is uncertain — and the primary reason why. Reference the specific requirement that determines this.
-
-### Key Requirements
-A table mapping the most relevant regulatory requirements to each product:
-
-| Requirement | ${docA.name.replace(".pdf", "")} | ${docB.name.replace(".pdf", "")} |
-|---|---|---|
-
-### Compliance Analysis
-3–5 focused paragraphs covering the most important compliance points. For each point: state the requirement, assess both products against it, and note any differences in how they comply or fail to comply. Do not repeat the table — analyse and interpret.
-
-### Concerns & Gaps
-Any specific non-compliances, limitations, or areas where further evidence is needed before compliance can be confirmed. Be precise — quote the requirement and explain the gap. If none, state "No concerns identified."
-
-### Regulatory References
-Key clauses cited in this assessment.
-*Document | Clause title*
-
-Use only the provided document pages. Do not speculate beyond what the documents state.`;
-
-      try {
-        const { text: complianceText } = await callClaude(
-          [{ role: "user", content: [...docBlocks, { type: "text", text: compliancePrompt }] }],
-          "You are a building regulations consultant. Be concise and direct. Use only the provided document pages.",
-          65536, 2, "gemini-2.5-flash"
-        );
-        setComplianceAnswer(complianceText);
-        setComplianceStatus("Compliance check complete.");
-      } catch (e) {
-        setComplianceStatus("Error: " + e.message);
-      }
-
-      setComplianceProgress({ select: 100, read: 100, answer: 100 });
-    } catch (e) {
-      setComplianceStatus("Error: " + e.message);
-    }
-    setComplianceRunning(false);
-  };
-
-  // ── Build flat vault options list for picker ──────────────────────────────────
-  const vaultOptions = [];
-  vaults.forEach(v => {
-    if (v.type === "master") {
-      (v.subVaults || []).forEach(sv => {
-        vaultOptions.push({ id: sv.id, name: `${v.name} / ${sv.name}` });
-      });
-    } else {
-      vaultOptions.push({ id: v.id, name: v.name });
-    }
-  });
-
-  const selectVaultForCompliance = (id) => {
-    setSelectedVaultId(id);
-  };
-
-  const DropZone = ({ doc, setDoc, label, dragOver, setDragOver, inputRef }) => (
-    <div style={{ flex: 1 }}>
-      <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
-      {doc ? (
-        <div style={{ border: `1px solid ${AD_GREEN}`, background: "#f0f5f6", padding: "20px 24px", display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 24 }}>📄</span>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</div>
-            <div style={{ fontSize: 11, color: AD_GREEN, marginTop: 2 }}>Ready</div>
-          </div>
-          <button className="btn" onClick={() => setDoc(null)}
-            style={{ background: "none", color: "#9a9088", fontSize: 18, padding: "0 4px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
-        </div>
-      ) : (
-        <div
-          onDragOver={e => { e.preventDefault(); setDragOver(true); }}
-          onDragLeave={() => setDragOver(false)}
-          onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) loadDoc(f, setDoc); }}
-          onClick={() => inputRef.current.click()}
-          style={{
-            border: `2px dashed ${dragOver ? AD_GREEN : "#c8c0b8"}`,
-            padding: "40px 24px",
-            textAlign: "center",
-            cursor: "pointer",
-            background: dragOver ? "#f0f5f6" : "#faf8f5",
-            transition: "all 0.2s",
-          }}>
-          <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.4 }}>📄</div>
-          <p style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500, marginBottom: 4 }}>Drop PDF here</p>
-          <p style={{ fontSize: 11, color: "#9a9088" }}>or click to browse</p>
-          <input ref={inputRef} type="file" accept="application/pdf" style={{ display: "none" }}
-            onChange={e => { if (e.target.files[0]) loadDoc(e.target.files[0], setDoc); }} />
-        </div>
-      )}
-    </div>
-  );
-
-  const chatHistory = compareHistory.filter(h => !h.isInitial && h.role === "user");
-
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
-
-      {/* Header */}
-      <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "20px 32px", flexShrink: 0 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>Compare</h1>
-        <p style={{ fontSize: 11, color: "#9a9088", marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-          Upload two documents to compare — then check against your vaults for compliance
-        </p>
-      </div>
-
-      <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
-
-        {/* Upload zone */}
-        <div style={{ display: "flex", gap: 20, marginBottom: 24 }}>
-          <DropZone doc={docA} setDoc={setDocA} label="Document A" dragOver={dragOverA} setDragOver={setDragOverA} inputRef={inputARef} />
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 40, flexShrink: 0 }}>
-            <span style={{ fontSize: 20, color: "#c8c0b8" }}>vs</span>
-          </div>
-          <DropZone doc={docB} setDoc={setDocB} label="Document B" dragOver={dragOverB} setDragOver={setDragOverB} inputRef={inputBRef} />
-        </div>
-
-        {/* Compare button */}
-        {docA && docB && !compareAnswer && (
-          <div style={{ marginBottom: 24 }}>
-            <button className="btn" onClick={runComparison} disabled={compareRunning}
-              style={{ background: compareRunning ? "#c8c0b8" : ARC_NAVY, color: "#ffffff", padding: "12px 32px", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 10 }}>
-              {compareRunning ? <><Spinner size={14} /> Comparing…</> : "Compare Documents"}
-            </button>
-          </div>
-        )}
-
-        {/* Status */}
-        {compareStatus && (
-          <div style={{ marginBottom: 16, fontSize: 12, color: "#505a5f", display: "flex", alignItems: "center", gap: 8 }}>
-            {compareRunning && <Spinner size={12} />}
-            <span>{compareStatus}</span>
-          </div>
-        )}
-
-        {/* Chat history (prior questions) */}
-        {chatHistory.length > 0 && (
-          <div style={{ marginBottom: 16 }}>
-            {chatHistory.map((h, i) => (
-              <div key={i} style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", marginBottom: 6, display: "flex", gap: 12, alignItems: "center" }}>
-                <span style={{ color: AD_GREEN, fontWeight: 700, flexShrink: 0 }}>Q:</span>
-                <span style={{ flex: 1 }}>{h.content}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Comparison answer */}
-        {compareAnswer && (
-          <div style={{ animation: "fadeIn 0.4s ease", marginBottom: 24 }}>
-            <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: `4px solid ${AD_GREEN}`, padding: "24px 28px", marginBottom: 16 }}>
-              <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                Comparison — {docA.name.replace(".pdf", "")} vs {docB.name.replace(".pdf", "")}
-              </p>
-              <AnswerRenderer text={compareAnswer} />
-            </div>
-
-            {/* Follow-up input */}
-            {!compareRunning && (
-              <div style={{ background: "#ffffff", border: "1px solid #e8e0d5", padding: "16px 20px", marginBottom: 20 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>Ask a follow-up question</div>
-                <div style={{ display: "flex", gap: 0 }}>
-                  <textarea value={followUp} onChange={e => setFollowUp(e.target.value)}
-                    onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
-                    placeholder="e.g. What are the fire performance differences between the two products?"
-                    rows={2} className="arc-input"
-                    style={{ flex: 1, border: `1px solid #ddd8d0`, borderRight: "none", padding: "10px 14px", fontSize: 13, color: ARC_NAVY, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif" }} />
-                  <button className="btn" onClick={askFollowUp} disabled={!followUp.trim()}
-                    style={{ background: followUp.trim() ? ARC_NAVY : "#f0ede8", color: followUp.trim() ? "#ffffff" : "#9a9088", padding: "0 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", border: `1px solid ${followUp.trim() ? ARC_NAVY : "#ddd8d0"}`, minWidth: 80 }}>
-                    Ask
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Vault compliance check */}
-            {!complianceRunning && !complianceAnswer && (
-              <div style={{ marginBottom: 20 }}>
-                {!showVaultPicker ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <button className="btn" onClick={() => setShowVaultPicker(true)}
-                      style={{ background: ARC_TERRACOTTA, color: "#ffffff", padding: "12px 28px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8 }}>
-                      🔍 Check Compliance Against Vaults
-                    </button>
-                    {questionsLoading && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#9a9088" }}>
-                        <Spinner size={11} /> Generating compliance questions…
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div style={{ background: "#ffffff", border: `1px solid #e8e0d5`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "20px 24px" }}>
-
-                    {/* Suggested questions */}
-                    {suggestedQuestions.length > 0 && (
-                      <div style={{ marginBottom: 20 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Select a compliance question</div>
-                        <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 12, lineHeight: 1.6 }}>
-                          Choose one of the suggested questions or write your own below.
-                        </p>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
-                          {suggestedQuestions.map((q, i) => (
-                            <label key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 14px", background: selectedQuestion === q ? "#f0f5f6" : "transparent", border: `1px solid ${selectedQuestion === q ? AD_GREEN : "#e8e0d5"}`, transition: "all 0.15s" }}>
-                              <input type="radio" name="complianceQ" checked={selectedQuestion === q} onChange={() => setSelectedQuestion(q)}
-                                style={{ accentColor: AD_GREEN, marginTop: 2, flexShrink: 0 }} />
-                              <span style={{ fontSize: 12, color: ARC_NAVY, lineHeight: 1.6 }}>{q}</span>
-                            </label>
-                          ))}
-                          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 14px", background: !suggestedQuestions.includes(selectedQuestion) ? "#f0f5f6" : "transparent", border: `1px solid ${!suggestedQuestions.includes(selectedQuestion) ? AD_GREEN : "#e8e0d5"}`, transition: "all 0.15s" }}>
-                            <input type="radio" name="complianceQ" checked={!suggestedQuestions.includes(selectedQuestion)} onChange={() => setSelectedQuestion("")}
-                              style={{ accentColor: AD_GREEN, marginTop: 2, flexShrink: 0 }} />
-                            <span style={{ fontSize: 12, color: "#9a9088", lineHeight: 1.6 }}>Write my own question…</span>
-                          </label>
-                        </div>
-                        {!suggestedQuestions.includes(selectedQuestion) && (
-                          <textarea value={selectedQuestion} onChange={e => setSelectedQuestion(e.target.value)}
-                            placeholder="Type your compliance question here…"
-                            rows={2} className="arc-input"
-                            style={{ width: "100%", border: `1px solid #ddd8d0`, padding: "10px 14px", fontSize: 12, color: ARC_NAVY, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", marginBottom: 12 }} />
-                        )}
-                      </div>
-                    )}
-
-                    {/* Vault picker */}
-                    <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Select a vault to check against</div>
-                    <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 12, lineHeight: 1.6 }}>
-                      Only indexed vaults can be used.
-                    </p>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16, maxHeight: 200, overflowY: "auto" }}>
-                      {vaultOptions.length === 0 && (
-                        <p style={{ fontSize: 12, color: "#9a9088", fontStyle: "italic" }}>No vaults available.</p>
-                      )}
-                      {vaultOptions.map(v => (
-                        <label key={v.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 12px", background: selectedVaultId === v.id ? "#f0f5f6" : "transparent", border: `1px solid ${selectedVaultId === v.id ? AD_GREEN : "#e8e0d5"}` }}>
-                          <input type="radio" name="vaultSelect" checked={selectedVaultId === v.id} onChange={() => selectVaultForCompliance(v.id)}
-                            style={{ accentColor: AD_GREEN }} />
-                          <span style={{ fontSize: 13, color: ARC_NAVY }}>{v.name}</span>
-                        </label>
-                      ))}
-                    </div>
-                    <div style={{ display: "flex", gap: 10 }}>
-                      <button className="btn" onClick={runComplianceCheck} disabled={!selectedVaultId || !selectedQuestion.trim()}
-                        style={{ background: selectedVaultId && selectedQuestion.trim() ? ARC_TERRACOTTA : "#c8c0b8", color: "#ffffff", padding: "10px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                        Run Compliance Check
-                      </button>
-                      <button className="btn" onClick={() => setShowVaultPicker(false)}
-                        style={{ background: "transparent", color: "#9a9088", padding: "10px 16px", fontSize: 11, border: "1px solid #ccc" }}>
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Compliance running */}
-            {complianceRunning && (
-              <div style={{ background: "#ffffff", border: "1px solid #e8e0d5", padding: "20px 24px", marginBottom: 20 }}>
-                <div style={{ fontSize: 12, color: ARC_NAVY, marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontWeight: 500 }}>
-                  <Spinner size={12} /> {complianceStatus}
-                </div>
-                <ProgressBar label="Pass 1 · Index scoring" pct={complianceProgress.select} color={AD_GREEN} />
-                <ProgressBar label="Pass 2 · Page extraction" pct={complianceProgress.read} color={ARC_TERRACOTTA} />
-                <ProgressBar label="Pass 3 · Compliance synthesis" pct={complianceProgress.answer} color={ARC_NAVY} />
-              </div>
-            )}
-
-            {/* Compliance answer */}
-            {complianceAnswer && (
-              <div style={{ animation: "fadeIn 0.4s ease" }}>
-                <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: `4px solid ${ARC_TERRACOTTA}`, padding: "24px 28px", marginBottom: 12 }}>
-                  <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                    Compliance Assessment
-                  </p>
-                  <AnswerRenderer text={complianceAnswer} />
-                </div>
-                {/* Option to run another compliance check against different vaults */}
-                <button className="btn" onClick={() => { setComplianceAnswer(null); setComplianceStatus(""); setSelectedVaultId(""); setShowVaultPicker(true); }}
-                  style={{ background: "transparent", color: AD_GREEN, padding: "8px 0", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", border: "none", textDecoration: "underline" }}>
-                  Check against different vaults
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Empty state */}
-        {!docA && !docB && (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 0", gap: 10 }}>
-            <div style={{ width: 32, height: 2, background: ARC_TERRACOTTA }} />
-            <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Upload two documents to compare</p>
-            <p style={{ fontSize: 11, color: "#9a9088", letterSpacing: "0.03em" }}>Product datasheets, specifications, or any technical documents</p>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ── Landing Page ───────────────────────────────────────────────────────────────
-
-function LandingPage({ onSelect, isAdmin }) {
-  const [hoverVault, setHoverVault] = useState(false);
-  const [hoverCompare, setHoverCompare] = useState(false);
-  const [hoverLibrary, setHoverLibrary] = useState(false);
-
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: ARC_STONE, padding: "40px 24px" }}>
-      <div style={{ marginBottom: 48, textAlign: "center" }}>
-        <p style={{ fontSize: 13, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Select a tool to get started</p>
-      </div>
-
-      <div style={{ display: "flex", gap: 24, width: "100%", maxWidth: 1200 }}>
-
-        {/* Vault tile */}
-        <button className="btn" onClick={() => onSelect("vault")}
-          onMouseEnter={() => setHoverVault(true)}
-          onMouseLeave={() => setHoverVault(false)}
-          style={{
-            flex: 1, background: hoverVault ? ARC_NAVY : "#ffffff",
-            border: `2px solid ${hoverVault ? ARC_NAVY : "#ddd8d0"}`,
-            padding: "48px 32px", textAlign: "left", cursor: "pointer",
-            transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 16,
-          }}>
-          <div style={{ fontSize: 40 }}>🗄️</div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 300, color: hoverVault ? "#ffffff" : ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
-              Vault
-            </div>
-            <div style={{ fontSize: 13, color: hoverVault ? "#b8d4da" : "#9a9088", lineHeight: 1.7, fontFamily: "Inter, Arial, sans-serif" }}>
-              Query your building regulations documents. Upload PDFs, index vaults, and ask natural language questions across Approved Documents, British Standards, and NHBC guidance.
-            </div>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: hoverVault ? AD_GREEN_MID : AD_GREEN, display: "flex", alignItems: "center", gap: 6 }}>
-              Open Vault →
-            </span>
-          </div>
-        </button>
-
-        {/* Compare tile */}
-        <button className="btn" onClick={() => onSelect("compare")}
-          onMouseEnter={() => setHoverCompare(true)}
-          onMouseLeave={() => setHoverCompare(false)}
-          style={{
-            flex: 1, background: hoverCompare ? ARC_TERRACOTTA : "#ffffff",
-            border: `2px solid ${hoverCompare ? ARC_TERRACOTTA : "#ddd8d0"}`,
-            padding: "48px 32px", textAlign: "left", cursor: "pointer",
-            transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 16,
-          }}>
-          <div style={{ fontSize: 40 }}>⚖️</div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 300, color: hoverCompare ? "#ffffff" : ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
-              Compare
-            </div>
-            <div style={{ fontSize: 13, color: hoverCompare ? "#f0d0cb" : "#9a9088", lineHeight: 1.7, fontFamily: "Inter, Arial, sans-serif" }}>
-              Upload two product datasheets or technical documents. Get a detailed AI comparison of key differences, then check both products against your vault documents for compliance.
-            </div>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: hoverCompare ? "#f0d0cb" : ARC_TERRACOTTA, display: "flex", alignItems: "center", gap: 6 }}>
-              Open Compare →
-            </span>
-          </div>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-
-// ── Datasheet Library Section ─────────────────────────────────────────────────
-
-const LIBRARY_BLUE = "#2a6496";
-const LIBRARY_BLUE_LIGHT = "#eef4f8";
-
-function DatasheetsLibrarySection({ vaults, isAdmin }) {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState(null);
-  const [expandedAttrs, setExpandedAttrs] = useState({});
-  const [uploading, setUploading] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState("");
-  const [deleting, setDeleting] = useState(null);
-  const [selected, setSelected] = useState(null); // single selected product id
-  const [editingType, setEditingType] = useState(null); // product id being edited
-  const [showCustomInput, setShowCustomInput] = useState(false); // show free text input
-  const [pendingNewType, setPendingNewType] = useState(null); // { product, type } awaiting confirm
-  const [showTypeManager, setShowTypeManager] = useState(false); // type manager panel open
-  const [typeManagerEdits, setTypeManagerEdits] = useState({}); // { oldType: newName }
-  const [pendingTypeChange, setPendingTypeChange] = useState(null); // { oldType, newType, affectedCount } awaiting confirm
-  const customTypeRef = useRef();
-  const [filterManufacturer, setFilterManufacturer] = useState("");
-  const [filterType, setFilterType] = useState("");
-  const [downloading, setDownloading] = useState(false);
-
-  // Compliance check state
-  const [complianceVaultId, setComplianceVaultId] = useState("");
-  const [complianceQuestion, setComplianceQuestion] = useState("");
-  const [complianceRunning, setComplianceRunning] = useState(false);
-  const [complianceAnswer, setComplianceAnswer] = useState(null);
-  const [complianceStatus, setComplianceStatus] = useState("");
-  const [complianceProgress, setComplianceProgress] = useState({ select: 0, read: 0, answer: 0 });
-  const [suggestedQuestions, setSuggestedQuestions] = useState([]);
-
-  const inputRef = useRef();
-
-  useEffect(() => { loadProducts(); }, []);
-
-  async function loadProducts() {
-    setLoading(true);
-    try {
-      const data = await api("/api/products");
-      setProducts(data.products || []);
-    } catch (e) {
-      setUploadStatus("Failed to load products: " + e.message);
-    }
-    setLoading(false);
-  }
-
-  // ── Derived filter options from actual data ───────────────────────────────────
-  const manufacturers = [...new Set(products.map(p => p.manufacturer).filter(Boolean))].sort();
-  const types = [...new Set(products.map(p => p.product_type).filter(Boolean))].sort();
-
-  const filteredProducts = products.filter(p => {
-    if (filterManufacturer && p.manufacturer !== filterManufacturer) return false;
-    if (filterType && p.product_type !== filterType) return false;
-    return true;
-  });
-
-  // ── Upload ────────────────────────────────────────────────────────────────────
-  async function handleUpload(file) {
-    if (!file || !file.name.endsWith(".pdf")) {
-      setUploadStatus("Please upload a PDF file.");
-      return;
-    }
-    setUploading(true);
-    setUploadStatus(`Extracting text from ${file.name}…`);
-    try {
-      const base64 = await fileToBase64(file);
-
-      const existing = products.find(p => p.file_key && p.file_key.endsWith(file.name.replace(/[^a-zA-Z0-9._-]/g, "_")));
-      if (existing) {
-        setUploadStatus(`"${file.name}" is already in the library.`);
-        setUploading(false);
-        return;
-      }
-
-      setUploadStatus(`Uploading ${file.name}…`);
-      const uploadResult = await api("/api/products/upload-pdf", { method: "POST", body: { base64, filename: file.name } });
-      const fileKey = uploadResult.key;
-
-      const extraction = await api("/api/extract-text", { method: "POST", body: { base64 } });
-      if (!extraction.hasText) {
-        setUploadStatus(`Could not extract text from "${file.name}". Try printing to PDF first.`);
-        setUploading(false);
-        return;
-      }
-
-      setUploadStatus(`Analysing ${file.name}…`);
-      const extractionPrompt = `You are a technical product data specialist. Extract ALL meaningful technical attributes from this product datasheet.
-
-Return ONLY a JSON object in this exact format — no preamble, no markdown:
-{
-  "name": "Full product name",
-  "manufacturer": "Manufacturer name",
-  "product_type": "Inferred product category e.g. Insulation, Fire Door, Cavity Barrier, Membrane, Sealant, Fixings, Structural, Glazing, Roofing, Cladding, Flooring, Acoustic, Other",
-  "attributes": [
-    { "attribute": "Attribute name", "value": "Value", "unit": "Unit or null" }
-  ]
-}
-
-Extract every relevant technical attribute: dimensions, weights, thermal values, fire ratings, acoustic ratings, compressive strength, standards compliance, certifications, installation requirements. No marketing language. If a value has a unit separate it into the unit field.`;
-
-      const result = await callClaude(
-        [{ role: "user", content: [
-          { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
-          { type: "text", text: extractionPrompt }
-        ]}],
-        null, 4000, 1, "gemini-2.5-flash", 120000, { temperature: 0.1, thinking: false }
-      );
-      const resultText = result.text || "";
-
-      let parsed;
-      try {
-        const first = resultText.indexOf("{");
-        const last = resultText.lastIndexOf("}");
-        if (first === -1 || last === -1) throw new Error("No JSON object found");
-        const clean = resultText.slice(first, last + 1);
-        parsed = JSON.parse(clean);
-      } catch {
-        setUploadStatus("Failed to parse extraction result. Please try again.");
-        setUploading(false);
-        return;
-      }
-
-      setUploadStatus(`Saving ${parsed.name || file.name}…`);
-      await api("/api/products", {
-        method: "POST",
-        body: {
-          name: parsed.name || file.name.replace(".pdf", ""),
-          manufacturer: parsed.manufacturer || null,
-          product_type: parsed.product_type || null,
-          file_key: fileKey,
-          raw_text: extraction.text,
-          attributes: parsed.attributes || [],
-        }
-      });
-
-      setUploadStatus(`"${parsed.name || file.name}" added to library.`);
-      await loadProducts();
-    } catch (e) {
-      setUploadStatus("Upload failed: " + e.message);
-    }
-    setUploading(false);
-  }
-
-  // ── Expand / attributes ───────────────────────────────────────────────────────
-  async function loadAttributes(productId) {
-    if (expandedAttrs[productId]) return;
-    try {
-      const data = await api(`/api/products/${productId}`);
-      setExpandedAttrs(prev => ({ ...prev, [productId]: data.attributes || [] }));
-    } catch (e) {
-      setExpandedAttrs(prev => ({ ...prev, [productId]: [] }));
-    }
-  }
-
-  async function handleExpand(productId) {
-    if (expanded === productId) {
-      setExpanded(null);
-    } else {
-      setExpanded(productId);
-      await loadAttributes(productId);
-    }
-  }
-
-  // ── Delete ────────────────────────────────────────────────────────────────────
-  async function handleDelete(product) {
-    if (deleting) return;
-    setDeleting(product.id);
-    try {
-      await api(`/api/products/${product.id}`, { method: "DELETE" });
-      setProducts(prev => prev.filter(p => p.id !== product.id));
-      if (expanded === product.id) setExpanded(null);
-      if (selected === product.id) setSelected(null);
-      setUploadStatus(`"${product.name}" removed from library.`);
-    } catch (e) {
-      setUploadStatus("Delete failed: " + e.message);
-    }
-    setDeleting(null);
-  }
-
-  // ── Download selected as zip ──────────────────────────────────────────────────
-  async function handleDownload() {
-    if (!selected || downloading) return;
-    const product = products.find(p => p.id === selected);
-    if (!product?.file_key) {
-      setUploadStatus("No PDF stored for this product.");
-      return;
-    }
-    setDownloading(true);
-    setUploadStatus(`Downloading ${product.name}…`);
-    try {
-      const data = await api(`/api/products/${product.id}/pdf`);
-      // Convert base64 to blob and trigger download
-      const bytes = atob(data.base64);
-      const arr = new Uint8Array(bytes.length);
-      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-      const blob = new Blob([arr], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${product.name}.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setUploadStatus(`Downloaded ${product.name}.`);
-    } catch (e) {
-      setUploadStatus("Download failed: " + e.message);
-    }
-    setDownloading(false);
-  }
-
-  // ── Update product type ───────────────────────────────────────────────────────
-  const PRODUCT_TYPES = ["Insulation", "Fire Door", "Cavity Barrier", "Membrane", "Sealant", "Fixings", "Structural", "Glazing", "Roofing", "Cladding", "Flooring", "Acoustic", "Other"];
-
-  async function handleTypeUpdate(product, newType) {
-    if (!newType) { setEditingType(null); setShowCustomInput(false); return; }
-    const isNew = !PRODUCT_TYPES.includes(newType) && !types.includes(newType);
-    if (isNew) {
-      setPendingNewType({ product, type: newType });
-      return;
-    }
-    await commitTypeUpdate(product, newType);
-  }
-
-  async function commitTypeUpdate(product, newType) {
-    try {
-      await api(`/api/products/${product.id}`, { method: "PATCH", body: { product_type: newType } });
-      setProducts(prev => prev.map(p => p.id === product.id ? { ...p, product_type: newType } : p));
-    } catch (e) {
-      setUploadStatus("Failed to update type: " + e.message);
-    }
-    setEditingType(null);
-    setShowCustomInput(false);
-    setPendingNewType(null);
-  }
-
-  function cancelTypeEdit() {
-    setEditingType(null);
-    setShowCustomInput(false);
-  }
-
-  function submitCustomType(product) {
-    const val = customTypeRef.current?.value?.trim();
-    if (val) handleTypeUpdate(product, val);
-  }
-
-  // ── Type manager ──────────────────────────────────────────────────────────────
-  function openTypeManager() {
-    // Initialise edits with all current types
-    const allTypes = [...new Set([
-      ...PRODUCT_TYPES,
-      ...products.map(p => p.product_type).filter(Boolean)
-    ])].sort();
-    const edits = {};
-    allTypes.forEach(t => edits[t] = t);
-    setTypeManagerEdits(edits);
-    setShowTypeManager(true);
-  }
-
-  function handleTypeManagerChange(oldType, newValue) {
-    setTypeManagerEdits(prev => ({ ...prev, [oldType]: newValue }));
-  }
-
-  function submitTypeChange(oldType) {
-    const newType = (typeManagerEdits[oldType] || "").trim();
-    if (newType === oldType) return; // no change
-    const affectedCount = products.filter(p => p.product_type === oldType).length;
-    setPendingTypeChange({ oldType, newType: newType || null, affectedCount });
-  }
-
-  async function commitTypeChange() {
-    if (!pendingTypeChange) return;
-    const { oldType, newType } = pendingTypeChange;
-    try {
-      // Update all products with this type
-      const affected = products.filter(p => p.product_type === oldType);
-      await Promise.all(affected.map(p =>
-        api(`/api/products/${p.id}`, { method: "PATCH", body: { product_type: newType || null } })
-      ));
-      setProducts(prev => prev.map(p =>
-        p.product_type === oldType ? { ...p, product_type: newType || null } : p
-      ));
-      // Update the edit map
-      setTypeManagerEdits(prev => {
-        const next = { ...prev };
-        delete next[oldType];
-        if (newType) next[newType] = newType;
-        return next;
-      });
-      if (filterType === oldType) setFilterType(newType || "");
-    } catch (e) {
-      setUploadStatus("Failed to update type: " + e.message);
-    }
-    setPendingTypeChange(null);
-  }
-
-  // ── Compliance check ──────────────────────────────────────────────────────────
-  const runComplianceCheck = async () => {
-    if (!complianceVaultId || !selected) return;
-    const product = products.find(p => p.id === selected);
-    if (!product) return;
-
-    setComplianceRunning(true);
-    setComplianceAnswer(null);
-    setComplianceProgress({ select: 0, read: 0, answer: 0 });
-
-    const question = complianceQuestion.trim() || `Is ${product.name} compliant with the relevant requirements in this vault?`;
-
-    try {
-      // Fetch PDF from R2
-      setComplianceStatus("Loading product datasheet…");
-      const pdfData = await api(`/api/products/${product.id}/pdf`);
-
-      // Resolve vault
-      const vaultObj = (() => {
-        for (const v of vaults) {
-          if (v.id === complianceVaultId) return v;
-          if (v.type === "master") {
-            const sub = (v.subVaults || []).find(sv => sv.id === complianceVaultId);
-            if (sub) return sub;
-          }
-        }
-        return null;
-      })();
-      if (!vaultObj) throw new Error("Vault not found");
-
-      // Load vault index
-      let vaultIndex = null;
-      try { vaultIndex = await api(`/api/vaults/${encodeURIComponent(complianceVaultId)}/index`); } catch (_) {}
-      if (!vaultIndex?.documents?.length) {
-        setComplianceStatus("Vault has no index — please index this vault first.");
-        setComplianceRunning(false);
-        return;
-      }
-
-      // ── PASS 1: Score index ───────────────────────────────────────────────────
-      setComplianceStatus("Pass 1/3 · Scoring index…");
-      setComplianceProgress({ select: 20, read: 0, answer: 0 });
-
-      const BOILERPLATE_HEADINGS = [
-        "the approved documents", "what is an approved document", "approved documents",
-        "list of approved documents", "use of guidance", "how to use this approved document",
-        "other guidance", "the building regulations", "online version", "hm government",
-        "main changes", "approved document", "list of approved documents"
-      ];
-      const isBoilerplate = (title) => {
-        const t = title.toLowerCase().trim();
-        return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
-      };
-
-      const indexSummary = (vaultIndex.documents || []).map(doc => {
-        const pageFrequency = {};
-        (doc.headings || []).forEach(h => {
-          const p = h.pageHint || 1;
-          pageFrequency[p] = (pageFrequency[p] || 0) + 1;
-        });
-        const crowdedPages = new Set(
-          Object.entries(pageFrequency).filter(([, count]) => count > 8).map(([page]) => Number(page))
-        );
-        const headings = (doc.headings || [])
-          .filter(h => !isBoilerplate(h.title))
-          .filter(h => !crowdedPages.has(h.pageHint))
-          .map(h => `  p${h.pageHint || 1}: ${h.title}`)
-          .join("\n");
-        return `DOCUMENT: ${doc.name}\n${headings}`;
-      }).join("\n\n");
-
-      const attrs = expandedAttrs[product.id];
-      const attrSummary = attrs ? attrs.slice(0, 10).map(a => `${a.attribute}: ${a.value}${a.unit ? " " + a.unit : ""}`).join(", ") : "";
-
-      const scoringPrompt = `You are a technical document analyst. Using ONLY the index below, identify sections most likely to contain requirements relevant to this compliance question.
-
-DOCUMENT INDEX:
-${indexSummary}
-
-COMPLIANCE QUESTION: ${question}
-
-PRODUCT CONTEXT: ${product.name} by ${product.manufacturer || "unknown manufacturer"}. Type: ${product.product_type || "unknown"}. Key attributes: ${attrSummary}
-
-Return ONLY compact JSON:
-{"selectedDocs":[{"docName":"exact filename","sections":[{"heading":"exact heading","pageHint":42,"probability":0.95}]}]}
-
-Rules: probability > 0.5 only, pageHint must be integer, pure JSON only.`;
-
-      let scoring = { selectedDocs: [] };
-      try {
-        const { text: scoringText } = await callClaude(
-          [{ role: "user", content: scoringPrompt }],
-          "You are a technical document analyst. Return pure JSON only.",
-          8000, 2, "gemini-2.5-flash-lite"
-        );
-        const clean = scoringText.replace(/```json|```/g, "").trim();
-        try { scoring = JSON.parse(clean); }
-        catch { const m = clean.match(/\{[\s\S]*\}/); if (m) try { scoring = JSON.parse(m[0]); } catch {} }
-      } catch (e) { console.warn("Compliance scoring failed:", e); }
-
-      setComplianceProgress({ select: 100, read: 20, answer: 0 });
-
-      // ── PASS 2: Extract pages ─────────────────────────────────────────────────
-      setComplianceStatus("Pass 2/3 · Extracting relevant pages…");
-
-      let pdfsInVault = [];
-      try {
-        const pdfsData = await api(`/api/vaults/${encodeURIComponent(complianceVaultId)}/pdfs`);
-        pdfsInVault = pdfsData.pdfs || [];
-      } catch (_) {}
-
-      const selectedDocNames = (scoring.selectedDocs || []).map(d => d.docName);
-      const contentsData = [];
-
-      for (const docName of selectedDocNames) {
-        const matchedPdf = pdfsInVault.find(p =>
-          p.name === docName || p.name.includes(docName) || docName.includes(p.name)
-        );
-        if (!matchedPdf) continue;
-        try {
-          const pdfData2 = await api(`/api/vaults/${encodeURIComponent(complianceVaultId)}/pdfs/${encodeURIComponent(matchedPdf.name)}`);
-          contentsData.push({ pdf: matchedPdf, base64: pdfData2.base64 });
-        } catch (_) {}
-      }
-
-      if (contentsData.length === 0 && pdfsInVault.length > 0) {
-        for (const pdf of pdfsInVault.slice(0, 2)) {
-          try {
-            const pdfData2 = await api(`/api/vaults/${encodeURIComponent(complianceVaultId)}/pdfs/${encodeURIComponent(pdf.name)}`);
-            contentsData.push({ pdf, base64: pdfData2.base64 });
-          } catch (_) {}
-        }
-      }
-
-      const docPageMap = {};
-      const HARD_PAGE_BUDGET = 60;
-      let budgetRemaining = HARD_PAGE_BUDGET;
-
-      (scoring.selectedDocs || []).forEach(selectedDoc => {
-        const matchedDoc = contentsData.find(d =>
-          d.pdf.name.includes(selectedDoc.docName) || selectedDoc.docName.includes(d.pdf.name)
-        );
-        if (!matchedDoc) return;
-        (selectedDoc.sections || []).sort((a, b) => (b.probability || 0) - (a.probability || 0)).forEach(section => {
-          if (budgetRemaining <= 0) return;
-          const pageHint = typeof section.pageHint === "number" ? section.pageHint : parseInt(String(section.pageHint)) || 1;
-          const key = matchedDoc.pdf.name;
-          if (!docPageMap[key]) docPageMap[key] = { contentsDoc: matchedDoc, pages: new Set() };
-          [0, 1].forEach(offset => {
-            const pg = pageHint + offset;
-            if (pg > 0 && !docPageMap[key].pages.has(pg) && budgetRemaining > 0) {
-              docPageMap[key].pages.add(pg);
-              budgetRemaining--;
-            }
-          });
-        });
-      });
-
-      if (Object.keys(docPageMap).length === 0 && contentsData.length > 0) {
-        contentsData.slice(0, 2).forEach(d => {
-          docPageMap[d.pdf.name] = { contentsDoc: d, pages: new Set([1, 2, 3, 4, 5]) };
-        });
-      }
-
-      const docBlocks = [
-        {
-          type: "document",
-          source: { type: "base64", media_type: "application/pdf", data: pdfData.base64 },
-          title: `PRODUCT DATASHEET: ${product.name}`,
-        }
-      ];
-
-      for (const [docName, { contentsDoc, pages }] of Object.entries(docPageMap)) {
-        const pageList = Array.from(pages).sort((a, b) => a - b);
-        if (pageList.length === 0) continue;
-        try {
-          const result = await api("/api/extract-pages", {
-            method: "POST",
-            body: { base64: contentsDoc.base64, pages: pageList }
-          });
-          docBlocks.push({
-            type: "document",
-            source: { type: "base64", media_type: "application/pdf", data: result.base64 },
-            title: `${docName} — pages ${result.pageNumbers.join(", ")}`,
-          });
-        } catch (_) {}
-      }
-
-      setComplianceProgress({ select: 100, read: 100, answer: 20 });
-
-      if (docBlocks.length < 2) {
-        setComplianceStatus("Could not extract relevant pages from this vault.");
-        setComplianceRunning(false);
-        return;
-      }
-
-      // ── PASS 3: Compliance synthesis ──────────────────────────────────────────
-      setComplianceStatus("Pass 3/3 · Assessing compliance…");
-
-      const compliancePrompt = `You are an expert building regulations consultant assessing a product for compliance against the provided regulatory documents.
-
-PRODUCT: ${product.name}${product.manufacturer ? ` by ${product.manufacturer}` : ""}
-COMPLIANCE QUESTION: ${question}
-
-Using ONLY the provided document pages, produce a focused compliance assessment structured as follows:
-
-## Compliance Assessment — ${vaultObj.name}
-
-### Verdict
-A short paragraph stating whether the product appears compliant, non-compliant, or where compliance is uncertain — and the primary reason why. Reference the specific requirement.
-
-### Key Requirements
-A table mapping the most relevant regulatory requirements to this product:
-
-| Requirement | ${product.name} |
-|---|---|
-
-### Compliance Analysis
-3–5 focused paragraphs covering the most important compliance points. For each point: state the requirement and assess the product against it.
-
-### Concerns & Gaps
-Any specific non-compliances, limitations, or areas where further evidence is needed. Be precise — quote the requirement and explain the gap. If none, state "No concerns identified."
-
-### Regulatory References
-Key clauses cited in this assessment.
-*Document | Clause title*
-
-Use only the provided document pages. Do not speculate beyond what the documents state.`;
-
-      try {
-        const { text: complianceText } = await callClaude(
-          [{ role: "user", content: [...docBlocks, { type: "text", text: compliancePrompt }] }],
-          "You are a building regulations consultant. Be concise and direct. Use only the provided document pages.",
-          65536, 2, "gemini-2.5-flash"
-        );
-        setComplianceAnswer(complianceText);
-        setComplianceStatus("Compliance check complete.");
-      } catch (e) {
-        setComplianceStatus("Error: " + e.message);
-      }
-
-      setComplianceProgress({ select: 100, read: 100, answer: 100 });
-    } catch (e) {
-      setComplianceStatus("Error: " + e.message);
-    }
-    setComplianceRunning(false);
-  };
-
-  // ── Vault options ─────────────────────────────────────────────────────────────
-  const vaultOptions = [];
-  (vaults || []).forEach(v => {
-    if (v.type === "master") {
-      (v.subVaults || []).forEach(sv => vaultOptions.push({ id: sv.id, name: `${v.name} / ${sv.name}` }));
-    } else {
-      vaultOptions.push({ id: v.id, name: v.name });
-    }
-  });
-
-  const selectedProduct = selected ? products.find(p => p.id === selected) : null;
-
-  // ── Render ────────────────────────────────────────────────────────────────────
-  return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f9f7f5" }}>
-
-      {/* Confirm new type dialog */}
-      {pendingNewType && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#ffffff", padding: "28px 32px", maxWidth: 400, width: "90%", fontFamily: "Inter, Arial, sans-serif" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 10 }}>Add new product type?</div>
-            <div style={{ fontSize: 13, color: "#5a5048", marginBottom: 20, lineHeight: 1.6 }}>
-              "<strong>{pendingNewType.type}</strong>" is not in the standard list. Adding it will make it available as a filter option for all products. Are you sure?
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button className="btn" onClick={() => { setPendingNewType(null); cancelTypeEdit(); }}
-                style={{ fontSize: 12, padding: "7px 16px", background: "none", border: "1px solid #ddd8d0", color: "#5a5048" }}>
-                Cancel
-              </button>
-              <button className="btn" onClick={() => commitTypeUpdate(pendingNewType.product, pendingNewType.type)}
-                style={{ fontSize: 12, padding: "7px 16px", background: ARC_NAVY, color: "#ffffff", fontWeight: 600 }}>
-                Add type
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Type manager panel */}
-      {showTypeManager && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#ffffff", padding: "28px 32px", maxWidth: 480, width: "90%", fontFamily: "Inter, Arial, sans-serif", maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 6 }}>Manage Product Types</div>
-            <div style={{ fontSize: 12, color: "#9a9088", marginBottom: 20, lineHeight: 1.5 }}>
-              Rename or delete types. Changes apply to all products with that type. Deleting a type sets affected products to unset.
-            </div>
-            <div style={{ overflowY: "auto", flex: 1, marginBottom: 20 }}>
-              {Object.keys(typeManagerEdits).sort().map(oldType => {
-                const affectedCount = products.filter(p => p.product_type === oldType).length;
-                const currentVal = typeManagerEdits[oldType];
-                const isDeleted = currentVal === "";
-                return (
-                  <div key={oldType} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "8px 12px", background: isDeleted ? "#fff5f5" : "#f9f7f5", border: `1px solid ${isDeleted ? "#f5c0b8" : "#e8e0d5"}` }}>
-                    <input
-                      value={isDeleted ? "" : currentVal}
-                      onChange={e => handleTypeManagerChange(oldType, e.target.value)}
-                      disabled={isDeleted}
-                      style={{ flex: 1, fontSize: 12, padding: "5px 8px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", background: isDeleted ? "#f9f0ef" : "#ffffff", color: isDeleted ? "#b0a898" : ARC_NAVY, textDecoration: isDeleted ? "line-through" : "none" }}
-                    />
-                    <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0, minWidth: 60, textAlign: "right" }}>
-                      {affectedCount} product{affectedCount !== 1 ? "s" : ""}
-                    </span>
-                    {!isDeleted && currentVal !== oldType && (
-                      <button className="btn" onClick={() => submitTypeChange(oldType)}
-                        style={{ fontSize: 11, padding: "4px 10px", background: ARC_NAVY, color: "#ffffff", flexShrink: 0 }}>
-                        Save
-                      </button>
-                    )}
-                    {isDeleted ? (
-                      <button className="btn" onClick={() => handleTypeManagerChange(oldType, oldType)}
-                        style={{ fontSize: 11, padding: "4px 10px", background: "none", border: "1px solid #ddd8d0", color: "#9a9088", flexShrink: 0 }}>
-                        Undo
-                      </button>
-                    ) : (
-                      <button className="btn" onClick={() => {
-                        if (currentVal !== oldType) {
-                          // Reset unsaved rename before deleting
-                          handleTypeManagerChange(oldType, oldType);
-                        } else {
-                          setPendingTypeChange({ oldType, newType: null, affectedCount });
-                        }
-                      }}
-                        style={{ fontSize: 11, padding: "4px 10px", background: "none", border: `1px solid ${ARC_TERRACOTTA}`, color: ARC_TERRACOTTA, flexShrink: 0 }}>
-                        Delete
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <button className="btn" onClick={() => setShowTypeManager(false)}
-                style={{ fontSize: 12, padding: "7px 20px", background: ARC_NAVY, color: "#ffffff", fontWeight: 600 }}>
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Confirm type change dialog */}
-      {pendingTypeChange && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#ffffff", padding: "28px 32px", maxWidth: 420, width: "90%", fontFamily: "Inter, Arial, sans-serif" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 10 }}>
-              {pendingTypeChange.newType ? "Rename type?" : "Delete type?"}
-            </div>
-            <div style={{ fontSize: 13, color: "#5a5048", marginBottom: 20, lineHeight: 1.6 }}>
-              {pendingTypeChange.newType
-                ? <>Renaming <strong>"{pendingTypeChange.oldType}"</strong> to <strong>"{pendingTypeChange.newType}"</strong> will update <strong>{pendingTypeChange.affectedCount} product{pendingTypeChange.affectedCount !== 1 ? "s" : ""}</strong> immediately.</>
-                : <>Deleting <strong>"{pendingTypeChange.oldType}"</strong> will set <strong>{pendingTypeChange.affectedCount} product{pendingTypeChange.affectedCount !== 1 ? "s" : ""}</strong> to unset. This cannot be undone.</>
-              }
-            </div>
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-              <button className="btn" onClick={() => { setPendingTypeChange(null); handleTypeManagerChange(pendingTypeChange.oldType, pendingTypeChange.oldType); }}
-                style={{ fontSize: 12, padding: "7px 16px", background: "none", border: "1px solid #ddd8d0", color: "#5a5048" }}>
-                Cancel
-              </button>
-              <button className="btn" onClick={commitTypeChange}
-                style={{ fontSize: 12, padding: "7px 16px", background: pendingTypeChange.newType ? ARC_NAVY : ARC_TERRACOTTA, color: "#ffffff", fontWeight: 600 }}>
-                {pendingTypeChange.newType ? "Rename" : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Header */}
-      <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "16px 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 16, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 24, flex: 1, flexWrap: "wrap" }}>
-          <div>
-            <h2 style={{ fontSize: 18, fontWeight: 300, color: ARC_NAVY, margin: 0, fontFamily: "Inter, Arial, sans-serif" }}>Datasheet Library</h2>
-            <p style={{ fontSize: 11, color: "#9a9088", margin: "2px 0 0", fontFamily: "Inter, Arial, sans-serif" }}>{products.length} product{products.length !== 1 ? "s" : ""}</p>
-          </div>
-
-          {/* Filters */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <select value={filterManufacturer} onChange={e => setFilterManufacturer(e.target.value)}
-              style={{ fontSize: 12, padding: "5px 10px", border: "1px solid #ddd8d0", background: "#ffffff", color: filterManufacturer ? ARC_NAVY : "#9a9088", fontFamily: "Inter, Arial, sans-serif", cursor: "pointer" }}>
-              <option value="">All manufacturers</option>
-              {manufacturers.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <select value={filterType} onChange={e => setFilterType(e.target.value)}
-              style={{ fontSize: 12, padding: "5px 10px", border: "1px solid #ddd8d0", background: "#ffffff", color: filterType ? ARC_NAVY : "#9a9088", fontFamily: "Inter, Arial, sans-serif", cursor: "pointer" }}>
-              <option value="">All types</option>
-              {types.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-            {(filterManufacturer || filterType) && (
-              <button className="btn" onClick={() => { setFilterManufacturer(""); setFilterType(""); }}
-                style={{ fontSize: 11, color: ARC_TERRACOTTA, background: "none", border: "none", padding: "4px 6px", cursor: "pointer" }}>
-                Clear
-              </button>
-            )}
-            {isAdmin && (
-              <button className="btn" onClick={openTypeManager}
-                style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}>
-                Manage types
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {uploadStatus && (
-            <span style={{ fontSize: 11, color: uploadStatus.includes("failed") || uploadStatus.includes("Failed") || uploadStatus.includes("Could not") ? ARC_TERRACOTTA : "#5a7a6a", fontFamily: "Inter, Arial, sans-serif", maxWidth: 280 }}>
-              {uploadStatus}
-            </span>
-          )}
-          {selected && (
-            <button className="btn" onClick={handleDownload} disabled={downloading}
-              style={{ background: "none", color: LIBRARY_BLUE, border: `1px solid ${LIBRARY_BLUE}`, padding: "6px 14px", fontSize: 12, fontWeight: 500, opacity: downloading ? 0.6 : 1 }}>
-              {downloading ? "Downloading…" : "⬇ Download"}
-            </button>
-          )}
-          <button className="btn" onClick={() => inputRef.current?.click()} disabled={uploading}
-            style={{ background: LIBRARY_BLUE, color: "#ffffff", padding: "6px 18px", fontSize: 12, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", opacity: uploading ? 0.6 : 1 }}>
-            {uploading ? "Processing…" : "+ Upload"}
-          </button>
-          <input ref={inputRef} type="file" accept=".pdf" multiple style={{ display: "none" }} onChange={async e => {
-            const files = Array.from(e.target.files);
-            e.target.value = "";
-            for (const file of files) {
-              await handleUpload(file);
-            }
-          }} />
-        </div>
-      </div>
-
-      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-
-        {/* Product list */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "20px 40px" }}>
-          {loading ? (
-            <p style={{ color: "#9a9088", fontSize: 13, fontFamily: "Inter, Arial, sans-serif" }}>Loading…</p>
-          ) : filteredProducts.length === 0 ? (
-            <div style={{ textAlign: "center", padding: "80px 40px" }}>
-              <div style={{ fontSize: 48, marginBottom: 16 }}>📋</div>
-              <p style={{ fontSize: 15, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
-                {products.length === 0 ? "No datasheets yet" : "No products match the current filters"}
-              </p>
-              <p style={{ fontSize: 12, color: "#9a9088", fontFamily: "Inter, Arial, sans-serif" }}>
-                {products.length === 0 ? "Upload a product datasheet to get started" : "Try adjusting or clearing the filters"}
-              </p>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {filteredProducts.map(product => {
-                const isSelected = selected === product.id;
-                const isExpanded = expanded === product.id;
-                return (
-                  <div key={product.id} style={{ background: "#ffffff", border: `1px solid ${isSelected ? LIBRARY_BLUE : isExpanded ? "#c0ccd4" : "#e8e0d5"}`, transition: "border-color 0.15s" }}>
-
-                    {/* Row */}
-                    <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", gap: 12 }}>
-
-                      {/* Checkbox */}
-                      <input type="checkbox" checked={isSelected} onChange={() => {
-                          setSelected(isSelected ? null : product.id);
-                          setComplianceAnswer(null);
-                          setComplianceStatus("");
-                        }}
-                        style={{ width: 15, height: 15, cursor: "pointer", accentColor: LIBRARY_BLUE, flexShrink: 0 }}
-                      />
-
-                      {/* Name + manufacturer */}
-                      <div style={{ flex: 1, cursor: "pointer" }} onClick={() => handleExpand(product.id)}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>{product.name}</div>
-                        <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2, fontFamily: "Inter, Arial, sans-serif" }}>
-                          {product.manufacturer || "—"}
-                        </div>
-                      </div>
-
-                      {/* Product type badge — editable */}
-                      <div style={{ flexShrink: 0 }}>
-                        {editingType === product.id ? (
-                          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                            {!showCustomInput ? (
-                              <select autoFocus
-                                defaultValue={product.product_type || ""}
-                                onChange={e => {
-                                  if (e.target.value === "__custom__") {
-                                    setShowCustomInput(true);
-                                  } else {
-                                    handleTypeUpdate(product, e.target.value || null);
-                                  }
-                                }}
-                                style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_BLUE}`, fontFamily: "Inter, Arial, sans-serif" }}>
-                                <option value="">— unset —</option>
-                                {[...PRODUCT_TYPES, ...types.filter(t => !PRODUCT_TYPES.includes(t))].map(t => (
-                                  <option key={t} value={t}>{t}</option>
-                                ))}
-                                <option value="__custom__">+ Add new type…</option>
-                              </select>
-                            ) : (
-                              <input
-                                ref={customTypeRef}
-                                autoFocus
-                                defaultValue=""
-                                placeholder="New type name…"
-                                onKeyDown={e => {
-                                  if (e.key === "Enter") submitCustomType(product);
-                                  if (e.key === "Escape") cancelTypeEdit();
-                                }}
-                                style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_BLUE}`, fontFamily: "Inter, Arial, sans-serif", width: 130 }}
-                              />
-                            )}
-                            {showCustomInput && (
-                              <button className="btn" onClick={() => submitCustomType(product)}
-                                style={{ fontSize: 11, padding: "3px 8px", background: ARC_NAVY, color: "#ffffff" }}>✓</button>
-                            )}
-                            <button className="btn" onClick={cancelTypeEdit}
-                              style={{ fontSize: 11, padding: "3px 8px", background: "none", border: "1px solid #ddd8d0", color: "#9a9088" }}>✕</button>
-                          </div>
-                        ) : (
-                          <span onClick={() => { setEditingType(product.id); setShowCustomInput(false); }} title="Click to edit type"
-                            style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: product.product_type ? LIBRARY_BLUE : "#b0a898", background: product.product_type ? LIBRARY_BLUE_LIGHT : "#f0ede8", padding: "3px 8px", cursor: "pointer", userSelect: "none" }}>
-                            {product.product_type || "Set type"}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Date */}
-                      <div style={{ fontSize: 11, color: "#b0a898", fontFamily: "Inter, Arial, sans-serif", flexShrink: 0 }}>
-                        {new Date(product.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                      </div>
-
-                      {/* Expand toggle */}
-                      <button className="btn" onClick={() => handleExpand(product.id)}
-                        style={{ fontSize: 11, color: LIBRARY_BLUE, background: "none", border: "none", padding: "2px 6px", flexShrink: 0, fontWeight: 500 }}>
-                        {isExpanded ? "▲" : "▼"}
-                      </button>
-                    </div>
-
-                    {/* Expanded attributes */}
-                    {isExpanded && (
-                      <div style={{ borderTop: "1px solid #e8e0d5", padding: "14px 16px" }}>
-                        {!expandedAttrs[product.id] ? (
-                          <p style={{ fontSize: 12, color: "#9a9088", fontFamily: "Inter, Arial, sans-serif" }}>Loading…</p>
-                        ) : expandedAttrs[product.id].length === 0 ? (
-                          <p style={{ fontSize: 12, color: "#9a9088", fontFamily: "Inter, Arial, sans-serif" }}>No attributes extracted.</p>
-                        ) : (
-                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "Inter, Arial, sans-serif" }}>
-                            <thead>
-                              <tr>
-                                <th style={{ background: ARC_NAVY, color: "#ffffff", padding: "6px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "35%" }}>Attribute</th>
-                                <th style={{ background: ARC_NAVY, color: "#ffffff", padding: "6px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase" }}>Value</th>
-                                <th style={{ background: ARC_NAVY, color: "#ffffff", padding: "6px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "15%" }}>Unit</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {expandedAttrs[product.id].map((attr, i) => (
-                                <tr key={i} style={{ background: i % 2 === 0 ? "#f9f7f5" : "#ffffff" }}>
-                                  <td style={{ padding: "7px 12px", borderBottom: "1px solid #e8e0d5", color: "#5a5048", fontWeight: 500 }}>{attr.attribute}</td>
-                                  <td style={{ padding: "7px 12px", borderBottom: "1px solid #e8e0d5", color: ARC_NAVY }}>{attr.value}</td>
-                                  <td style={{ padding: "7px 12px", borderBottom: "1px solid #e8e0d5", color: "#9a9088" }}>{attr.unit || "—"}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        )}
-                        <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
-                          <button className="btn" onClick={() => handleDelete(product)} disabled={deleting === product.id}
-                            style={{ fontSize: 11, color: ARC_TERRACOTTA, background: "none", border: `1px solid ${ARC_TERRACOTTA}`, padding: "3px 10px", opacity: deleting === product.id ? 0.5 : 1 }}>
-                            {deleting === product.id ? "Deleting…" : "Remove"}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Right panel — compliance check (only when product selected) */}
-        {selectedProduct && (
-          <div style={{ width: 360, borderLeft: "1px solid #e8e0d5", background: "#ffffff", display: "flex", flexDirection: "column", flexShrink: 0, overflowY: "auto" }}>
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid #e8e0d5" }}>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#9a9088", marginBottom: 4 }}>Selected</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>{selectedProduct.name}</div>
-              {selectedProduct.manufacturer && <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>{selectedProduct.manufacturer}</div>}
-            </div>
-
-            <div style={{ padding: "16px 20px", borderBottom: "1px solid #e8e0d5" }}>
-              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#9a9088", marginBottom: 10 }}>Compliance Check</div>
-
-              <div style={{ marginBottom: 10 }}>
-                <label style={{ fontSize: 11, color: "#9a9088", fontFamily: "Inter, Arial, sans-serif", display: "block", marginBottom: 4 }}>Vault</label>
-                <select value={complianceVaultId} onChange={e => setComplianceVaultId(e.target.value)}
-                  style={{ width: "100%", fontSize: 12, padding: "6px 10px", border: "1px solid #ddd8d0", background: "#ffffff", fontFamily: "Inter, Arial, sans-serif" }}>
-                  <option value="">Select vault…</option>
-                  {vaultOptions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
-              </div>
-
-              <div style={{ marginBottom: 12 }}>
-                <label style={{ fontSize: 11, color: "#9a9088", fontFamily: "Inter, Arial, sans-serif", display: "block", marginBottom: 4 }}>Question (optional)</label>
-                <textarea value={complianceQuestion} onChange={e => setComplianceQuestion(e.target.value)}
-                  placeholder={`Is ${selectedProduct.name} compliant with the relevant requirements?`}
-                  rows={3}
-                  style={{ width: "100%", fontSize: 12, padding: "7px 10px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", resize: "vertical", boxSizing: "border-box" }} />
-              </div>
-
-              <button className="btn" onClick={runComplianceCheck} disabled={!complianceVaultId || complianceRunning}
-                style={{ width: "100%", background: complianceVaultId && !complianceRunning ? ARC_NAVY : "#c0c0c0", color: "#ffffff", padding: "8px", fontSize: 12, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
-                {complianceRunning ? "Running…" : "Run Compliance Check"}
-              </button>
-
-              {complianceStatus && (
-                <p style={{ fontSize: 11, color: complianceStatus.includes("Error") ? ARC_TERRACOTTA : "#5a7a6a", marginTop: 8, fontFamily: "Inter, Arial, sans-serif" }}>{complianceStatus}</p>
-              )}
-
-              {complianceRunning && (
-                <div style={{ marginTop: 10 }}>
-                  {[["Scoring index", complianceProgress.select], ["Extracting pages", complianceProgress.read], ["Synthesising", complianceProgress.answer]].map(([label, pct]) => (
-                    <div key={label} style={{ marginBottom: 6 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#9a9088", marginBottom: 3 }}>
-                        <span>{label}</span><span>{pct}%</span>
-                      </div>
-                      <div style={{ height: 3, background: "#e8e0d5" }}>
-                        <div style={{ height: 3, background: ARC_NAVY, width: `${pct}%`, transition: "width 0.5s" }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {complianceAnswer && (
-              <div style={{ padding: "16px 20px", flex: 1 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#9a9088", marginBottom: 10 }}>Result</div>
-                <AnswerRenderer text={complianceAnswer} />
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-
-// ── main app ──────────────────────────────────────────────────────────────────
-
 export default function App() {
-  const [appSection, setAppSection] = useState("home"); // "home" | "vault" | "compare"
+  const [appSection, setAppSection] = useState("home");
   const [vaults, setVaults] = useState([]);
   const [selectedVault, setSelectedVault] = useState(null);
-  // queryScope: "single" | "all" — only relevant when vault is a sub-vault
   const [queryScope, setQueryScope] = useState("single");
   const [expandedMasters, setExpandedMasters] = useState({});
   const [pdfs, setPdfs] = useState([]);
@@ -2466,7 +108,6 @@ export default function App() {
 
   const isAdmin = authenticated === "admin";
 
-  // Find selected vault object — search both flat vaults and sub-vaults
   const vault = (() => {
     for (const v of vaults) {
       if (v.id === selectedVault) return v;
@@ -2478,17 +119,14 @@ export default function App() {
     return null;
   })();
 
-  // Find parent master vault if selected vault is a sub-vault
   const parentMaster = vaults.find(v => v.type === "master" && (v.subVaults || []).some(sv => sv.id === selectedVault));
-
   const vaultHistory = history.filter(h => h.vaultId === selectedVault);
-  
-useEffect(() => {
-  const isStaging = process.env.REACT_APP_API_URL?.includes("staging");
-  document.title = isStaging ? "Archimind [Staging]" : "Archimind";
-}, []);
-  
-  // ── load vaults on mount ────────────────────────────────────────────────────
+
+  useEffect(() => {
+    const isStaging = process.env.REACT_APP_API_URL?.includes("staging");
+    document.title = isStaging ? "Archimind [Staging]" : "Archimind";
+  }, []);
+
   useEffect(() => { loadVaults(); }, []);
 
   const loadVaults = async () => {
@@ -2502,7 +140,6 @@ useEffect(() => {
     setLoadingVaults(false);
   };
 
-  // ── load PDFs and index when vault selected ─────────────────────────────────
   useEffect(() => {
     if (!selectedVault) return;
     loadVaultContents(selectedVault);
@@ -2534,7 +171,6 @@ useEffect(() => {
     }
   };
 
-  // ── vault creation (flat) ───────────────────────────────────────────────────
   const createVault = async () => {
     if (!newVaultName.trim()) return;
     try {
@@ -2548,7 +184,6 @@ useEffect(() => {
     }
   };
 
-  // ── PDF upload ──────────────────────────────────────────────────────────────
   const addPDFs = useCallback(async (files) => {
     if (!vault) return;
     const pdfFiles = Array.from(files).filter(f => f.type === "application/pdf");
@@ -2584,7 +219,6 @@ useEffect(() => {
     }
   };
 
-  // ── PDF helper: extract pages as base64 ────────────────────────────────────
   const extractPdfPages = async (base64, pageIndices) => {
     if (!window.PDFLib) {
       await new Promise((resolve, reject) => {
@@ -2608,7 +242,6 @@ useEffect(() => {
     return { base64: btoa(binary), pageCount: srcDoc.getPageCount() };
   };
 
-  // ── shared indexing helper ────────────────────────────────────────────────────
   const indexOnePdf = async (pdfName, base64) => {
     const SYSTEM = "You are a document indexer. Extract only structural metadata. Return pure JSON only, no markdown, no explanation.";
     const INDEX_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.
@@ -2701,9 +334,7 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
                 SYSTEM, 65000, 1, "gemini-2.5-flash-lite"
               );
               const parsed2 = tryParse(result2);
-              if (parsed2?.headings) {
-                allHeadings.push(...parsed2.headings);
-              }
+              if (parsed2?.headings) allHeadings.push(...parsed2.headings);
             } catch (e2) {
               console.warn(`${pdfName} chunk ${chunk + 1} retry also failed:`, e2.message);
             }
@@ -2719,7 +350,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     }
   };
 
-  // ── indexing ────────────────────────────────────────────────────────────────
   const indexVault = async () => {
     if (!vault || pdfs.length === 0) return;
     setStage("indexing");
@@ -2729,28 +359,21 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
 
     try {
       const allDocuments = [];
-
       for (let i = 0; i < pdfs.length; i++) {
         const pdf = pdfs[i];
         setStatusMsg(`Fetching document ${i + 1} of ${pdfs.length}: ${pdf.name}…`);
-
         const pdfData = await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
         const base64 = pdfData.base64;
-
         setStatusMsg(`Scanning ${pdf.name}…`);
         setProgress(p => ({ ...p, index: Math.round((i / pdfs.length) * 80) }));
-
         const { headings } = await indexOnePdf(pdf.name, base64);
         allDocuments.push({ name: pdf.name, headings });
       }
 
       setProgress(p => ({ ...p, index: 100 }));
-
       const indexData = { documents: allDocuments, indexedAt: new Date().toISOString() };
-
       setStatusMsg("Saving index…");
       await api(`/api/vaults/${encodeURIComponent(vault.id)}/index`, { method: "POST", body: indexData });
-
       setVaultIndex(indexData);
       setStage("done-index");
       const totalHeadings = allDocuments.reduce((s, d) => s + (d.headings?.length || 0), 0);
@@ -2761,7 +384,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     }
   };
 
-  // ── single document re-index ────────────────────────────────────────────────
   const indexSinglePdf = async (pdf) => {
     if (!vault) return;
     setStage("indexing");
@@ -2772,10 +394,8 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       const base64 = pdfData.base64;
       const { headings } = await indexOnePdf(pdf.name, base64);
       if (!headings.length) throw new Error("No headings found — document may be too large or unreadable");
-
       const existingDocs = (vaultIndex?.documents || []).filter(d => d.name !== pdf.name);
       const newIndex = { documents: [...existingDocs, { name: pdf.name, headings }], indexedAt: new Date().toISOString() };
-
       await api(`/api/vaults/${encodeURIComponent(vault.id)}/index`, { method: "POST", body: newIndex });
       setVaultIndex(newIndex);
       setStage("done-index");
@@ -2787,7 +407,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     }
   };
 
-  // ── Build combined index for "query all sub-vaults" mode ──────────────────
   const buildCombinedIndex = async () => {
     if (!parentMaster) return vaultIndex;
     const subVaults = parentMaster.subVaults || [];
@@ -2796,9 +415,7 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       try {
         const idx = await api(`/api/vaults/${encodeURIComponent(sv.id)}/index`).catch(() => null);
         if (idx?.documents) {
-          // Prefix each doc name with the sub-vault name so citations are clear
           idx.documents.forEach(doc => {
-            // Use a clean prefix format — no special characters that Gemini might strip
             combinedDocs.push({ ...doc, name: `${sv.name} >> ${doc.name}`, vaultId: sv.id, originalName: doc.name });
           });
         }
@@ -2807,7 +424,7 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     return combinedDocs.length > 0 ? { documents: combinedDocs } : vaultIndex;
   };
 
-  // ── question answering — 3-pass pipeline ────────────────────────────────────
+  // ── 3-pass Q&A pipeline ───────────────────────────────────────────────────────
   const askQuestion = async () => {
     if (!vaultIndex || !question.trim()) return;
     const q = question.trim();
@@ -2821,7 +438,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
     setStatusMsg("Pass 1/3 · Reading contents pages and scoring sections…");
 
     try {
-      // Determine which index to use
       const useAllSubVaults = queryScope === "all" && parentMaster;
       const activeIndex = useAllSubVaults ? await buildCombinedIndex() : vaultIndex;
 
@@ -2840,15 +456,11 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
       };
 
       const indexSummary = (activeIndex.documents || []).map(doc => {
-        // Identify contents pages — any page where a "Contents" heading appears
         const contentsPages = new Set(
           (doc.headings || [])
             .filter(h => /^(contents|table of contents|index)$/i.test(h.title.trim()))
             .map(h => h.pageHint)
         );
-
-        // Also identify pages that appear suspiciously often (>8 headings on same page)
-        // — these are almost always contents/index pages
         const pageFrequency = {};
         (doc.headings || []).forEach(h => {
           const p = h.pageHint || 1;
@@ -2859,7 +471,6 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
             .filter(([, count]) => count > 8)
             .map(([page]) => Number(page))
         );
-
         const headings = (doc.headings || [])
           .filter(h => !isBoilerplate(h.title))
           .filter(h => !contentsPages.has(h.pageHint))
@@ -2911,9 +522,7 @@ Rules:
       const { text: scoringText, usage: scoringUsage } = await callClaude(
         [{ role: "user", content: scoringPrompt }],
         "You are a technical document analyst. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
-        65000,
-        2,
-        "gemini-2.5-flash"
+        65000, 2, "gemini-2.5-flash"
       );
 
       setProgress(p => ({ ...p, select: 100 }));
@@ -2934,13 +543,10 @@ Rules:
       // ── PASS 2: Load PDFs and extract pages ──────────────────────────────────
       setStatusMsg("Pass 1/3 · Loading documents for page extraction…");
 
-      // When querying all sub-vaults, we need to fetch PDFs from the correct sub-vault
-      // The doc name is prefixed "[SubVaultName] filename.pdf" — we strip the prefix to find the right vault+file
       const contentsData = [];
       const selectedDocNames = (scoring.selectedDocs || []).map(d => d.docName);
 
       if (useAllSubVaults) {
-        // Build a flat lookup of every PDF across all sub-vaults
         const allSubVaultPdfs = [];
         for (const sv of (parentMaster.subVaults || [])) {
           try {
@@ -2956,26 +562,17 @@ Rules:
             console.warn(`Could not list PDFs for sub-vault ${sv.name}:`, e);
           }
         }
-        // Match each selected doc name to a real PDF — try exact first, then fuzzy
         for (const docName of selectedDocNames) {
           if (contentsData.find(c => c.pdf.name === docName)) continue;
-
-          // 1. Exact match on prefixed name
           let found = allSubVaultPdfs.find(p => p.prefixedName === docName);
-
-          // 2. Gemini may have altered the prefix separator — try splitting on >> or ]
           if (!found) {
             const filenamePart = docName.includes(">>") ? docName.split(">>").pop().trim()
               : docName.includes("]") ? docName.split("]").pop().trim()
               : docName;
             found = allSubVaultPdfs.find(p =>
-              p.fileName === filenamePart ||
-              p.fileName.includes(filenamePart) ||
-              filenamePart.includes(p.fileName)
+              p.fileName === filenamePart || p.fileName.includes(filenamePart) || filenamePart.includes(p.fileName)
             );
           }
-
-          // 3. Fuzzy: match on filename substring
           if (!found) {
             const lower = docName.toLowerCase();
             found = allSubVaultPdfs.find(p =>
@@ -2983,12 +580,7 @@ Rules:
               lower.includes(p.fileName.toLowerCase().replace(/\.pdf$/i, ""))
             );
           }
-
-          if (!found) {
-            console.warn(`Could not match scoring docName "${docName}" to any sub-vault PDF`);
-            continue;
-          }
-
+          if (!found) { console.warn(`Could not match scoring docName "${docName}" to any sub-vault PDF`); continue; }
           try {
             const pdfData = await api(`/api/vaults/${encodeURIComponent(found.subVault.id)}/pdfs/${encodeURIComponent(found.fileName)}`);
             contentsData.push({ pdf: { name: found.prefixedName, size: 0 }, base64: pdfData.base64 });
@@ -2997,12 +589,10 @@ Rules:
           }
         }
       } else {
-        // Standard single-vault fetch
         const docsNeeded = pdfs.filter(p =>
           selectedDocNames.some(n => p.name.includes(n) || n.includes(p.name))
         );
         const docsToFetch = docsNeeded.length > 0 ? docsNeeded : pdfs.slice(0, 2);
-
         for (const pdf of docsToFetch) {
           try {
             const pdfData = await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
@@ -3026,10 +616,7 @@ Rules:
         const str = String(hint).trim();
         if (!str) return pages;
         const directInt = parseInt(str);
-        if (!isNaN(directInt) && directInt > 0 && directInt < 9999) {
-          pages.add(directInt);
-          return pages;
-        }
+        if (!isNaN(directInt) && directInt > 0 && directInt < 9999) { pages.add(directInt); return pages; }
         const allNums = str.match(/\d+/g);
         if (!allNums) return pages;
         const nums = allNums.map(n => parseInt(n)).filter(n => n > 0 && n < 9999);
@@ -3050,7 +637,6 @@ Rules:
           d.pdf.name.includes(selectedDoc.docName) || selectedDoc.docName.includes(d.pdf.name)
         );
         if (!matchedDoc) return;
-
         (selectedDoc.sections || []).forEach(section => {
           const parsed = parsePageNums(section.pageHint);
           if (parsed.size > 0) {
@@ -3069,64 +655,40 @@ Rules:
 
       const docPageMap = {};
       let budgetRemaining = HARD_PAGE_BUDGET;
-
-      // When multiple documents are present, allocate budget fairly across them
-      // so no single document dominates. Each doc gets an equal share of the budget,
-      // with any unused share redistributed to others.
       const uniqueDocs = [...new Set(allScoredSections.map(s => s.docName))];
       const numDocs = Math.max(uniqueDocs.length, 1);
       const perDocBudget = Math.floor(HARD_PAGE_BUDGET / numDocs);
 
-      // First pass: fill each doc up to its per-doc budget using highest-probability sections
       for (const docName of uniqueDocs) {
         const docSections = allScoredSections.filter(s => s.docName === docName);
         let docBudget = perDocBudget;
-
         for (const section of docSections) {
           if (docBudget <= 0 || budgetRemaining <= 0) break;
           if (!docPageMap[docName]) docPageMap[docName] = { contentsDoc: section.contentsDoc, pages: new Set() };
-
           const pagesToAdd = [];
-          // Tables can span multiple pages — fetch up to 3 extra pages for table entries, 1 for others
           const isTableSection = /^(table|figure)\s+\d+/i.test(section.heading || "");
           const lookahead = isTableSection ? [0, 1, 2, 3] : [0, 1];
-          section.pages.forEach(p => {
-            lookahead.forEach(offset => {
-              const pg = p + offset;
-              if (pg > 0 && !docPageMap[docName].pages.has(pg)) pagesToAdd.push(pg);
-            });
-          });
+          section.pages.forEach(p => { lookahead.forEach(offset => { const pg = p + offset; if (pg > 0 && !docPageMap[docName].pages.has(pg)) pagesToAdd.push(pg); }); });
           pagesToAdd.sort((a, b) => a - b);
           for (const p of pagesToAdd) {
             if (docBudget <= 0 || budgetRemaining <= 0) break;
             docPageMap[docName].pages.add(p);
-            docBudget--;
-            budgetRemaining--;
+            docBudget--; budgetRemaining--;
           }
         }
       }
 
-      // Second pass: use any remaining budget on highest-probability sections across all docs
       if (budgetRemaining > 0) {
         for (const section of allScoredSections) {
           if (budgetRemaining <= 0) break;
           const key = section.docName;
           if (!docPageMap[key]) docPageMap[key] = { contentsDoc: section.contentsDoc, pages: new Set() };
-
           const pagesToAdd = [];
-          section.pages.forEach(p => {
-            [0, 1].forEach(offset => {
-              const pg = p + offset;
-              if (pg > 0 && !docPageMap[key].pages.has(pg)) pagesToAdd.push(pg);
-            });
-          });
+          section.pages.forEach(p => { [0, 1].forEach(offset => { const pg = p + offset; if (pg > 0 && !docPageMap[key].pages.has(pg)) pagesToAdd.push(pg); }); });
           pagesToAdd.sort((a, b) => a - b);
           for (const p of pagesToAdd) {
             if (budgetRemaining <= 0) break;
-            if (!docPageMap[key].pages.has(p)) {
-              docPageMap[key].pages.add(p);
-              budgetRemaining--;
-            }
+            if (!docPageMap[key].pages.has(p)) { docPageMap[key].pages.add(p); budgetRemaining--; }
           }
         }
       }
@@ -3139,9 +701,7 @@ Rules:
       }
 
       Object.entries(docPageMap).forEach(([key, val]) => {
-        if (val.pages.size === 0) {
-          for (let i = 1; i <= 5; i++) val.pages.add(i);
-        }
+        if (val.pages.size === 0) { for (let i = 1; i <= 5; i++) val.pages.add(i); }
       });
 
       const docBlocks = [];
@@ -3151,12 +711,8 @@ Rules:
         setStatusMsg(`Pass 2/3 · Extracting pages from ${docName}…`);
         const pageList = Array.from(pages).sort((a, b) => a - b);
         if (pageList.length === 0) continue;
-
         try {
-          const result = await api("/api/extract-pages", {
-            method: "POST",
-            body: { base64: contentsDoc.base64, pages: pageList }
-          });
+          const result = await api("/api/extract-pages", { method: "POST", body: { base64: contentsDoc.base64, pages: pageList } });
           totalPagesExtracted += result.pagesExtracted;
           docBlocks.push({
             type: "document",
@@ -3329,7 +885,6 @@ RULES:
 
   const isRunning = ["indexing", "selecting", "reading", "answering"].includes(stage);
 
-  // ── toggle master vault expanded/collapsed ──────────────────────────────────
   const toggleMaster = (masterId) => {
     setExpandedMasters(prev => ({ ...prev, [masterId]: !prev[masterId] }));
   };
@@ -3342,8 +897,7 @@ RULES:
     setQueryScope("single");
   };
 
-  // ── render ─────────────────────────────────────────────────────────────────
-
+  // ── Global styles ─────────────────────────────────────────────────────────────
   const globalStyles = `
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -3361,7 +915,7 @@ RULES:
     body { font-family: Inter, Arial, sans-serif; }
   `;
 
-  // ── login screen ────────────────────────────────────────────────────────────
+  // ── Login screen ──────────────────────────────────────────────────────────────
   if (!authenticated) {
     return (
       <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
@@ -3394,7 +948,7 @@ RULES:
     );
   }
 
-  // ── main UI ─────────────────────────────────────────────────────────────────
+  // ── Main UI ───────────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", color: "#0b0c0c", display: "flex", flexDirection: "column" }}>
       <style>{globalStyles}</style>
@@ -3408,25 +962,19 @@ RULES:
         />
       )}
 
-      {/* Archimind top nav */}
+      {/* Top nav */}
       <div style={{ background: ARC_NAVY, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, height: 56 }}>
         <button className="btn" onClick={() => setAppSection("home")}
           style={{ background: "none", color: "#ffffff", fontSize: 20, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif", padding: 0 }}>
           Archimind
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          <button className="btn" onClick={() => setAppSection("vault")}
-            style={{ background: appSection === "vault" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "vault" ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === "vault" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
-            Vault
-          </button>
-          <button className="btn" onClick={() => setAppSection("compare")}
-            style={{ background: appSection === "compare" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "compare" ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === "compare" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
-            Compare
-          </button>
-          <button className="btn" onClick={() => setAppSection("library")}
-            style={{ background: appSection === "library" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "library" ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === "library" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
-            Library
-          </button>
+          {["vault", "compare", "library"].map(section => (
+            <button key={section} className="btn" onClick={() => setAppSection(section)}
+              style={{ background: appSection === section ? "rgba(255,255,255,0.12)" : "none", color: appSection === section ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === section ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
+              {section.charAt(0).toUpperCase() + section.slice(1)}
+            </button>
+          ))}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ color: "#7a9aaa", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase" }}>Document Intelligence</span>
@@ -3438,357 +986,324 @@ RULES:
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden", maxHeight: "calc(100vh - 56px)" }}>
 
-        {/* ── HOME landing page ─────────────────────────────────────────── */}
-        {appSection === "home" && (
-          <LandingPage onSelect={setAppSection} isAdmin={isAdmin} />
-        )}
-
-        {/* ── COMPARE ───────────────────────────────────────────────────── */}
-        {appSection === "compare" && (
-          <CompareSection vaults={vaults} isAdmin={isAdmin} />
-        )}
-
-        {/* ── DATASHEET LIBRARY ─────────────────────────────────────────── */}
-        {appSection === "library" && (
-          <DatasheetsLibrarySection vaults={vaults} isAdmin={isAdmin} />
-        )}
+        {appSection === "home" && <LandingPage onSelect={setAppSection} isAdmin={isAdmin} />}
+        {appSection === "compare" && <CompareSection vaults={vaults} isAdmin={isAdmin} />}
+        {appSection === "library" && <DatasheetsLibrarySection vaults={vaults} isAdmin={isAdmin} />}
 
         {/* ── VAULT ─────────────────────────────────────────────────────── */}
         {appSection === "vault" && <>
 
-        {/* sidebar */}
-        <div style={{ width: 260, borderRight: "1px solid #e8e0d5", background: ARC_STONE, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+          {/* Sidebar */}
+          <div style={{ width: 260, borderRight: "1px solid #e8e0d5", background: ARC_STONE, display: "flex", flexDirection: "column", flexShrink: 0 }}>
+            <div style={{ padding: "20px 24px 8px", fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: "1px solid #ddd8d0" }}>Vaults</div>
 
-          <div style={{ padding: "20px 24px 8px", fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: "1px solid #ddd8d0" }}>Vaults</div>
-
-          {/* Vault tree */}
-          <div style={{ flex: 1, overflowY: "auto" }}>
-            {loadingVaults ? (
-              <div style={{ padding: 16, display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}><Spinner size={12} /> Loading…</div>
-            ) : vaults.map(v => {
-              if (v.type === "master") {
-                const isExpanded = !!expandedMasters[v.id];
-                return (
-                  <div key={v.id}>
-                    {/* Master vault row */}
-                    <div className="master-item"
-                      onClick={() => toggleMaster(v.id)}
-                      style={{ padding: "10px 24px", display: "flex", alignItems: "center", gap: 8, borderLeft: "3px solid transparent" }}>
-                      <span style={{ fontSize: 10, color: "#9a9088", transition: "transform 0.15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>▶</span>
-                      <span style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500, letterSpacing: "0.01em", flex: 1 }}>{v.name}</span>
-                      <span style={{ fontSize: 10, color: "#b0a8a0" }}>{(v.subVaults || []).length}</span>
-                    </div>
-
-                    {/* Sub-vault rows */}
-                    {isExpanded && (v.subVaults || []).map(sv => (
-                      <div key={sv.id} className="vault-item"
-                        onClick={() => selectVault(sv.id)}
-                        style={{
-                          padding: "9px 24px 9px 44px",
-                          background: selectedVault === sv.id ? "#ffffff" : "transparent",
-                          borderLeft: selectedVault === sv.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent",
-                          display: "flex", alignItems: "center", gap: 6,
-                        }}>
-                        <span style={{ fontSize: 10, color: "#b0a8a0" }}>📄</span>
-                        <span style={{ fontSize: 12, color: ARC_NAVY, fontWeight: selectedVault === sv.id ? 600 : 400, letterSpacing: "0.01em" }}>{sv.name}</span>
+            <div style={{ flex: 1, overflowY: "auto" }}>
+              {loadingVaults ? (
+                <div style={{ padding: 16, display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}><Spinner size={12} /> Loading…</div>
+              ) : vaults.map(v => {
+                if (v.type === "master") {
+                  const isExpanded = !!expandedMasters[v.id];
+                  return (
+                    <div key={v.id}>
+                      <div className="master-item" onClick={() => toggleMaster(v.id)}
+                        style={{ padding: "10px 24px", display: "flex", alignItems: "center", gap: 8, borderLeft: "3px solid transparent" }}>
+                        <span style={{ fontSize: 10, color: "#9a9088", transition: "transform 0.15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>▶</span>
+                        <span style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500, letterSpacing: "0.01em", flex: 1 }}>{v.name}</span>
+                        <span style={{ fontSize: 10, color: "#b0a8a0" }}>{(v.subVaults || []).length}</span>
                       </div>
-                    ))}
-                    {isExpanded && (v.subVaults || []).length === 0 && (
-                      <div style={{ padding: "6px 24px 6px 44px", fontSize: 11, color: "#b0a8a0", fontStyle: "italic" }}>No sub-vaults yet</div>
-                    )}
-                  </div>
-                );
-              } else {
-                // Regular flat vault
-                return (
-                  <div key={v.id} className="vault-item"
-                    onClick={() => selectVault(v.id)}
-                    style={{ padding: "12px 24px", background: selectedVault === v.id ? "#ffffff" : "transparent", borderLeft: selectedVault === v.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent" }}>
-                    <div style={{ fontSize: 13, color: ARC_NAVY, fontWeight: selectedVault === v.id ? 600 : 400, letterSpacing: "0.01em" }}>{v.name}</div>
-                  </div>
-                );
-              }
-            })}
-          </div>
+                      {isExpanded && (v.subVaults || []).map(sv => (
+                        <div key={sv.id} className="vault-item" onClick={() => selectVault(sv.id)}
+                          style={{ padding: "9px 24px 9px 44px", background: selectedVault === sv.id ? "#ffffff" : "transparent", borderLeft: selectedVault === sv.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent", display: "flex", alignItems: "center", gap: 6 }}>
+                          <span style={{ fontSize: 10, color: "#b0a8a0" }}>📄</span>
+                          <span style={{ fontSize: 12, color: ARC_NAVY, fontWeight: selectedVault === sv.id ? 600 : 400, letterSpacing: "0.01em" }}>{sv.name}</span>
+                        </div>
+                      ))}
+                      {isExpanded && (v.subVaults || []).length === 0 && (
+                        <div style={{ padding: "6px 24px 6px 44px", fontSize: 11, color: "#b0a8a0", fontStyle: "italic" }}>No sub-vaults yet</div>
+                      )}
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div key={v.id} className="vault-item" onClick={() => selectVault(v.id)}
+                      style={{ padding: "12px 24px", background: selectedVault === v.id ? "#ffffff" : "transparent", borderLeft: selectedVault === v.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent" }}>
+                      <div style={{ fontSize: 13, color: ARC_NAVY, fontWeight: selectedVault === v.id ? 600 : 400, letterSpacing: "0.01em" }}>{v.name}</div>
+                    </div>
+                  );
+                }
+              })}
+            </div>
 
-          {/* Temp doc upload */}
-          <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px" }}>
-            {tempDoc ? (
-              <div style={{ padding: "10px 0" }}>
-                <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "8px 10px" }}>
-                  <span style={{ fontSize: 11, color: ARC_TERRACOTTA, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {tempDoc.name}</span>
-                  <button className="btn" onClick={() => setTempDoc(null)} title="Remove"
-                    style={{ background: "none", color: ARC_TERRACOTTA, fontSize: 14, padding: "0 2px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
+            {/* Temp doc upload */}
+            <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px" }}>
+              {tempDoc ? (
+                <div style={{ padding: "10px 0" }}>
+                  <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "8px 10px" }}>
+                    <span style={{ fontSize: 11, color: ARC_TERRACOTTA, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {tempDoc.name}</span>
+                    <button className="btn" onClick={() => setTempDoc(null)} title="Remove"
+                      style={{ background: "none", color: ARC_TERRACOTTA, fontSize: 14, padding: "0 2px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
+                  </div>
+                  <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Temporary — will not be saved. Included in all questions.</p>
                 </div>
-                <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Temporary — will not be saved. Included in all questions.</p>
-              </div>
-            ) : (
-              <div
-                onDragOver={e => { e.preventDefault(); setTempDocDragOver(true); }}
-                onDragLeave={() => setTempDocDragOver(false)}
-                onDrop={e => { e.preventDefault(); setTempDocDragOver(false); const f = e.dataTransfer.files[0]; if (f) loadTempDoc(f); }}
-                onClick={() => tempDocInputRef.current.click()}
-                style={{ padding: "10px 0", cursor: "pointer" }}>
-                <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
-                <div style={{ border: `1px dashed ${tempDocDragOver ? AD_GREEN : "#ccc"}`, padding: "10px 12px", background: tempDocDragOver ? "#f0f5f6" : "transparent", display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 12, opacity: 0.4 }}>📎</span>
-                  <span style={{ fontSize: 11, color: ARC_NAVY, letterSpacing: "0.01em" }}>Upload a PDF</span>
+              ) : (
+                <div
+                  onDragOver={e => { e.preventDefault(); setTempDocDragOver(true); }}
+                  onDragLeave={() => setTempDocDragOver(false)}
+                  onDrop={e => { e.preventDefault(); setTempDocDragOver(false); const f = e.dataTransfer.files[0]; if (f) loadTempDoc(f); }}
+                  onClick={() => tempDocInputRef.current.click()}
+                  style={{ padding: "10px 0", cursor: "pointer" }}>
+                  <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
+                  <div style={{ border: `1px dashed ${tempDocDragOver ? AD_GREEN : "#ccc"}`, padding: "10px 12px", background: tempDocDragOver ? "#f0f5f6" : "transparent", display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 12, opacity: 0.4 }}>📎</span>
+                    <span style={{ fontSize: 11, color: ARC_NAVY, letterSpacing: "0.01em" }}>Upload a PDF</span>
+                  </div>
+                  <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Upload a temporary PDF here to include it in your questions. It will not be saved to the vault.</p>
+                  <input ref={tempDocInputRef} type="file" accept="application/pdf" style={{ display: "none" }} onChange={e => { if (e.target.files[0]) loadTempDoc(e.target.files[0]); }} />
                 </div>
-                <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Upload a temporary PDF here to include it in your questions. It will not be saved to the vault.</p>
-                <input ref={tempDocInputRef} type="file" accept="application/pdf" style={{ display: "none" }} onChange={e => { if (e.target.files[0]) loadTempDoc(e.target.files[0]); }} />
+              )}
+            </div>
+
+            {/* Admin controls */}
+            {isAdmin && (
+              <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px", display: "flex", flexDirection: "column", gap: 8 }}>
+                {creating ? (
+                  <div style={{ background: "#f5f3f0", padding: "12px" }}>
+                    <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", display: "block", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>New Vault Name</label>
+                    <input value={newVaultName} onChange={e => setNewVaultName(e.target.value)}
+                      onKeyDown={e => e.key === "Enter" && createVault()}
+                      placeholder="Name" autoFocus className="arc-input"
+                      style={{ width: "100%", border: `1px solid #ccc`, padding: "7px 10px", fontSize: 13, color: ARC_NAVY, marginBottom: 8, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }} />
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button className="btn" onClick={createVault} style={{ background: ARC_NAVY, color: "#fff", padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Create</button>
+                      <button className="btn" onClick={() => setCreating(false)} style={{ background: "transparent", color: "#9a9088", padding: "6px 10px", fontSize: 11, border: "1px solid #ccc" }}>Cancel</button>
+                    </div>
+                  </div>
+                ) : (
+                  <button className="btn" onClick={() => setCreating(true)}
+                    style={{ width: "100%", background: "transparent", color: ARC_NAVY, padding: "8px 0", fontSize: 11, fontWeight: 600, textAlign: "center", border: `1px solid ${ARC_NAVY}`, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    + New Vault
+                  </button>
+                )}
+                <button className="btn" onClick={() => setShowManageModal(true)}
+                  style={{ width: "100%", background: "transparent", color: "#9a9088", padding: "7px 0", fontSize: 11, fontWeight: 500, textAlign: "center", border: "1px solid #ccc", letterSpacing: "0.04em" }}>
+                  Manage Vaults
+                </button>
               </div>
             )}
           </div>
 
-          {/* Admin controls */}
-          {isAdmin && (
-            <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px", display: "flex", flexDirection: "column", gap: 8 }}>
-              {creating ? (
-                <div style={{ background: "#f5f3f0", padding: "12px" }}>
-                  <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", display: "block", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>New Vault Name</label>
-                  <input value={newVaultName} onChange={e => setNewVaultName(e.target.value)}
-                    onKeyDown={e => e.key === "Enter" && createVault()}
-                    placeholder="Name" autoFocus className="arc-input"
-                    style={{ width: "100%", border: `1px solid #ccc`, padding: "7px 10px", fontSize: 13, color: ARC_NAVY, marginBottom: 8, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }} />
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button className="btn" onClick={createVault} style={{ background: ARC_NAVY, color: "#fff", padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Create</button>
-                    <button className="btn" onClick={() => setCreating(false)} style={{ background: "transparent", color: "#9a9088", padding: "6px 10px", fontSize: 11, border: "1px solid #ccc" }}>Cancel</button>
-                  </div>
-                </div>
-              ) : (
-                <button className="btn" onClick={() => setCreating(true)}
-                  style={{ width: "100%", background: "transparent", color: ARC_NAVY, padding: "8px 0", fontSize: 11, fontWeight: 600, textAlign: "center", border: `1px solid ${ARC_NAVY}`, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                  + New Vault
-                </button>
-              )}
-              <button className="btn" onClick={() => setShowManageModal(true)}
-                style={{ width: "100%", background: "transparent", color: "#9a9088", padding: "7px 0", fontSize: 11, fontWeight: 500, textAlign: "center", border: "1px solid #ccc", letterSpacing: "0.04em" }}>
-                Manage Vaults
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* main panel */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
-          {!vault ? (
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Select a vault</p>
-              <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Upload documents and query building regulations</p>
-            </div>
-          ) : (
-            <>
-              {/* Vault header */}
-              <div style={{ borderBottom: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
-                <div style={{ padding: "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <div>
-                    {parentMaster && (
-                      <div style={{ fontSize: 10, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>
-                        📁 {parentMaster.name}
-                      </div>
-                    )}
-                    <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>{vault.name}</h1>
-                    <p style={{ fontSize: 11, color: "#9a9088", marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-                      {pdfs.length} document{pdfs.length !== 1 ? "s" : ""} &nbsp;·&nbsp;
-                      {vaultIndex
-                        ? <span style={{ color: AD_GREEN, fontWeight: 600 }}>Indexed</span>
-                        : <span style={{ color: ARC_TERRACOTTA }}>Not indexed</span>}
-                    </p>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    {/* Query scope toggle — only shown when inside a master vault */}
-                    {parentMaster && (
-                      <div style={{ display: "flex", border: `1px solid ${ARC_STONE}`, overflow: "hidden" }}>
-                        <button className="btn" onClick={() => setQueryScope("single")}
-                          style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "single" ? ARC_NAVY : "transparent", color: queryScope === "single" ? "#fff" : "#9a9088", border: "none" }}>
-                          This vault
-                        </button>
-                        <button className="btn" onClick={() => setQueryScope("all")}
-                          style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "all" ? ARC_NAVY : "transparent", color: queryScope === "all" ? "#fff" : "#9a9088", border: "none", borderLeft: `1px solid ${ARC_STONE}` }}>
-                          All in {parentMaster.name}
-                        </button>
-                      </div>
-                    )}
-                    {pdfs.length > 0 && isAdmin && (
-                      <button className="btn" onClick={indexVault} disabled={isRunning}
-                        style={{ background: vaultIndex ? "transparent" : ARC_NAVY, color: vaultIndex ? ARC_NAVY : "#ffffff", border: `1px solid ${ARC_NAVY}`, padding: "8px 20px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                        {stage === "indexing" ? <><Spinner size={12} /> Indexing…</> : vaultIndex ? "Re-index" : "Index Vault"}
-                      </button>
-                    )}
-                  </div>
-                </div>
+          {/* Main panel */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+            {!vault ? (
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Select a vault</p>
+                <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Upload documents and query building regulations</p>
               </div>
-
-              <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
-
-                {/* PDF panel */}
-                <div style={{ width: 220, borderRight: "1px solid #e8e0d5", background: "#faf8f5", display: "flex", flexDirection: "column", flexShrink: 0 }}>
-                  {isAdmin && (
-                    <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
-                      onClick={() => fileInputRef.current.click()}
-                      style={{ margin: 12, border: `1px dashed ${dragOver ? AD_GREEN : "#ccc"}`, padding: "14px 10px", textAlign: "center", cursor: "pointer", background: dragOver ? "#f0f5f6" : "transparent" }}>
-                      {uploadingPdf ? (
-                        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: AD_GREEN, fontSize: 12 }}><Spinner size={12} /> Uploading…</div>
-                      ) : (
-                        <>
-                          <div style={{ fontSize: 18, marginBottom: 4, opacity: 0.4 }}>📄</div>
-                          <p style={{ fontSize: 11, color: "#9a9088", lineHeight: 1.6, letterSpacing: "0.02em" }}>Drop PDFs here<br />or click to browse</p>
-                        </>
+            ) : (
+              <>
+                {/* Vault header */}
+                <div style={{ borderBottom: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
+                  <div style={{ padding: "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <div>
+                      {parentMaster && (
+                        <div style={{ fontSize: 10, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>
+                          📁 {parentMaster.name}
+                        </div>
                       )}
-                      <input ref={fileInputRef} type="file" multiple accept="application/pdf" style={{ display: "none" }} onChange={e => addPDFs(e.target.files)} />
+                      <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>{vault.name}</h1>
+                      <p style={{ fontSize: 11, color: "#9a9088", marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                        {pdfs.length} document{pdfs.length !== 1 ? "s" : ""} &nbsp;·&nbsp;
+                        {vaultIndex
+                          ? <span style={{ color: AD_GREEN, fontWeight: 600 }}>Indexed</span>
+                          : <span style={{ color: ARC_TERRACOTTA }}>Not indexed</span>}
+                      </p>
                     </div>
-                  )}
-
-                  <div style={{ flex: 1, overflowY: "auto" }}>
-                    {pdfs.length > 0 && (
-                      <div style={{ padding: "4px 12px 4px", fontSize: 9, color: "#b0a8a0", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", gap: 12, borderBottom: "1px solid #eae5df" }}>
-                        <span style={{ color: AD_GREEN }}>● indexed</span>
-                        <span style={{ color: "#c0b8b0" }}>○ pending</span>
-                      </div>
-                    )}
-                    {pdfs.map(pdf => {
-                      const isIndexed = vaultIndex?.documents?.some(d => d.name === pdf.name);
-                      return (
-                        <div key={pdf.id} style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid #eae5df" }}>
-                          <span style={{ fontSize: 8, color: isIndexed ? AD_GREEN : "#c0b8b0", flexShrink: 0 }}>{isIndexed ? "●" : "○"}</span>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 11, color: ARC_NAVY, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.01em" }}>{pdf.name}</div>
-                            <div style={{ fontSize: 9, color: "#b0a8a0", marginTop: 1 }}>{(pdf.size / 1024).toFixed(0)} KB</div>
-                          </div>
-                          {isAdmin && <>
-                            <button className="btn" onClick={() => indexSinglePdf(pdf)} disabled={isRunning} title="Re-index"
-                              style={{ background: "none", color: "#b0a8a0", fontSize: 11, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
-                              onMouseEnter={e => e.target.style.color = AD_GREEN}
-                              onMouseLeave={e => e.target.style.color = "#b0a8a0"}>↻</button>
-                            <button className="btn" onClick={() => deletePdf(pdf)} disabled={isRunning} title="Remove"
-                              style={{ background: "none", color: "#b0a8a0", fontSize: 14, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
-                              onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA}
-                              onMouseLeave={e => e.target.style.color = "#b0a8a0"}>×</button>
-                          </>}
-                        </div>
-                      );
-                    })}
-                    {pdfs.length === 0 && <p style={{ fontSize: 11, color: "#b0a8a0", textAlign: "center", marginTop: 24, letterSpacing: "0.02em" }}>No documents yet</p>}
-                  </div>
-                </div>
-
-                {/* Q&A panel */}
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
-
-                  {/* Progress */}
-                  {isRunning && (
-                    <div style={{ padding: "14px 32px", borderBottom: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0, animation: "fadeIn 0.3s ease" }}>
-                      <div style={{ fontSize: 12, color: ARC_NAVY, marginBottom: 10, display: "flex", alignItems: "center", gap: 8, fontWeight: 500, letterSpacing: "0.02em" }}><Spinner size={12} /> {statusMsg}</div>
-                      <ProgressBar label="Pass 1 · Index scoring" pct={progress.select} color={AD_GREEN} />
-                      <ProgressBar label="Pass 2 · Page extraction" pct={progress.read} color={ARC_TERRACOTTA} />
-                      <ProgressBar label="Pass 3 · Answer synthesis" pct={progress.answer} color={ARC_NAVY} />
-                    </div>
-                  )}
-
-                  {/* Status bar */}
-                  {!isRunning && statusMsg && (
-                    <div style={{ padding: "8px 24px", borderBottom: "1px solid #e8e0d5", background: "#ffffff", fontSize: 12, color: "#505a5f", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, gap: 12 }}>
-                      <span style={{ color: timedOut ? ARC_TERRACOTTA : "#505a5f" }}>{statusMsg}</span>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
-                        {timedOut && lastQuestion && (
-                          <button className="btn" onClick={() => { setTimedOut(false); setQuestion(lastQuestion); askQuestion(); }}
-                            style={{ background: ARC_TERRACOTTA, color: "#fff", padding: "4px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
-                            ↻ Retry
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      {parentMaster && (
+                        <div style={{ display: "flex", border: `1px solid ${ARC_STONE}`, overflow: "hidden" }}>
+                          <button className="btn" onClick={() => setQueryScope("single")}
+                            style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "single" ? ARC_NAVY : "transparent", color: queryScope === "single" ? "#fff" : "#9a9088", border: "none" }}>
+                            This vault
                           </button>
-                        )}
-                        {costEst !== null && !timedOut && (
-                          <span style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic" }}>
-                            Est. cost: {costEst < 0.01 ? "< 1p" : `${(costEst * 100).toFixed(2)}p`}
-                          </span>
-                        )}
-                      </div>
+                          <button className="btn" onClick={() => setQueryScope("all")}
+                            style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "all" ? ARC_NAVY : "transparent", color: queryScope === "all" ? "#fff" : "#9a9088", border: "none", borderLeft: `1px solid ${ARC_STONE}` }}>
+                            All in {parentMaster.name}
+                          </button>
+                        </div>
+                      )}
+                      {pdfs.length > 0 && isAdmin && (
+                        <button className="btn" onClick={indexVault} disabled={isRunning}
+                          style={{ background: vaultIndex ? "transparent" : ARC_NAVY, color: vaultIndex ? ARC_NAVY : "#ffffff", border: `1px solid ${ARC_NAVY}`, padding: "8px 20px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                          {stage === "indexing" ? <><Spinner size={12} /> Indexing…</> : vaultIndex ? "Re-index" : "Index Vault"}
+                        </button>
+                      )}
                     </div>
-                  )}
+                  </div>
+                </div>
 
-                  {/* Scope notice when querying all */}
-                  {queryScope === "all" && parentMaster && (
-                    <div style={{ padding: "8px 28px", background: "#f0f5f6", borderBottom: `1px solid ${AD_GREEN_MID}`, fontSize: 11, color: AD_GREEN, display: "flex", alignItems: "center", gap: 8 }}>
-                      <span>🔍</span>
-                      <span>Searching across all {(parentMaster.subVaults || []).length} vaults in <strong>{parentMaster.name}</strong></span>
-                    </div>
-                  )}
+                <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
-                  {/* Answer area */}
-                  <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px" }}>
-
-                    {/* History */}
-                    {vaultHistory.length > 0 && (
-                      <div style={{ marginBottom: 20 }}>
-                        {vaultHistory.map((h, i) => (
-                          <div key={i} style={{ marginBottom: 8 }}>
-                            <div style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                              <span style={{ color: "#4a7c20", fontWeight: 700, flexShrink: 0 }}>Q:</span>
-                              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.question}</span>
-                              <span style={{ fontSize: 11, color: "#6f777b", flexShrink: 0 }}>{new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                            </div>
-                          </div>
-                        ))}
+                  {/* PDF panel */}
+                  <div style={{ width: 220, borderRight: "1px solid #e8e0d5", background: "#faf8f5", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+                    {isAdmin && (
+                      <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
+                        onClick={() => fileInputRef.current.click()}
+                        style={{ margin: 12, border: `1px dashed ${dragOver ? AD_GREEN : "#ccc"}`, padding: "14px 10px", textAlign: "center", cursor: "pointer", background: dragOver ? "#f0f5f6" : "transparent" }}>
+                        {uploadingPdf ? (
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: AD_GREEN, fontSize: 12 }}><Spinner size={12} /> Uploading…</div>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 18, marginBottom: 4, opacity: 0.4 }}>📄</div>
+                            <p style={{ fontSize: 11, color: "#9a9088", lineHeight: 1.6, letterSpacing: "0.02em" }}>Drop PDFs here<br />or click to browse</p>
+                          </>
+                        )}
+                        <input ref={fileInputRef} type="file" multiple accept="application/pdf" style={{ display: "none" }} onChange={e => addPDFs(e.target.files)} />
                       </div>
                     )}
 
-                    {/* Current answer */}
-                    {answer && (
-                      <div style={{ animation: "fadeIn 0.4s ease" }}>
-                        <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #4a7c20", padding: "24px 28px" }}>
-                          <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                            Response — {queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name}
-                          </p>
-                          <AnswerRenderer text={answer} />
+                    <div style={{ flex: 1, overflowY: "auto" }}>
+                      {pdfs.length > 0 && (
+                        <div style={{ padding: "4px 12px 4px", fontSize: 9, color: "#b0a8a0", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", gap: 12, borderBottom: "1px solid #eae5df" }}>
+                          <span style={{ color: AD_GREEN }}>● indexed</span>
+                          <span style={{ color: "#c0b8b0" }}>○ pending</span>
+                        </div>
+                      )}
+                      {pdfs.map(pdf => {
+                        const isIndexed = vaultIndex?.documents?.some(d => d.name === pdf.name);
+                        return (
+                          <div key={pdf.id} style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid #eae5df" }}>
+                            <span style={{ fontSize: 8, color: isIndexed ? AD_GREEN : "#c0b8b0", flexShrink: 0 }}>{isIndexed ? "●" : "○"}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontSize: 11, color: ARC_NAVY, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.01em" }}>{pdf.name}</div>
+                              <div style={{ fontSize: 9, color: "#b0a8a0", marginTop: 1 }}>{(pdf.size / 1024).toFixed(0)} KB</div>
+                            </div>
+                            {isAdmin && <>
+                              <button className="btn" onClick={() => indexSinglePdf(pdf)} disabled={isRunning} title="Re-index"
+                                style={{ background: "none", color: "#b0a8a0", fontSize: 11, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
+                                onMouseEnter={e => e.target.style.color = AD_GREEN}
+                                onMouseLeave={e => e.target.style.color = "#b0a8a0"}>↻</button>
+                              <button className="btn" onClick={() => deletePdf(pdf)} disabled={isRunning} title="Remove"
+                                style={{ background: "none", color: "#b0a8a0", fontSize: 14, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
+                                onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA}
+                                onMouseLeave={e => e.target.style.color = "#b0a8a0"}>×</button>
+                            </>}
+                          </div>
+                        );
+                      })}
+                      {pdfs.length === 0 && <p style={{ fontSize: 11, color: "#b0a8a0", textAlign: "center", marginTop: 24, letterSpacing: "0.02em" }}>No documents yet</p>}
+                    </div>
+                  </div>
+
+                  {/* Q&A panel */}
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+
+                    {isRunning && (
+                      <div style={{ padding: "14px 32px", borderBottom: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0, animation: "fadeIn 0.3s ease" }}>
+                        <div style={{ fontSize: 12, color: ARC_NAVY, marginBottom: 10, display: "flex", alignItems: "center", gap: 8, fontWeight: 500, letterSpacing: "0.02em" }}><Spinner size={12} /> {statusMsg}</div>
+                        <ProgressBar label="Pass 1 · Index scoring" pct={progress.select} color={AD_GREEN} />
+                        <ProgressBar label="Pass 2 · Page extraction" pct={progress.read} color={ARC_TERRACOTTA} />
+                        <ProgressBar label="Pass 3 · Answer synthesis" pct={progress.answer} color={ARC_NAVY} />
+                      </div>
+                    )}
+
+                    {!isRunning && statusMsg && (
+                      <div style={{ padding: "8px 24px", borderBottom: "1px solid #e8e0d5", background: "#ffffff", fontSize: 12, color: "#505a5f", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, gap: 12 }}>
+                        <span style={{ color: timedOut ? ARC_TERRACOTTA : "#505a5f" }}>{statusMsg}</span>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                          {timedOut && lastQuestion && (
+                            <button className="btn" onClick={() => { setTimedOut(false); setQuestion(lastQuestion); askQuestion(); }}
+                              style={{ background: ARC_TERRACOTTA, color: "#fff", padding: "4px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
+                              ↻ Retry
+                            </button>
+                          )}
+                          {costEst !== null && !timedOut && (
+                            <span style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic" }}>
+                              Est. cost: {costEst < 0.01 ? "< 1p" : `${(costEst * 100).toFixed(2)}p`}
+                            </span>
+                          )}
                         </div>
                       </div>
                     )}
 
-                    {!answer && !isRunning && vaultIndex && vaultHistory.length === 0 && (
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10 }}>
-                        <div style={{ width: 32, height: 2, background: ARC_TERRACOTTA }} />
-                        <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Ask a question</p>
-                        <p style={{ fontSize: 11, color: "#9a9088", letterSpacing: "0.03em" }}>AI selects the most relevant pages before answering</p>
+                    {queryScope === "all" && parentMaster && (
+                      <div style={{ padding: "8px 28px", background: "#f0f5f6", borderBottom: `1px solid ${AD_GREEN_MID}`, fontSize: 11, color: AD_GREEN, display: "flex", alignItems: "center", gap: 8 }}>
+                        <span>🔍</span>
+                        <span>Searching across all {(parentMaster.subVaults || []).length} vaults in <strong>{parentMaster.name}</strong></span>
                       </div>
                     )}
 
-                    {!vaultIndex && !isRunning && pdfs.length > 0 && (
-                      <div style={{ border: `1px solid ${ARC_TERRACOTTA}`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 20px", margin: "24px 0", background: "#fdf5f3" }}>
-                        <p style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Vault not indexed</p>
-                        <p style={{ fontSize: 12, color: "#9a9088" }}>Click Index Vault to prepare documents for searching.</p>
-                      </div>
-                    )}
+                    <div style={{ flex: 1, overflowY: "auto", padding: "20px 28px" }}>
 
-                    {pdfs.length === 0 && !isRunning && (
-                      <div style={{ border: `1px solid #b8d4da`, borderLeft: `3px solid ${AD_GREEN}`, padding: "14px 20px", margin: "24px 0", background: "#f0f5f6" }}>
-                        <p style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>No documents uploaded</p>
-                        <p style={{ fontSize: 12, color: "#9a9088" }}>Use the panel on the left to upload PDF documents to this vault.</p>
+                      {vaultHistory.length > 0 && (
+                        <div style={{ marginBottom: 20 }}>
+                          {vaultHistory.map((h, i) => (
+                            <div key={i} style={{ marginBottom: 8 }}>
+                              <div style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                                <span style={{ color: "#4a7c20", fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                                <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.question}</span>
+                                <span style={{ fontSize: 11, color: "#6f777b", flexShrink: 0 }}>{new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {answer && (
+                        <div style={{ animation: "fadeIn 0.4s ease" }}>
+                          <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #4a7c20", padding: "24px 28px" }}>
+                            <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                              Response — {queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name}
+                            </p>
+                            <AnswerRenderer text={answer} />
+                          </div>
+                        </div>
+                      )}
+
+                      {!answer && !isRunning && vaultIndex && vaultHistory.length === 0 && (
+                        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10 }}>
+                          <div style={{ width: 32, height: 2, background: ARC_TERRACOTTA }} />
+                          <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Ask a question</p>
+                          <p style={{ fontSize: 11, color: "#9a9088", letterSpacing: "0.03em" }}>AI selects the most relevant pages before answering</p>
+                        </div>
+                      )}
+
+                      {!vaultIndex && !isRunning && pdfs.length > 0 && (
+                        <div style={{ border: `1px solid ${ARC_TERRACOTTA}`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 20px", margin: "24px 0", background: "#fdf5f3" }}>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Vault not indexed</p>
+                          <p style={{ fontSize: 12, color: "#9a9088" }}>Click Index Vault to prepare documents for searching.</p>
+                        </div>
+                      )}
+
+                      {pdfs.length === 0 && !isRunning && (
+                        <div style={{ border: `1px solid #b8d4da`, borderLeft: `3px solid ${AD_GREEN}`, padding: "14px 20px", margin: "24px 0", background: "#f0f5f6" }}>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>No documents uploaded</p>
+                          <p style={{ fontSize: 12, color: "#9a9088" }}>Use the panel on the left to upload PDF documents to this vault.</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {(vaultIndex || (queryScope === "all" && parentMaster)) && (
+                      <div style={{ padding: "16px 32px 20px", borderTop: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
+                        <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
+                          <textarea value={question} onChange={e => setQuestion(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
+                            placeholder="Ask a question about your building regulations documents…"
+                            disabled={isRunning} rows={2} className="arc-input"
+                            style={{ flex: 1, border: `1px solid #ddd8d0`, borderRight: "none", padding: "12px 16px", color: ARC_NAVY, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#faf8f5" : "#ffffff", letterSpacing: "0.01em" }} />
+                          <button className="btn" onClick={askQuestion} disabled={isRunning || !question.trim()}
+                            style={{ background: isRunning || !question.trim() ? "#f0ede8" : ARC_NAVY, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                            {isRunning ? <Spinner size={14} /> : "Search"}
+                          </button>
+                        </div>
+                        {costEst !== null && <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, letterSpacing: "0.04em" }}>Est. cost: {costEst < 0.01 ? "< 1p" : `${(costEst * 100).toFixed(2)}p`}</p>}
                       </div>
                     )}
                   </div>
-
-                  {/* Question input — show if either single vault is indexed OR all-scope is selected */}
-                  {(vaultIndex || (queryScope === "all" && parentMaster)) && (
-                    <div style={{ padding: "16px 32px 20px", borderTop: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
-                      <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
-                        <textarea value={question} onChange={e => setQuestion(e.target.value)}
-                          onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
-                          placeholder="Ask a question about your building regulations documents…"
-                          disabled={isRunning} rows={2} className="arc-input"
-                          style={{ flex: 1, border: `1px solid #ddd8d0`, borderRight: "none", padding: "12px 16px", color: ARC_NAVY, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#faf8f5" : "#ffffff", letterSpacing: "0.01em" }} />
-                        <button className="btn" onClick={askQuestion} disabled={isRunning || !question.trim()}
-                          style={{ background: isRunning || !question.trim() ? "#f0ede8" : ARC_NAVY, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                          {isRunning ? <Spinner size={14} /> : "Search"}
-                        </button>
-                      </div>
-                      {costEst !== null && <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, letterSpacing: "0.04em" }}>Est. cost: {costEst < 0.01 ? "< 1p" : `${(costEst * 100).toFixed(2)}p`}</p>}
-                    </div>
-                  )}
                 </div>
-              </div>
-            </>
-          )}
-        </div>
+              </>
+            )}
+          </div>
 
         </> /* end vault section */}
 
