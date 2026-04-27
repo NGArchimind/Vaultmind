@@ -26,6 +26,15 @@ const STAGE_COLORS = {
   "Stage 7": "#505a5f",
 };
 
+const DRAWING_STATUSES = ["Preliminary", "For Information", "For Construction", "Superseded"];
+
+const STATUS_COLORS = {
+  "Preliminary":       { bg: "#f0ede8", color: "#9a7060" },
+  "For Information":   { bg: "#e8f0f8", color: "#2a6496" },
+  "For Construction":  { bg: "#e8f5ec", color: "#2e7d4f" },
+  "Superseded":        { bg: "#f0ede8", color: "#b0a8a0" },
+};
+
 function stageColor(stage) {
   if (!stage) return "#9a9088";
   const key = Object.keys(STAGE_COLORS).find(k => stage.startsWith(k));
@@ -199,6 +208,337 @@ function PlaceholderTab({ icon, title, description }) {
   );
 }
 
+// ── Drawing file type badge ───────────────────────────────────────────────────
+function FileTypeBadge({ fileName }) {
+  const ext = (fileName || "").split(".").pop().toLowerCase();
+  const isDwg = ext === "dwg";
+  return (
+    <span style={{
+      fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+      padding: "2px 6px", marginLeft: 6,
+      background: isDwg ? "#fff3e0" : "#e8f0f8",
+      color: isDwg ? "#c25a45" : "#2a6496",
+      border: `1px solid ${isDwg ? "#f5c89a" : "#b8d0e8"}`,
+    }}>
+      {isDwg ? "DWG" : "PDF"}
+    </span>
+  );
+}
+
+// ── Drawing status badge ──────────────────────────────────────────────────────
+function StatusBadge({ status }) {
+  const s = STATUS_COLORS[status] || { bg: "#f0ede8", color: "#9a9088" };
+  return (
+    <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", padding: "2px 8px", background: s.bg, color: s.color }}>
+      {status || "—"}
+    </span>
+  );
+}
+
+// ── DrawingsTab ───────────────────────────────────────────────────────────────
+function DrawingsTab({ projectId, isAdmin }) {
+  const [drawings, setDrawings] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
+  const [uploadError, setUploadError] = useState("");
+  const [downloadingId, setDownloadingId] = useState(null);
+  const fileInputRef = useRef(null);
+
+  const emptyForm = { title: "", drawing_number: "", revision: "", status: "Preliminary" };
+  const [form, setForm] = useState(emptyForm);
+  const [selectedFile, setSelectedFile] = useState(null);
+
+  useEffect(() => { loadDrawings(); }, [projectId]);
+
+  async function loadDrawings() {
+    setLoading(true);
+    try {
+      const { drawings: data } = await api(`/api/projects/${projectId}/drawings`);
+      setDrawings(data || []);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  }
+
+  function handleFileChange(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const ext = file.name.split(".").pop().toLowerCase();
+    if (!["pdf", "dwg"].includes(ext)) {
+      setUploadError("Only PDF and DWG files are supported.");
+      return;
+    }
+    setUploadError("");
+    setSelectedFile(file);
+    // Auto-fill title from filename if blank
+    if (!form.title) {
+      const baseName = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
+      setForm(f => ({ ...f, title: baseName }));
+    }
+  }
+
+  async function handleUpload() {
+    if (!selectedFile || !form.title.trim()) return;
+    setUploading(true);
+    setUploadError("");
+    try {
+      const base64 = await fileToBase64(selectedFile);
+      const { drawing } = await api(`/api/projects/${projectId}/drawings`, {
+        method: "POST",
+        body: {
+          title: form.title.trim(),
+          drawing_number: form.drawing_number.trim(),
+          revision: form.revision.trim(),
+          status: form.status,
+          file_name: selectedFile.name,
+          file_size: selectedFile.size,
+          base64,
+        },
+      });
+      setDrawings(prev => [drawing, ...prev]);
+      setForm(emptyForm);
+      setSelectedFile(null);
+      setShowUpload(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    } catch (e) {
+      setUploadError("Upload failed: " + e.message);
+    }
+    setUploading(false);
+  }
+
+  async function handleDownload(drawing) {
+    setDownloadingId(drawing.id);
+    try {
+      const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
+      const ext = (drawing.file_name || "").split(".").pop().toLowerCase();
+      const mimeType = ext === "dwg" ? "application/acad" : "application/pdf";
+      const blob = base64ToBlob(base64, mimeType);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = file_name || drawing.file_name || "drawing";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) { console.error("Download failed:", e); }
+    setDownloadingId(null);
+  }
+
+  async function handleDelete(drawingId) {
+    if (!window.confirm("Delete this drawing? This cannot be undone.")) return;
+    try {
+      await api(`/api/projects/${projectId}/drawings/${drawingId}`, { method: "DELETE" });
+      setDrawings(prev => prev.filter(d => d.id !== drawingId));
+    } catch (e) { console.error(e); }
+  }
+
+  async function updateField(drawingId, field, value) {
+    try {
+      const { drawing } = await api(`/api/projects/${projectId}/drawings/${drawingId}`, {
+        method: "PATCH",
+        body: { [field]: value },
+      });
+      setDrawings(prev => prev.map(d => d.id === drawingId ? drawing : d));
+    } catch (e) { console.error(e); }
+  }
+
+  function cancelUpload() {
+    setShowUpload(false);
+    setForm(emptyForm);
+    setSelectedFile(null);
+    setUploadError("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  const labelStyle = { fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
+  const inputStyle = { width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" };
+
+  return (
+    <div style={{ maxWidth: 860 }}>
+      {/* Section header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Drawing Register</h3>
+        {isAdmin && !showUpload && (
+          <button className="btn" onClick={() => setShowUpload(true)}
+            style={{ fontSize: 11, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+            + Upload Drawing
+          </button>
+        )}
+      </div>
+
+      {/* Upload panel */}
+      {showUpload && (
+        <div style={{ background: "#fff", border: `1px solid ${AD_GREEN}`, padding: "20px 24px", marginBottom: 20 }}>
+          <h4 style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 16, letterSpacing: "0.04em", textTransform: "uppercase" }}>Upload Drawing</h4>
+
+          {/* File picker */}
+          <div style={{ marginBottom: 16 }}>
+            <label style={labelStyle}>File (PDF or DWG)</label>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <input ref={fileInputRef} type="file" accept=".pdf,.dwg" onChange={handleFileChange}
+                style={{ fontSize: 12, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif", flex: 1 }} />
+              {selectedFile && (
+                <span style={{ fontSize: 11, color: "#9a9088", whiteSpace: "nowrap" }}>
+                  {(selectedFile.size / 1024 / 1024).toFixed(1)} MB
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: "0 16px" }}>
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Title *</label>
+              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Ground Floor Plan" style={inputStyle} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Drawing No.</label>
+              <input value={form.drawing_number} onChange={e => setForm(f => ({ ...f, drawing_number: e.target.value }))} placeholder="e.g. A-001" style={inputStyle} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Revision</label>
+              <input value={form.revision} onChange={e => setForm(f => ({ ...f, revision: e.target.value }))} placeholder="e.g. P1" style={inputStyle} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Status</label>
+              <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={{ ...inputStyle }}>
+                {DRAWING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {uploadError && <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 12 }}>{uploadError}</p>}
+
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn" onClick={handleUpload}
+              disabled={!selectedFile || !form.title.trim() || uploading}
+              style={{ background: selectedFile && form.title.trim() && !uploading ? AD_GREEN : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+              {uploading ? <><Spinner size={12} /> &nbsp;Uploading…</> : "Upload"}
+            </button>
+            <button className="btn" onClick={cancelUpload} disabled={uploading}
+              style={{ background: "none", color: "#9a9088", padding: "8px 14px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* Drawing list */}
+      {loading ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 13 }}><Spinner size={12} /> Loading drawings…</div>
+      ) : drawings.length === 0 ? (
+        <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>📐</div>
+          <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>No drawings uploaded yet</p>
+          {isAdmin && <p style={{ fontSize: 12, color: "#9a9088" }}>Click + Upload Drawing to add the first one.</p>}
+        </div>
+      ) : (
+        <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
+          {/* Column headers */}
+          <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 80px 160px 36px 36px", gap: "0 12px", padding: "8px 16px", background: ARC_NAVY, alignItems: "center" }}>
+            {["Drawing No.", "Title", "Rev.", "Status", "", ""].map((h, i) => (
+              <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
+            ))}
+          </div>
+
+          {drawings.map((d, i) => (
+            <div key={d.id} style={{
+              display: "grid", gridTemplateColumns: "90px 1fr 80px 160px 36px 36px",
+              gap: "0 12px", padding: "11px 16px", alignItems: "center",
+              borderBottom: i < drawings.length - 1 ? "1px solid #f0ede8" : "none",
+              background: i % 2 === 0 ? "#faf8f5" : "#fff",
+            }}>
+              {/* Drawing number + file type */}
+              <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
+                {isAdmin
+                  ? <EditableField value={d.drawing_number} onSave={v => updateField(d.id, "drawing_number", v)} placeholder="—" style={{ fontSize: 12 }} />
+                  : <span>{d.drawing_number || "—"}</span>
+                }
+                <FileTypeBadge fileName={d.file_name} />
+              </div>
+
+              {/* Title */}
+              <div style={{ fontSize: 13, color: ARC_NAVY, minWidth: 0 }}>
+                {isAdmin
+                  ? <EditableField value={d.title} onSave={v => updateField(d.id, "title", v)} placeholder="Untitled" />
+                  : <span>{d.title}</span>
+                }
+                <div style={{ fontSize: 11, color: "#b0a8a0", marginTop: 1 }}>
+                  {new Date(d.uploaded_at || d.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                  {d.file_size ? ` · ${(d.file_size / 1024 / 1024).toFixed(1)} MB` : ""}
+                </div>
+              </div>
+
+              {/* Revision */}
+              <div style={{ fontSize: 12, color: ARC_NAVY }}>
+                {isAdmin
+                  ? <EditableField value={d.revision} onSave={v => updateField(d.id, "revision", v)} placeholder="—" style={{ fontSize: 12 }} />
+                  : <span style={{ fontWeight: 600 }}>{d.revision || "—"}</span>
+                }
+              </div>
+
+              {/* Status */}
+              <div>
+                {isAdmin ? (
+                  <select value={d.status || "Preliminary"} onChange={e => updateField(d.id, "status", e.target.value)}
+                    style={{ fontSize: 11, border: "1px solid #e8e0d5", padding: "3px 6px", fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff", width: "100%" }}>
+                    {DRAWING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                ) : <StatusBadge status={d.status} />}
+              </div>
+
+              {/* Download */}
+              <div style={{ display: "flex", justifyContent: "center" }}>
+                <button className="btn" onClick={() => handleDownload(d)} disabled={downloadingId === d.id} title="Download"
+                  style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 8px", fontSize: 13, lineHeight: 1 }}
+                  onMouseEnter={e => e.currentTarget.style.color = ARC_NAVY}
+                  onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>
+                  {downloadingId === d.id ? <Spinner size={11} /> : "↓"}
+                </button>
+              </div>
+
+              {/* Delete (admin only) */}
+              <div style={{ display: "flex", justifyContent: "center" }}>
+                {isAdmin && (
+                  <button className="btn" onClick={() => handleDelete(d.id)} title="Delete"
+                    style={{ background: "none", border: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", lineHeight: 1 }}
+                    onMouseEnter={e => e.currentTarget.style.color = ARC_TERRACOTTA}
+                    onMouseLeave={e => e.currentTarget.style.color = "#c8c0b8"}>×</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {drawings.length > 0 && (
+        <p style={{ fontSize: 11, color: "#b0a8a0", marginTop: 8, fontStyle: "italic" }}>
+          {drawings.length} drawing{drawings.length !== 1 ? "s" : ""} · Click any field to edit in place.{" "}
+          {drawings.filter(d => (d.file_name || "").endsWith(".dwg")).length > 0 &&
+            "DWG files will download directly to your machine."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Utility: file → base64 ────────────────────────────────────────────────────
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// ── Utility: base64 → Blob ────────────────────────────────────────────────────
+function base64ToBlob(base64, mimeType) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType });
+}
+
+// ── ProjectDetail ─────────────────────────────────────────────────────────────
 function ProjectDetail({ projectId, onBack, isAdmin }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -534,7 +874,10 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
           </div>
         )}
 
-        {activeTab === "drawings" && <PlaceholderTab icon="📐" title="Drawing Repository" description="Upload, version and search drawings for this project. Pull up the latest revision of any drawing by asking in the Q&A bar below." />}
+        {activeTab === "drawings" && (
+          <DrawingsTab projectId={projectId} isAdmin={isAdmin} />
+        )}
+
         {activeTab === "documents" && <PlaceholderTab icon="📁" title="Documents" description="Store and retrieve project documents — reports, specifications, certificates, and other project-specific files." />}
         {activeTab === "minutes" && <PlaceholderTab icon="📝" title="Meeting Minutes" description="Upload or paste meeting minutes. Search and query them using the Q&A bar below to find decisions, actions, and key discussion points." />}
         {activeTab === "emails" && <PlaceholderTab icon="✉️" title="Emails" description="Connect your email to index project correspondence. Search threads, find attachments, and ask questions across the full project email history." />}

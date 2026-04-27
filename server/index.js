@@ -455,7 +455,8 @@ app.post("/api/extract-pages", async (req, res) => {
   }
 
   const pdfBytes = Buffer.from(base64, "base64");
-  const pageList = pages.map(Number).filter(p => p > 0).sort((a, b) => a - b);
+  const pageList = pages.map(Number).filter(n => !isNaN(n) && n > 0);
+  if (pageList.length === 0) return res.status(400).json({ error: "No valid page numbers" });
 
   // Attempt 1: mupdf
   try {
@@ -464,17 +465,12 @@ app.post("/api/extract-pages", async (req, res) => {
     const totalPages = srcDoc.countPages();
     const validPages = pageList.filter(p => p <= totalPages);
     if (validPages.length === 0) return res.status(400).json({ error: "No valid pages" });
-
     const outDoc = new mupdf.PDFDocument();
-    const graftMap = outDoc.newGraftMap();
     for (const pageNum of validPages) {
-      const pageRef = srcDoc.findPage(pageNum - 1);
-      const newPageRef = graftMap.graftObject(pageRef);
-      outDoc.insertPage(-1, newPageRef);
+      const graftMap = outDoc.newGraftMap();
+      outDoc.graftPage(outDoc.countPages(), srcDoc, pageNum - 1, graftMap);
     }
-    const outPageCount = outDoc.countPages();
-    if (outPageCount === 0) throw new Error("mupdf produced empty document");
-    const rawBuffer = outDoc.saveToBuffer("compress,garbage");
+    const rawBuffer = outDoc.saveToBuffer("compress");
     const outBytes = Buffer.from(rawBuffer.asUint8Array());
     return res.json({ base64: outBytes.toString("base64"), pagesExtracted: validPages.length, pageNumbers: validPages });
   } catch (mupdfErr) {
@@ -654,6 +650,7 @@ app.delete("/api/products/:id", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
 // ── Project routes ────────────────────────────────────────────────────────────
 
 // GET /api/projects — list all projects
@@ -708,13 +705,13 @@ app.get("/api/projects/:id", async (req, res) => {
 
 // POST /api/projects — create a new project
 app.post("/api/projects", async (req, res) => {
-  const { name, job_number, client, location, stage, description, status = "active" } = req.body;
+  const { name, job_number, client, location, stage, description, status = "active", project_lead } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
 
   try {
     const { data: project, error } = await supabase
       .from("projects")
-      .insert({ name, job_number, client, location, stage, description, status })
+      .insert({ name, job_number, client, location, stage, description, status, project_lead })
       .select()
       .single();
     if (error) throw error;
@@ -740,11 +737,11 @@ app.post("/api/projects", async (req, res) => {
 
 // PATCH /api/projects/:id — update project core fields
 app.patch("/api/projects/:id", async (req, res) => {
-  const { name, job_number, client, location, stage, description, status } = req.body;
+  const { name, job_number, client, location, stage, description, status, project_lead } = req.body;
   try {
     const { data, error } = await supabase
       .from("projects")
-      .update({ name, job_number, client, location, stage, description, status, updated_at: new Date().toISOString() })
+      .update({ name, job_number, client, location, stage, description, status, project_lead, updated_at: new Date().toISOString() })
       .eq("id", req.params.id)
       .select()
       .single();
@@ -917,6 +914,139 @@ app.delete("/api/projects/:id/notes/:nid", async (req, res) => {
       .eq("id", req.params.nid)
       .eq("project_id", req.params.id);
     if (error) throw error;
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Project drawings ──────────────────────────────────────────────────────────
+
+// GET /api/projects/:id/drawings — list all drawings for a project
+app.get("/api/projects/:id/drawings", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("project_drawings")
+      .select("id, title, drawing_number, revision, status, file_name, file_size, uploaded_at, created_at")
+      .eq("project_id", req.params.id)
+      .order("drawing_number", { ascending: true })
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    res.json({ drawings: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/:id/drawings — upload a drawing file and create record
+app.post("/api/projects/:id/drawings", async (req, res) => {
+  const { title, drawing_number, revision, status, file_name, file_size, base64 } = req.body;
+  if (!title || !file_name || !base64) return res.status(400).json({ error: "title, file_name and base64 required" });
+
+  const ext = file_name.split(".").pop().toLowerCase();
+  const contentType = ext === "dwg" ? "application/acad" : "application/pdf";
+  const safeFileName = file_name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const r2Key = `projects/${req.params.id}/drawings/${Date.now()}-${safeFileName}`;
+  const buffer = Buffer.from(base64, "base64");
+
+  try {
+    // Upload file to R2
+    await r2.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: r2Key,
+      Body: buffer,
+      ContentType: contentType,
+    }));
+
+    // Create Supabase record
+    const { data, error } = await supabase
+      .from("project_drawings")
+      .insert({
+        project_id: req.params.id,
+        title,
+        drawing_number: drawing_number || null,
+        revision: revision || null,
+        status: status || "Preliminary",
+        file_key: r2Key,
+        file_name: safeFileName,
+        file_size: file_size || buffer.length,
+        uploaded_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    if (error) throw error;
+
+    res.json({ drawing: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/projects/:id/drawings/:did — update drawing metadata
+app.patch("/api/projects/:id/drawings/:did", async (req, res) => {
+  const { title, drawing_number, revision, status } = req.body;
+  try {
+    const { data, error } = await supabase
+      .from("project_drawings")
+      .update({ title, drawing_number, revision, status })
+      .eq("id", req.params.did)
+      .eq("project_id", req.params.id)
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ drawing: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/projects/:id/drawings/:did/file — download drawing file from R2
+app.get("/api/projects/:id/drawings/:did/file", async (req, res) => {
+  try {
+    const { data: drawing, error } = await supabase
+      .from("project_drawings")
+      .select("file_key, file_name")
+      .eq("id", req.params.did)
+      .eq("project_id", req.params.id)
+      .single();
+    if (error) throw error;
+    if (!drawing.file_key) return res.status(404).json({ error: "No file stored for this drawing" });
+
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: drawing.file_key }));
+    const buffer = await streamToBuffer(result.Body);
+    res.json({ base64: buffer.toString("base64"), file_name: drawing.file_name });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/projects/:id/drawings/:did — delete drawing record and R2 file
+app.delete("/api/projects/:id/drawings/:did", async (req, res) => {
+  try {
+    // Get file_key before deleting
+    const { data: drawing, error: fetchError } = await supabase
+      .from("project_drawings")
+      .select("file_key")
+      .eq("id", req.params.did)
+      .eq("project_id", req.params.id)
+      .single();
+    if (fetchError) throw fetchError;
+
+    // Delete Supabase record
+    const { error } = await supabase
+      .from("project_drawings")
+      .delete()
+      .eq("id", req.params.did)
+      .eq("project_id", req.params.id);
+    if (error) throw error;
+
+    // Delete file from R2 (best effort)
+    if (drawing.file_key) {
+      try {
+        await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: drawing.file_key }));
+      } catch (_) { /* best effort */ }
+    }
+
     res.json({ deleted: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
