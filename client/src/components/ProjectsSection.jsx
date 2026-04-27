@@ -208,6 +208,93 @@ function PlaceholderTab({ icon, title, description }) {
   );
 }
 
+// ── PDF Viewer Modal ─────────────────────────────────────────────────────────
+function PdfViewerModal({ drawing, projectId, onClose }) {
+  const [pdfUrl, setPdfUrl] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      try {
+        const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: "application/pdf" });
+        setPdfUrl(URL.createObjectURL(blob));
+      } catch (e) {
+        setError("Failed to load drawing: " + e.message);
+      }
+      setLoading(false);
+    }
+    load();
+    return () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); };
+  }, [drawing.id]);
+
+  // Close on backdrop click
+  function handleBackdrop(e) {
+    if (e.target === e.currentTarget) onClose();
+  }
+
+  return (
+    <div onClick={handleBackdrop} style={{
+      position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 2000,
+      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      padding: 24,
+    }}>
+      <div style={{
+        background: "#fff", width: "100%", maxWidth: 1100, height: "90vh",
+        display: "flex", flexDirection: "column", borderTop: `3px solid ${ARC_NAVY}`,
+      }}>
+        {/* Viewer header */}
+        <div style={{
+          padding: "12px 20px", borderBottom: "1px solid #e8e0d5", display: "flex",
+          alignItems: "center", justifyContent: "space-between", flexShrink: 0, background: "#fff",
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY }}>{drawing.title}</div>
+            <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>
+              {drawing.drawing_number && <span style={{ marginRight: 12 }}>{drawing.drawing_number}</span>}
+              {drawing.revision && <span style={{ marginRight: 12 }}>Rev. {drawing.revision}</span>}
+              {drawing.status && <span>{drawing.status}</span>}
+            </div>
+          </div>
+          <button className="btn" onClick={onClose}
+            style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}>
+            Close ✕
+          </button>
+        </div>
+
+        {/* PDF frame */}
+        <div style={{ flex: 1, background: "#f0ede8", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          {loading && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#9a9088", fontSize: 13 }}>
+              <Spinner size={14} /> Loading drawing…
+            </div>
+          )}
+          {error && <p style={{ fontSize: 13, color: ARC_TERRACOTTA }}>{error}</p>}
+          {pdfUrl && !loading && (
+            <iframe
+              src={pdfUrl}
+              style={{ width: "100%", height: "100%", border: "none" }}
+              title={drawing.title}
+            />
+          )}
+          {pdfUrl && !loading && drawing.file_name?.endsWith(".dwg") && (
+            <div style={{ textAlign: "center", padding: 40 }}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>📐</div>
+              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300 }}>DWG files cannot be previewed in browser.</p>
+              <p style={{ fontSize: 12, color: "#9a9088", marginTop: 6 }}>Use the download button to open in AutoCAD.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Drawing file type badge ───────────────────────────────────────────────────
 function FileTypeBadge({ fileName }) {
   const ext = (fileName || "").split(".").pop().toLowerCase();
@@ -243,6 +330,7 @@ function DrawingsTab({ projectId, isAdmin }) {
   const [showUpload, setShowUpload] = useState(false);
   const [uploadError, setUploadError] = useState("");
   const [downloadingId, setDownloadingId] = useState(null);
+  const [viewingDrawing, setViewingDrawing] = useState(null);
   const fileInputRef = useRef(null);
 
   const emptyForm = { title: "", drawing_number: "", revision: "", status: "Preliminary" };
@@ -433,15 +521,15 @@ function DrawingsTab({ projectId, isAdmin }) {
       ) : (
         <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
           {/* Column headers */}
-          <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 80px 160px 36px 36px", gap: "0 12px", padding: "8px 16px", background: ARC_NAVY, alignItems: "center" }}>
-            {["Drawing No.", "Title", "Rev.", "Status", "", ""].map((h, i) => (
+          <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 80px 160px 36px 36px 36px", gap: "0 12px", padding: "8px 16px", background: ARC_NAVY, alignItems: "center" }}>
+            {["Drawing No.", "Title", "Rev.", "Status", "", "", ""].map((h, i) => (
               <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
             ))}
           </div>
 
           {drawings.map((d, i) => (
             <div key={d.id} style={{
-              display: "grid", gridTemplateColumns: "90px 1fr 80px 160px 36px 36px",
+              display: "grid", gridTemplateColumns: "90px 1fr 80px 160px 36px 36px 36px",
               gap: "0 12px", padding: "11px 16px", alignItems: "center",
               borderBottom: i < drawings.length - 1 ? "1px solid #f0ede8" : "none",
               background: i % 2 === 0 ? "#faf8f5" : "#fff",
@@ -495,6 +583,18 @@ function DrawingsTab({ projectId, isAdmin }) {
                 </button>
               </div>
 
+              {/* Quick view (PDF only) */}
+              <div style={{ display: "flex", justifyContent: "center" }}>
+                {!(d.file_name || "").endsWith(".dwg") && (
+                  <button className="btn" onClick={() => setViewingDrawing(d)} title="Quick view"
+                    style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 8px", fontSize: 12, lineHeight: 1 }}
+                    onMouseEnter={e => e.currentTarget.style.color = ARC_NAVY}
+                    onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>
+                    👁
+                  </button>
+                )}
+              </div>
+
               {/* Delete (admin only) */}
               <div style={{ display: "flex", justifyContent: "center" }}>
                 {isAdmin && (
@@ -515,6 +615,14 @@ function DrawingsTab({ projectId, isAdmin }) {
           {drawings.filter(d => (d.file_name || "").endsWith(".dwg")).length > 0 &&
             "DWG files will download directly to your machine."}
         </p>
+      )}
+
+      {viewingDrawing && (
+        <PdfViewerModal
+          drawing={viewingDrawing}
+          projectId={projectId}
+          onClose={() => setViewingDrawing(null)}
+        />
       )}
     </div>
   );

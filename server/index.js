@@ -1053,6 +1053,109 @@ app.delete("/api/projects/:id/drawings/:did", async (req, res) => {
   }
 });
 
+// ── Drawing sync (bulk upsert from desktop sync tool) ────────────────────────
+// POST /api/projects/:id/drawings/sync
+// Body: { drawings: [{ title, drawing_number, revision, status, file_name, file_size, base64 }] }
+// Returns: { results: [{ drawing_number, action: "created"|"updated"|"skipped"|"error", ... }] }
+app.post("/api/projects/:id/drawings/sync", async (req, res) => {
+  const { drawings: incoming } = req.body;
+  if (!Array.isArray(incoming) || incoming.length === 0) {
+    return res.status(400).json({ error: "drawings array required" });
+  }
+
+  // Fetch existing drawings for this project
+  const { data: existing, error: fetchError } = await supabase
+    .from("project_drawings")
+    .select("id, drawing_number, revision, file_key, file_name")
+    .eq("project_id", req.params.id);
+  if (fetchError) return res.status(500).json({ error: fetchError.message });
+
+  // Build lookup: drawing_number → existing record
+  const existingMap = {};
+  for (const d of existing) {
+    if (d.drawing_number) existingMap[d.drawing_number] = d;
+  }
+
+  const results = [];
+
+  for (const item of incoming) {
+    const { title, drawing_number, revision, status, file_name, file_size, base64 } = item;
+    if (!title || !drawing_number || !file_name || !base64) {
+      results.push({ drawing_number, action: "skipped", error: "Missing required fields" });
+      continue;
+    }
+
+    const ext = file_name.split(".").pop().toLowerCase();
+    const contentType = ext === "dwg" ? "application/acad" : "application/pdf";
+    const safeFileName = file_name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const r2Key = `projects/${req.params.id}/drawings/${Date.now()}-${safeFileName}`;
+    const buffer = Buffer.from(base64, "base64");
+
+    try {
+      const existingRecord = existingMap[drawing_number];
+
+      if (existingRecord) {
+        // Drawing exists — skip if same revision
+        if (existingRecord.revision === revision) {
+          results.push({ drawing_number, action: "skipped", reason: "Same revision already in register" });
+          continue;
+        }
+
+        // Upload new file to R2
+        await r2.send(new PutObjectCommand({
+          Bucket: BUCKET, Key: r2Key, Body: buffer, ContentType: contentType,
+        }));
+
+        // Delete old file from R2 (best effort)
+        if (existingRecord.file_key) {
+          try { await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: existingRecord.file_key })); } catch (_) {}
+        }
+
+        // Update Supabase record
+        const { data: updated, error: updateError } = await supabase
+          .from("project_drawings")
+          .update({
+            title, revision, status: status || "For Information",
+            file_key: r2Key, file_name: safeFileName,
+            file_size: file_size || buffer.length,
+            uploaded_at: new Date().toISOString(),
+          })
+          .eq("id", existingRecord.id)
+          .select()
+          .single();
+        if (updateError) throw updateError;
+
+        results.push({ drawing_number, action: "updated", previous_revision: existingRecord.revision, drawing: updated });
+
+      } else {
+        // New drawing — upload and insert
+        await r2.send(new PutObjectCommand({
+          Bucket: BUCKET, Key: r2Key, Body: buffer, ContentType: contentType,
+        }));
+
+        const { data: created, error: insertError } = await supabase
+          .from("project_drawings")
+          .insert({
+            project_id: req.params.id, title, drawing_number, revision,
+            status: status || "Preliminary",
+            file_key: r2Key, file_name: safeFileName,
+            file_size: file_size || buffer.length,
+            uploaded_at: new Date().toISOString(),
+          })
+          .select()
+          .single();
+        if (insertError) throw insertError;
+
+        results.push({ drawing_number, action: "created", drawing: created });
+      }
+    } catch (err) {
+      results.push({ drawing_number, action: "error", error: err.message });
+    }
+  }
+
+  res.json({ results });
+});
+
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 
