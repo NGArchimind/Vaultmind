@@ -16,23 +16,9 @@ const RIBA_STAGES = [
 ];
 
 const STAGE_COLORS = {
-  "Stage 0": "#9a9088",
-  "Stage 1": "#7a6aaa",
-  "Stage 2": "#2a6496",
-  "Stage 3": AD_GREEN,
-  "Stage 4": "#c25a45",
-  "Stage 5": "#c28a20",
-  "Stage 6": "#4a7c20",
-  "Stage 7": "#505a5f",
-};
-
-const DRAWING_STATUSES = ["Preliminary", "For Information", "For Construction", "Superseded"];
-
-const STATUS_COLORS = {
-  "Preliminary":       { bg: "#f0ede8", color: "#9a7060" },
-  "For Information":   { bg: "#e8f0f8", color: "#2a6496" },
-  "For Construction":  { bg: "#e8f5ec", color: "#2e7d4f" },
-  "Superseded":        { bg: "#f0ede8", color: "#b0a8a0" },
+  "Stage 0": "#9a9088", "Stage 1": "#7a6aaa", "Stage 2": "#2a6496",
+  "Stage 3": AD_GREEN,  "Stage 4": "#c25a45", "Stage 5": "#c28a20",
+  "Stage 6": "#4a7c20", "Stage 7": "#505a5f",
 };
 
 function stageColor(stage) {
@@ -47,6 +33,7 @@ function stageShort(stage) {
   return m ? `S${m[1]}` : stage;
 }
 
+// ── Editable field ────────────────────────────────────────────────────────────
 function EditableField({ value, onSave, placeholder, multiline = false, style = {} }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value || "");
@@ -67,6 +54,7 @@ function EditableField({ value, onSave, placeholder, multiline = false, style = 
   );
 }
 
+// ── New project form ──────────────────────────────────────────────────────────
 function NewProjectForm({ onSave, onCancel }) {
   const [form, setForm] = useState({ name: "", job_number: "", client: "", location: "", stage: "", description: "", project_lead: "" });
   const [saving, setSaving] = useState(false);
@@ -103,6 +91,7 @@ function NewProjectForm({ onSave, onCancel }) {
   );
 }
 
+// ── Project card ──────────────────────────────────────────────────────────────
 function ProjectCard({ project, onClick }) {
   const color = stageColor(project.stage);
   return (
@@ -131,17 +120,187 @@ function ProjectCard({ project, onClick }) {
   );
 }
 
-function QABar({ project, consultants, uvalues, notes }) {
+// ── PDF Viewer Modal — full screen ────────────────────────────────────────────
+function PdfViewerModal({ drawing, projectId, onClose }) {
+  const [pdfUrl, setPdfUrl] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function load() {
+      setLoading(true);
+      try {
+        const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const blob = new Blob([bytes], { type: "application/pdf" });
+        setPdfUrl(URL.createObjectURL(blob));
+      } catch (e) { setError("Failed to load drawing: " + e.message); }
+      setLoading(false);
+    }
+    load();
+    return () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); };
+  }, [drawing.id]);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 2000, display: "flex", flexDirection: "column" }}>
+      {/* Header bar */}
+      <div style={{ background: ARC_NAVY, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{drawing.title}</div>
+          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginTop: 2, display: "flex", gap: 16 }}>
+            {drawing.drawing_number && <span>{drawing.drawing_number}</span>}
+            {drawing.revision && <span>Rev. {drawing.revision}</span>}
+            {drawing.status && <span>{drawing.status}</span>}
+            {drawing.scale && <span>{drawing.scale}</span>}
+          </div>
+        </div>
+        <button className="btn" onClick={onClose}
+          style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}>
+          Close ✕
+        </button>
+      </div>
+      {/* Full screen PDF */}
+      <div style={{ flex: 1, background: "#525659", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {loading && <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#fff", fontSize: 13 }}><Spinner size={14} /> Loading drawing…</div>}
+        {error && <p style={{ fontSize: 13, color: ARC_TERRACOTTA }}>{error}</p>}
+        {pdfUrl && !loading && <iframe src={pdfUrl} style={{ width: "100%", height: "100%", border: "none" }} title={drawing.title} />}
+      </div>
+    </div>
+  );
+}
+
+// ── File type badge ───────────────────────────────────────────────────────────
+function FileTypeBadge({ fileName }) {
+  const ext = (fileName || "").split(".").pop().toLowerCase();
+  const isDwg = ext === "dwg";
+  return (
+    <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", padding: "2px 5px", marginLeft: 6, background: isDwg ? "#fff3e0" : "#e8f0f8", color: isDwg ? "#c25a45" : "#2a6496", border: `1px solid ${isDwg ? "#f5c89a" : "#b8d0e8"}` }}>
+      {isDwg ? "DWG" : "PDF"}
+    </span>
+  );
+}
+
+// ── Status badge ──────────────────────────────────────────────────────────────
+function StatusBadge({ status }) {
+  if (!status) return <span style={{ color: "#b0a8a0", fontSize: 11 }}>—</span>;
+  return (
+    <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", padding: "2px 8px", background: "#f0ede8", color: "#9a7060", whiteSpace: "nowrap" }}>
+      {status}
+    </span>
+  );
+}
+
+// ── Drawing row (used in register and in QA results) ──────────────────────────
+function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, highlight = false }) {
+  return (
+    <div style={{
+      display: "grid",
+      gridTemplateColumns: "minmax(120px,180px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px",
+      gap: "0 12px", padding: "9px 16px", alignItems: "center",
+      background: highlight ? "#f0f8f0" : "inherit",
+      borderBottom: "1px solid #f0ede8",
+    }}>
+      {/* Drawing number + file type */}
+      <div style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
+        {isAdmin && onUpdate
+          ? <EditableField value={d.drawing_number} onSave={v => onUpdate(d.id, "drawing_number", v)} placeholder="—" style={{ fontSize: 11 }} />
+          : <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.drawing_number || "—"}</span>}
+        <FileTypeBadge fileName={d.file_name} />
+      </div>
+
+      {/* Title */}
+      <div style={{ fontSize: 13, color: ARC_NAVY, minWidth: 0, overflow: "hidden" }}>
+        {isAdmin && onUpdate
+          ? <EditableField value={d.title} onSave={v => onUpdate(d.id, "title", v)} placeholder="Untitled" />
+          : <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.title}</span>}
+      </div>
+
+      {/* Revision */}
+      <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, textAlign: "center" }}>
+        {isAdmin && onUpdate
+          ? <EditableField value={d.revision} onSave={v => onUpdate(d.id, "revision", v)} placeholder="—" style={{ fontSize: 12, textAlign: "center" }} />
+          : <span>{d.revision || "—"}</span>}
+      </div>
+
+      {/* Status — read only for everyone */}
+      <div><StatusBadge status={d.status} /></div>
+
+      {/* Scale */}
+      <div style={{ fontSize: 11, color: "#9a9088", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {d.scale || "—"}
+      </div>
+
+      {/* Download */}
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        <button className="btn" onClick={() => onDownload(d)} disabled={downloadingId === d.id} title="Download"
+          style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 8px", fontSize: 13, lineHeight: 1 }}
+          onMouseEnter={e => e.currentTarget.style.color = ARC_NAVY} onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>
+          {downloadingId === d.id ? <Spinner size={11} /> : "↓"}
+        </button>
+      </div>
+
+      {/* Quick view (PDF only) */}
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        {!(d.file_name || "").endsWith(".dwg") && (
+          <button className="btn" onClick={() => onView(d)} title="Full screen view"
+            style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 8px", fontSize: 12, lineHeight: 1 }}
+            onMouseEnter={e => e.currentTarget.style.color = ARC_NAVY} onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>
+            👁
+          </button>
+        )}
+      </div>
+
+      {/* Delete */}
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        {isAdmin && onDelete && (
+          <button className="btn" onClick={() => onDelete(d.id)} title="Delete"
+            style={{ background: "none", border: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", lineHeight: 1 }}
+            onMouseEnter={e => e.currentTarget.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.currentTarget.style.color = "#c8c0b8"}>×</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── QA Bar ────────────────────────────────────────────────────────────────────
+function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState(null);
+  const [matchedDrawings, setMatchedDrawings] = useState([]);
   const [running, setRunning] = useState(false);
   const [status, setStatus] = useState("");
   const [expanded, setExpanded] = useState(false);
+  const [downloadingId, setDownloadingId] = useState(null);
+  const [viewingDrawing, setViewingDrawing] = useState(null);
+
+  async function handleDownload(drawing) {
+    setDownloadingId(drawing.id);
+    try {
+      const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
+      const ext = (drawing.file_name || "").split(".").pop().toLowerCase();
+      const mimeType = ext === "dwg" ? "application/acad" : "application/pdf";
+      const blob = base64ToBlob(base64, mimeType);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = file_name || drawing.file_name || "drawing";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (e) { console.error("Download failed:", e); }
+    setDownloadingId(null);
+  }
 
   async function ask() {
     if (!question.trim() || running) return;
     const q = question.trim();
-    setQuestion(""); setRunning(true); setAnswer(null); setExpanded(true); setStatus("Thinking…");
+    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setExpanded(true); setStatus("Thinking…");
+
+    // Build drawing register context
+    const drawingContext = drawings.length === 0
+      ? "No drawings in register."
+      : drawings.map(d =>
+          `ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} | Rev:${d.revision || "—"} | Status:${d.status || "—"} | Scale:${d.scale || "—"} | Date:${d.issue_date || "—"} | File:${d.file_name || "—"}`
+        ).join("\n");
+
     const ctx = `PROJECT: ${project.name}
 Job Number: ${project.job_number || "—"}
 Client: ${project.client || "—"}
@@ -158,45 +317,120 @@ U-VALUE REQUIREMENTS:
 ${uvalues.length === 0 ? "None recorded." : uvalues.map(u => `${u.element}: Target ${u.target !== null ? u.target + " W/m²K" : "not set"}, Achieved ${u.achieved !== null ? u.achieved + " W/m²K" : "not set"}${u.notes ? ` — ${u.notes}` : ""}`).join("\n")}
 
 ADDITIONAL NOTES:
-${notes.length === 0 ? "None recorded." : notes.map(n => `${n.label}: ${n.value}`).join("\n")}`;
+${notes.length === 0 ? "None recorded." : notes.map(n => `${n.label}: ${n.value}`).join("\n")}
+
+DRAWING REGISTER (${drawings.length} drawings):
+${drawingContext}`;
+
+    const systemPrompt = `You are an intelligent assistant for an architectural practice. You have full access to project data including the drawing register.
+
+When answering, return a JSON object with this exact structure:
+{
+  "answer": "Your text response here — concise and practical",
+  "drawing_ids": ["id1", "id2"]
+}
+
+Rules:
+- "answer" is always a helpful text response to the question
+- "drawing_ids" is an array of drawing IDs from the register that are relevant to the question
+- Only include drawing_ids if the question is about drawings or the user wants to see/find drawings
+- For drawing searches, use the latest revision of each drawing number where multiple exist
+- If the question is general (about consultants, U-values, project info etc), return an empty array for drawing_ids
+- Drawing IDs are in the format shown in the register data (e.g. "31955e86-352c-4a35-...")
+- Do not include any text outside the JSON object`;
+
     try {
       const { text } = await callClaude(
         [{ role: "user", content: `${ctx}\n\n---\n\nQUESTION: ${q}` }],
-        "You are a helpful assistant at an architectural practice. Answer questions about the project using only the information provided. Be concise and practical. If the information needed is not in the project data, say so clearly.",
-        2000, 1, "gemini-2.5-flash"
+        systemPrompt, 2000, 1, "gemini-2.5-flash"
       );
-      setAnswer(text); setStatus("");
-    } catch (e) { setStatus("Error: " + e.message); }
+
+      // Parse JSON response
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        setAnswer(parsed.answer || text);
+        if (parsed.drawing_ids && parsed.drawing_ids.length > 0) {
+          const matched = drawings.filter(d => parsed.drawing_ids.includes(d.id));
+          setMatchedDrawings(matched);
+        }
+      } else {
+        setAnswer(text);
+      }
+      setStatus("");
+    } catch (e) {
+      setStatus("Error: " + e.message);
+    }
     setRunning(false);
   }
 
+  const hasResults = answer || running || status || matchedDrawings.length > 0;
+
   return (
     <div style={{ borderTop: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0 }}>
-      {expanded && (answer || running || status) && (
-        <div style={{ padding: "16px 32px", borderBottom: "1px solid #f0ede8", background: "#faf8f5", maxHeight: 260, overflowY: "auto", animation: "fadeIn 0.3s ease" }}>
-          {running && <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}><Spinner size={11} /> {status}</div>}
-          {answer && <AnswerRenderer text={answer} />}
-          {!running && status && <p style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{status}</p>}
+      {expanded && hasResults && (
+        <div style={{ borderBottom: "1px solid #f0ede8", background: "#faf8f5", maxHeight: 400, overflowY: "auto", animation: "fadeIn 0.3s ease" }}>
+          {running && (
+            <div style={{ padding: "14px 32px", display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}>
+              <Spinner size={11} /> {status}
+            </div>
+          )}
+          {answer && (
+            <div style={{ padding: "14px 32px", borderBottom: matchedDrawings.length > 0 ? "1px solid #e8e0d5" : "none" }}>
+              <AnswerRenderer text={answer} />
+            </div>
+          )}
+          {!running && status && (
+            <div style={{ padding: "14px 32px" }}>
+              <p style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{status}</p>
+            </div>
+          )}
+          {matchedDrawings.length > 0 && (
+            <div>
+              {/* Results header */}
+              <div style={{ padding: "8px 16px", background: "#f0ede8", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  {matchedDrawings.length} drawing{matchedDrawings.length !== 1 ? "s" : ""} found
+                </span>
+              </div>
+              {/* Column headers */}
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(120px,180px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "6px 16px", background: ARC_NAVY }}>
+                {["Drawing No.", "Title", "Rev.", "Status", "Scale", "", "", ""].map((h, i) => (
+                  <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
+                ))}
+              </div>
+              {matchedDrawings.map(d => (
+                <DrawingRow key={d.id} d={d} projectId={projectId} isAdmin={false}
+                  downloadingId={downloadingId} onDownload={handleDownload} onView={setViewingDrawing}
+                  highlight={true} />
+              ))}
+            </div>
+          )}
         </div>
       )}
+
       <div style={{ padding: "12px 32px", display: "flex", alignItems: "stretch" }}>
         <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "flex", alignItems: "center", paddingRight: 12, flexShrink: 0 }}>Ask</div>
         <input value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={e => { if (e.key === "Enter") ask(); }}
-          placeholder="Ask anything about this project…" className="arc-input"
+          placeholder="Ask anything about this project, or find drawings — e.g. 'show me all 1:200 floor plans'"
+          className="arc-input"
           style={{ flex: 1, border: "1px solid #ddd8d0", borderRight: "none", padding: "8px 14px", fontSize: 13, color: ARC_NAVY, outline: "none", fontFamily: "Inter, Arial, sans-serif", background: "#fff" }} />
         <button className="btn" onClick={ask} disabled={!question.trim() || running}
           style={{ background: question.trim() && !running ? ARC_NAVY : "#f0ede8", color: question.trim() && !running ? "#fff" : "#9a9088", padding: "0 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", border: `1px solid ${question.trim() && !running ? ARC_NAVY : "#ddd8d0"}`, minWidth: 70 }}>
           {running ? <Spinner size={12} /> : "Ask"}
         </button>
-        {(answer || status) && (
-          <button className="btn" onClick={() => { setAnswer(null); setStatus(""); setExpanded(false); }}
+        {hasResults && (
+          <button className="btn" onClick={() => { setAnswer(null); setMatchedDrawings([]); setStatus(""); setExpanded(false); }}
             style={{ background: "none", color: "#9a9088", padding: "0 10px", fontSize: 11, border: "1px solid #ddd8d0", borderLeft: "none", marginLeft: -1 }}>Clear</button>
         )}
       </div>
+
+      {viewingDrawing && <PdfViewerModal drawing={viewingDrawing} projectId={projectId} onClose={() => setViewingDrawing(null)} />}
     </div>
   );
 }
 
+// ── Placeholder tab ───────────────────────────────────────────────────────────
 function PlaceholderTab({ icon, title, description }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 40px", textAlign: "center" }}>
@@ -208,122 +442,8 @@ function PlaceholderTab({ icon, title, description }) {
   );
 }
 
-// ── PDF Viewer Modal ─────────────────────────────────────────────────────────
-function PdfViewerModal({ drawing, projectId, onClose }) {
-  const [pdfUrl, setPdfUrl] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      try {
-        const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
-        const binary = atob(base64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        const blob = new Blob([bytes], { type: "application/pdf" });
-        setPdfUrl(URL.createObjectURL(blob));
-      } catch (e) {
-        setError("Failed to load drawing: " + e.message);
-      }
-      setLoading(false);
-    }
-    load();
-    return () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); };
-  }, [drawing.id]);
-
-  // Close on backdrop click
-  function handleBackdrop(e) {
-    if (e.target === e.currentTarget) onClose();
-  }
-
-  return (
-    <div onClick={handleBackdrop} style={{
-      position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", zIndex: 2000,
-      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-      padding: 24,
-    }}>
-      <div style={{
-        background: "#fff", width: "100%", maxWidth: 1100, height: "90vh",
-        display: "flex", flexDirection: "column", borderTop: `3px solid ${ARC_NAVY}`,
-      }}>
-        {/* Viewer header */}
-        <div style={{
-          padding: "12px 20px", borderBottom: "1px solid #e8e0d5", display: "flex",
-          alignItems: "center", justifyContent: "space-between", flexShrink: 0, background: "#fff",
-        }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY }}>{drawing.title}</div>
-            <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>
-              {drawing.drawing_number && <span style={{ marginRight: 12 }}>{drawing.drawing_number}</span>}
-              {drawing.revision && <span style={{ marginRight: 12 }}>Rev. {drawing.revision}</span>}
-              {drawing.status && <span>{drawing.status}</span>}
-            </div>
-          </div>
-          <button className="btn" onClick={onClose}
-            style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}>
-            Close ✕
-          </button>
-        </div>
-
-        {/* PDF frame */}
-        <div style={{ flex: 1, background: "#f0ede8", display: "flex", alignItems: "center", justifyContent: "center" }}>
-          {loading && (
-            <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#9a9088", fontSize: 13 }}>
-              <Spinner size={14} /> Loading drawing…
-            </div>
-          )}
-          {error && <p style={{ fontSize: 13, color: ARC_TERRACOTTA }}>{error}</p>}
-          {pdfUrl && !loading && (
-            <iframe
-              src={pdfUrl}
-              style={{ width: "100%", height: "100%", border: "none" }}
-              title={drawing.title}
-            />
-          )}
-          {pdfUrl && !loading && drawing.file_name?.endsWith(".dwg") && (
-            <div style={{ textAlign: "center", padding: 40 }}>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>📐</div>
-              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300 }}>DWG files cannot be previewed in browser.</p>
-              <p style={{ fontSize: 12, color: "#9a9088", marginTop: 6 }}>Use the download button to open in AutoCAD.</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Drawing file type badge ───────────────────────────────────────────────────
-function FileTypeBadge({ fileName }) {
-  const ext = (fileName || "").split(".").pop().toLowerCase();
-  const isDwg = ext === "dwg";
-  return (
-    <span style={{
-      fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
-      padding: "2px 6px", marginLeft: 6,
-      background: isDwg ? "#fff3e0" : "#e8f0f8",
-      color: isDwg ? "#c25a45" : "#2a6496",
-      border: `1px solid ${isDwg ? "#f5c89a" : "#b8d0e8"}`,
-    }}>
-      {isDwg ? "DWG" : "PDF"}
-    </span>
-  );
-}
-
-// ── Drawing status badge ──────────────────────────────────────────────────────
-function StatusBadge({ status }) {
-  const s = STATUS_COLORS[status] || { bg: "#f0ede8", color: "#9a9088" };
-  return (
-    <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", padding: "2px 8px", background: s.bg, color: s.color }}>
-      {status || "—"}
-    </span>
-  );
-}
-
-// ── DrawingsTab ───────────────────────────────────────────────────────────────
-function DrawingsTab({ projectId, isAdmin }) {
+// ── Drawings tab ──────────────────────────────────────────────────────────────
+function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
   const [drawings, setDrawings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -333,7 +453,7 @@ function DrawingsTab({ projectId, isAdmin }) {
   const [viewingDrawing, setViewingDrawing] = useState(null);
   const fileInputRef = useRef(null);
 
-  const emptyForm = { title: "", drawing_number: "", revision: "", status: "Preliminary" };
+  const emptyForm = { title: "", drawing_number: "", revision: "", status: "" };
   const [form, setForm] = useState(emptyForm);
   const [selectedFile, setSelectedFile] = useState(null);
 
@@ -343,7 +463,9 @@ function DrawingsTab({ projectId, isAdmin }) {
     setLoading(true);
     try {
       const { drawings: data } = await api(`/api/projects/${projectId}/drawings`);
-      setDrawings(data || []);
+      const loaded = data || [];
+      setDrawings(loaded);
+      if (onDrawingsLoaded) onDrawingsLoaded(loaded);
     } catch (e) { console.error(e); }
     setLoading(false);
   }
@@ -352,13 +474,9 @@ function DrawingsTab({ projectId, isAdmin }) {
     const file = e.target.files[0];
     if (!file) return;
     const ext = file.name.split(".").pop().toLowerCase();
-    if (!["pdf", "dwg"].includes(ext)) {
-      setUploadError("Only PDF and DWG files are supported.");
-      return;
-    }
+    if (!["pdf", "dwg"].includes(ext)) { setUploadError("Only PDF and DWG files are supported."); return; }
     setUploadError("");
     setSelectedFile(file);
-    // Auto-fill title from filename if blank
     if (!form.title) {
       const baseName = file.name.replace(/\.[^.]+$/, "").replace(/[-_]/g, " ");
       setForm(f => ({ ...f, title: baseName }));
@@ -367,30 +485,19 @@ function DrawingsTab({ projectId, isAdmin }) {
 
   async function handleUpload() {
     if (!selectedFile || !form.title.trim()) return;
-    setUploading(true);
-    setUploadError("");
+    setUploading(true); setUploadError("");
     try {
       const base64 = await fileToBase64(selectedFile);
       const { drawing } = await api(`/api/projects/${projectId}/drawings`, {
         method: "POST",
-        body: {
-          title: form.title.trim(),
-          drawing_number: form.drawing_number.trim(),
-          revision: form.revision.trim(),
-          status: form.status,
-          file_name: selectedFile.name,
-          file_size: selectedFile.size,
-          base64,
-        },
+        body: { title: form.title.trim(), drawing_number: form.drawing_number.trim(), revision: form.revision.trim(), status: form.status, file_name: selectedFile.name, file_size: selectedFile.size, base64 },
       });
-      setDrawings(prev => [drawing, ...prev]);
-      setForm(emptyForm);
-      setSelectedFile(null);
-      setShowUpload(false);
+      const updated = [drawing, ...drawings];
+      setDrawings(updated);
+      if (onDrawingsLoaded) onDrawingsLoaded(updated);
+      setForm(emptyForm); setSelectedFile(null); setShowUpload(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
-    } catch (e) {
-      setUploadError("Upload failed: " + e.message);
-    }
+    } catch (e) { setUploadError("Upload failed: " + e.message); }
     setUploading(false);
   }
 
@@ -402,13 +509,8 @@ function DrawingsTab({ projectId, isAdmin }) {
       const mimeType = ext === "dwg" ? "application/acad" : "application/pdf";
       const blob = base64ToBlob(base64, mimeType);
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = file_name || drawing.file_name || "drawing";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const a = document.createElement("a"); a.href = url; a.download = file_name || drawing.file_name || "drawing";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     } catch (e) { console.error("Download failed:", e); }
     setDownloadingId(null);
   }
@@ -417,25 +519,23 @@ function DrawingsTab({ projectId, isAdmin }) {
     if (!window.confirm("Delete this drawing? This cannot be undone.")) return;
     try {
       await api(`/api/projects/${projectId}/drawings/${drawingId}`, { method: "DELETE" });
-      setDrawings(prev => prev.filter(d => d.id !== drawingId));
+      const updated = drawings.filter(d => d.id !== drawingId);
+      setDrawings(updated);
+      if (onDrawingsLoaded) onDrawingsLoaded(updated);
     } catch (e) { console.error(e); }
   }
 
   async function updateField(drawingId, field, value) {
     try {
-      const { drawing } = await api(`/api/projects/${projectId}/drawings/${drawingId}`, {
-        method: "PATCH",
-        body: { [field]: value },
-      });
-      setDrawings(prev => prev.map(d => d.id === drawingId ? drawing : d));
+      const { drawing } = await api(`/api/projects/${projectId}/drawings/${drawingId}`, { method: "PATCH", body: { [field]: value } });
+      const updated = drawings.map(d => d.id === drawingId ? drawing : d);
+      setDrawings(updated);
+      if (onDrawingsLoaded) onDrawingsLoaded(updated);
     } catch (e) { console.error(e); }
   }
 
   function cancelUpload() {
-    setShowUpload(false);
-    setForm(emptyForm);
-    setSelectedFile(null);
-    setUploadError("");
+    setShowUpload(false); setForm(emptyForm); setSelectedFile(null); setUploadError("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
@@ -443,7 +543,7 @@ function DrawingsTab({ projectId, isAdmin }) {
   const inputStyle = { width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" };
 
   return (
-    <div style={{ maxWidth: 860 }}>
+    <div>
       {/* Section header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Drawing Register</h3>
@@ -459,52 +559,27 @@ function DrawingsTab({ projectId, isAdmin }) {
       {showUpload && (
         <div style={{ background: "#fff", border: `1px solid ${AD_GREEN}`, padding: "20px 24px", marginBottom: 20 }}>
           <h4 style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 16, letterSpacing: "0.04em", textTransform: "uppercase" }}>Upload Drawing</h4>
-
-          {/* File picker */}
           <div style={{ marginBottom: 16 }}>
             <label style={labelStyle}>File (PDF or DWG)</label>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <input ref={fileInputRef} type="file" accept=".pdf,.dwg" onChange={handleFileChange}
                 style={{ fontSize: 12, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif", flex: 1 }} />
-              {selectedFile && (
-                <span style={{ fontSize: 11, color: "#9a9088", whiteSpace: "nowrap" }}>
-                  {(selectedFile.size / 1024 / 1024).toFixed(1)} MB
-                </span>
-              )}
+              {selectedFile && <span style={{ fontSize: 11, color: "#9a9088", whiteSpace: "nowrap" }}>{(selectedFile.size / 1024 / 1024).toFixed(1)} MB</span>}
             </div>
           </div>
-
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: "0 16px" }}>
-            <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Title *</label>
-              <input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Ground Floor Plan" style={inputStyle} />
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Drawing No.</label>
-              <input value={form.drawing_number} onChange={e => setForm(f => ({ ...f, drawing_number: e.target.value }))} placeholder="e.g. A-001" style={inputStyle} />
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Revision</label>
-              <input value={form.revision} onChange={e => setForm(f => ({ ...f, revision: e.target.value }))} placeholder="e.g. P1" style={inputStyle} />
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <label style={labelStyle}>Status</label>
-              <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} style={{ ...inputStyle }}>
-                {DRAWING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
+            <div style={{ marginBottom: 14 }}><label style={labelStyle}>Title *</label><input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Ground Floor Plan" style={inputStyle} /></div>
+            <div style={{ marginBottom: 14 }}><label style={labelStyle}>Drawing No.</label><input value={form.drawing_number} onChange={e => setForm(f => ({ ...f, drawing_number: e.target.value }))} placeholder="e.g. A-001" style={inputStyle} /></div>
+            <div style={{ marginBottom: 14 }}><label style={labelStyle}>Revision</label><input value={form.revision} onChange={e => setForm(f => ({ ...f, revision: e.target.value }))} placeholder="e.g. P1" style={inputStyle} /></div>
+            <div style={{ marginBottom: 14 }}><label style={labelStyle}>Status</label><input value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} placeholder="e.g. Preliminary" style={inputStyle} /></div>
           </div>
-
           {uploadError && <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 12 }}>{uploadError}</p>}
-
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn" onClick={handleUpload}
-              disabled={!selectedFile || !form.title.trim() || uploading}
+            <button className="btn" onClick={handleUpload} disabled={!selectedFile || !form.title.trim() || uploading}
               style={{ background: selectedFile && form.title.trim() && !uploading ? AD_GREEN : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
               {uploading ? <><Spinner size={12} /> &nbsp;Uploading…</> : "Upload"}
             </button>
-            <button className="btn" onClick={cancelUpload} disabled={uploading}
-              style={{ background: "none", color: "#9a9088", padding: "8px 14px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+            <button className="btn" onClick={cancelUpload} disabled={uploading} style={{ background: "none", color: "#9a9088", padding: "8px 14px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
           </div>
         </div>
       )}
@@ -516,94 +591,21 @@ function DrawingsTab({ projectId, isAdmin }) {
         <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
           <div style={{ fontSize: 36, marginBottom: 12 }}>📐</div>
           <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>No drawings uploaded yet</p>
-          {isAdmin && <p style={{ fontSize: 12, color: "#9a9088" }}>Click + Upload Drawing to add the first one.</p>}
+          {isAdmin && <p style={{ fontSize: 12, color: "#9a9088" }}>Click + Upload Drawing to add the first one, or use Archimind Sync.</p>}
         </div>
       ) : (
         <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
           {/* Column headers */}
-          <div style={{ display: "grid", gridTemplateColumns: "90px 1fr 80px 160px 36px 36px 36px", gap: "0 12px", padding: "8px 16px", background: ARC_NAVY, alignItems: "center" }}>
-            {["Drawing No.", "Title", "Rev.", "Status", "", "", ""].map((h, i) => (
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(120px,180px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "8px 16px", background: ARC_NAVY }}>
+            {["Drawing No.", "Title", "Rev.", "Status", "Scale", "", "", ""].map((h, i) => (
               <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
             ))}
           </div>
-
           {drawings.map((d, i) => (
-            <div key={d.id} style={{
-              display: "grid", gridTemplateColumns: "90px 1fr 80px 160px 36px 36px 36px",
-              gap: "0 12px", padding: "11px 16px", alignItems: "center",
-              borderBottom: i < drawings.length - 1 ? "1px solid #f0ede8" : "none",
-              background: i % 2 === 0 ? "#faf8f5" : "#fff",
-            }}>
-              {/* Drawing number + file type */}
-              <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2 }}>
-                {isAdmin
-                  ? <EditableField value={d.drawing_number} onSave={v => updateField(d.id, "drawing_number", v)} placeholder="—" style={{ fontSize: 12 }} />
-                  : <span>{d.drawing_number || "—"}</span>
-                }
-                <FileTypeBadge fileName={d.file_name} />
-              </div>
-
-              {/* Title */}
-              <div style={{ fontSize: 13, color: ARC_NAVY, minWidth: 0 }}>
-                {isAdmin
-                  ? <EditableField value={d.title} onSave={v => updateField(d.id, "title", v)} placeholder="Untitled" />
-                  : <span>{d.title}</span>
-                }
-                <div style={{ fontSize: 11, color: "#b0a8a0", marginTop: 1 }}>
-                  {new Date(d.uploaded_at || d.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
-                  {d.file_size ? ` · ${(d.file_size / 1024 / 1024).toFixed(1)} MB` : ""}
-                </div>
-              </div>
-
-              {/* Revision */}
-              <div style={{ fontSize: 12, color: ARC_NAVY }}>
-                {isAdmin
-                  ? <EditableField value={d.revision} onSave={v => updateField(d.id, "revision", v)} placeholder="—" style={{ fontSize: 12 }} />
-                  : <span style={{ fontWeight: 600 }}>{d.revision || "—"}</span>
-                }
-              </div>
-
-              {/* Status */}
-              <div>
-                {isAdmin ? (
-                  <select value={d.status || "Preliminary"} onChange={e => updateField(d.id, "status", e.target.value)}
-                    style={{ fontSize: 11, border: "1px solid #e8e0d5", padding: "3px 6px", fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff", width: "100%" }}>
-                    {DRAWING_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                ) : <StatusBadge status={d.status} />}
-              </div>
-
-              {/* Download */}
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                <button className="btn" onClick={() => handleDownload(d)} disabled={downloadingId === d.id} title="Download"
-                  style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 8px", fontSize: 13, lineHeight: 1 }}
-                  onMouseEnter={e => e.currentTarget.style.color = ARC_NAVY}
-                  onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>
-                  {downloadingId === d.id ? <Spinner size={11} /> : "↓"}
-                </button>
-              </div>
-
-              {/* Quick view (PDF only) */}
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                {!(d.file_name || "").endsWith(".dwg") && (
-                  <button className="btn" onClick={() => setViewingDrawing(d)} title="Quick view"
-                    style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 8px", fontSize: 12, lineHeight: 1 }}
-                    onMouseEnter={e => e.currentTarget.style.color = ARC_NAVY}
-                    onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>
-                    👁
-                  </button>
-                )}
-              </div>
-
-              {/* Delete (admin only) */}
-              <div style={{ display: "flex", justifyContent: "center" }}>
-                {isAdmin && (
-                  <button className="btn" onClick={() => handleDelete(d.id)} title="Delete"
-                    style={{ background: "none", border: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", lineHeight: 1 }}
-                    onMouseEnter={e => e.currentTarget.style.color = ARC_TERRACOTTA}
-                    onMouseLeave={e => e.currentTarget.style.color = "#c8c0b8"}>×</button>
-                )}
-              </div>
+            <div key={d.id} style={{ background: i % 2 === 0 ? "#faf8f5" : "#fff" }}>
+              <DrawingRow d={d} projectId={projectId} isAdmin={isAdmin}
+                onUpdate={updateField} onDelete={handleDelete}
+                onView={setViewingDrawing} downloadingId={downloadingId} onDownload={handleDownload} />
             </div>
           ))}
         </div>
@@ -611,24 +613,16 @@ function DrawingsTab({ projectId, isAdmin }) {
 
       {drawings.length > 0 && (
         <p style={{ fontSize: 11, color: "#b0a8a0", marginTop: 8, fontStyle: "italic" }}>
-          {drawings.length} drawing{drawings.length !== 1 ? "s" : ""} · Click any field to edit in place.{" "}
-          {drawings.filter(d => (d.file_name || "").endsWith(".dwg")).length > 0 &&
-            "DWG files will download directly to your machine."}
+          {drawings.length} drawing{drawings.length !== 1 ? "s" : ""}{isAdmin ? " · Click title, drawing number, or revision to edit." : ""}
         </p>
       )}
 
-      {viewingDrawing && (
-        <PdfViewerModal
-          drawing={viewingDrawing}
-          projectId={projectId}
-          onClose={() => setViewingDrawing(null)}
-        />
-      )}
+      {viewingDrawing && <PdfViewerModal drawing={viewingDrawing} projectId={projectId} onClose={() => setViewingDrawing(null)} />}
     </div>
   );
 }
 
-// ── Utility: file → base64 ────────────────────────────────────────────────────
+// ── Utilities ─────────────────────────────────────────────────────────────────
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -638,7 +632,6 @@ function fileToBase64(file) {
   });
 }
 
-// ── Utility: base64 → Blob ────────────────────────────────────────────────────
 function base64ToBlob(base64, mimeType) {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -646,7 +639,7 @@ function base64ToBlob(base64, mimeType) {
   return new Blob([bytes], { type: mimeType });
 }
 
-// ── ProjectDetail ─────────────────────────────────────────────────────────────
+// ── Project detail ────────────────────────────────────────────────────────────
 function ProjectDetail({ projectId, onBack, isAdmin }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -660,6 +653,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
   const [newNote, setNewNote] = useState({ label: "", value: "" });
   const [editingProject, setEditingProject] = useState(false);
   const [editForm, setEditForm] = useState({});
+  const [drawings, setDrawings] = useState([]);
 
   useEffect(() => { load(); }, [projectId]);
 
@@ -683,8 +677,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
     try {
       const { consultant } = await api(`/api/projects/${projectId}/consultants`, { method: "POST", body: newConsultant });
       setData(d => ({ ...d, consultants: [...d.consultants, consultant] }));
-      setNewConsultant({ discipline: "", company: "", contact_name: "", email: "", phone: "" });
-      setAddingConsultant(false);
+      setNewConsultant({ discipline: "", company: "", contact_name: "", email: "", phone: "" }); setAddingConsultant(false);
     } catch (e) { console.error(e); }
     setSavingKey("consultant", false);
   }
@@ -808,9 +801,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>Status</label>
               <select value={editForm.status || "active"} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))} style={{ width: "100%", border: "1px solid #ddd8d0", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif" }}>
-                <option value="active">Active</option>
-                <option value="on-hold">On Hold</option>
-                <option value="complete">Complete</option>
+                <option value="active">Active</option><option value="on-hold">On Hold</option><option value="complete">Complete</option>
               </select>
             </div>
             <div style={{ display: "flex", gap: 10 }}>
@@ -983,7 +974,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
         )}
 
         {activeTab === "drawings" && (
-          <DrawingsTab projectId={projectId} isAdmin={isAdmin} />
+          <DrawingsTab projectId={projectId} isAdmin={isAdmin} onDrawingsLoaded={setDrawings} />
         )}
 
         {activeTab === "documents" && <PlaceholderTab icon="📁" title="Documents" description="Store and retrieve project documents — reports, specifications, certificates, and other project-specific files." />}
@@ -992,11 +983,12 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
 
       </div>
 
-      <QABar project={project} consultants={consultants} uvalues={uvalues} notes={notes} />
+      <QABar project={project} consultants={consultants} uvalues={uvalues} notes={notes} drawings={drawings} projectId={projectId} />
     </div>
   );
 }
 
+// ── Projects list ─────────────────────────────────────────────────────────────
 export default function ProjectsSection({ isAdmin }) {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
