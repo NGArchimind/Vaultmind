@@ -940,7 +940,7 @@ app.get("/api/projects/:id/drawings", async (req, res) => {
 
 // POST /api/projects/:id/drawings — upload a drawing file and create record
 app.post("/api/projects/:id/drawings", async (req, res) => {
-  const { title, drawing_number, revision, status, file_name, file_size, base64 } = req.body;
+  const { title, drawing_number, revision, status, scale, file_name, file_size, base64 } = req.body;
   if (!title || !file_name || !base64) return res.status(400).json({ error: "title, file_name and base64 required" });
 
   const ext = file_name.split(".").pop().toLowerCase();
@@ -967,6 +967,7 @@ app.post("/api/projects/:id/drawings", async (req, res) => {
         drawing_number: drawing_number || null,
         revision: revision || null,
         status: status || "Preliminary",
+        scale: scale || null,
         file_key: r2Key,
         file_name: safeFileName,
         file_size: file_size || buffer.length,
@@ -984,11 +985,11 @@ app.post("/api/projects/:id/drawings", async (req, res) => {
 
 // PATCH /api/projects/:id/drawings/:did — update drawing metadata
 app.patch("/api/projects/:id/drawings/:did", async (req, res) => {
-  const { title, drawing_number, revision, status } = req.body;
+  const { title, drawing_number, revision, status, scale } = req.body;
   try {
     const { data, error } = await supabase
       .from("project_drawings")
-      .update({ title, drawing_number, revision, status })
+      .update({ title, drawing_number, revision, status, scale })
       .eq("id", req.params.did)
       .eq("project_id", req.params.id)
       .select()
@@ -1079,7 +1080,7 @@ app.post("/api/projects/:id/drawings/sync", async (req, res) => {
   const results = [];
 
   for (const item of incoming) {
-    const { title, drawing_number, revision, status, file_name, file_size, base64 } = item;
+    const { title, drawing_number, revision, status, scale, file_name, file_size, base64 } = item;
     if (!title || !drawing_number || !file_name || !base64) {
       results.push({ drawing_number, action: "skipped", error: "Missing required fields" });
       continue;
@@ -1116,6 +1117,7 @@ app.post("/api/projects/:id/drawings/sync", async (req, res) => {
           .from("project_drawings")
           .update({
             title, revision, status: status || "For Information",
+            scale: scale || null,
             file_key: r2Key, file_name: safeFileName,
             file_size: file_size || buffer.length,
             uploaded_at: new Date().toISOString(),
@@ -1138,6 +1140,7 @@ app.post("/api/projects/:id/drawings/sync", async (req, res) => {
           .insert({
             project_id: req.params.id, title, drawing_number, revision,
             status: status || "Preliminary",
+            scale: scale || null,
             file_key: r2Key, file_name: safeFileName,
             file_size: file_size || buffer.length,
             uploaded_at: new Date().toISOString(),
