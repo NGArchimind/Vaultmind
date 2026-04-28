@@ -927,7 +927,7 @@ app.get("/api/projects/:id/drawings", async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("project_drawings")
-      .select("id, title, drawing_number, revision, status, file_name, file_size, uploaded_at, created_at")
+      .select("id, title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, uploaded_at, created_at")
       .eq("project_id", req.params.id)
       .order("drawing_number", { ascending: true })
       .order("created_at", { ascending: false });
