@@ -981,6 +981,10 @@ app.post("/api/projects/:id/drawings", async (req, res) => {
     if (error) throw error;
 
     res.json({ drawing: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // PATCH /api/projects/:id/drawings/:did — update drawing metadata
 app.patch("/api/projects/:id/drawings/:did", async (req, res) => {
