@@ -121,14 +121,16 @@ function ProjectCard({ project, onClick }) {
 }
 
 // ── PDF Viewer Modal — full screen ────────────────────────────────────────────
-function PdfViewerModal({ drawing, projectId, onClose }) {
+function PdfViewerModal({ drawing: initialDrawing, projectId, onClose, drawings: drawingsList = [], currentIndex: initialIndex = 0 }) {
+  const [currentIdx, setCurrentIdx] = useState(initialIndex);
+  const drawing = (drawingsList.length > 0 && drawingsList[currentIdx]) ? drawingsList[currentIdx] : initialDrawing;
   const [pdfUrl, setPdfUrl] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     async function load() {
-      setLoading(true);
+      setLoading(true); setPdfUrl(null); setError("");
       try {
         const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
         const binary = atob(base64);
@@ -143,21 +145,59 @@ function PdfViewerModal({ drawing, projectId, onClose }) {
     return () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); };
   }, [drawing.id]);
 
+  // Keyboard arrow navigation
+  useEffect(() => {
+    if (drawingsList.length <= 1) return;
+    function handleKey(e) {
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+        e.preventDefault();
+        setCurrentIdx(i => Math.max(0, i - 1));
+      } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+        e.preventDefault();
+        setCurrentIdx(i => Math.min(drawingsList.length - 1, i + 1));
+      } else if (e.key === "Escape") {
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [drawingsList.length, onClose]);
+
+  const hasPrev = drawingsList.length > 1 && currentIdx > 0;
+  const hasNext = drawingsList.length > 1 && currentIdx < drawingsList.length - 1;
+  const navBtnStyle = (enabled) => ({
+    background: enabled ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.04)",
+    border: "1px solid rgba(255,255,255,0.2)", color: enabled ? "#fff" : "rgba(255,255,255,0.25)",
+    padding: "7px 12px", fontSize: 14, fontWeight: 600, cursor: enabled ? "pointer" : "default",
+    lineHeight: 1, fontFamily: "Inter, Arial, sans-serif",
+  });
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 2000, display: "flex", flexDirection: "column" }}>
       {/* Header bar */}
       <div style={{ background: ARC_NAVY, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{drawing.title}</div>
-          <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginTop: 2, display: "flex", gap: 16 }}>
-            {drawing.drawing_number && <span>{drawing.drawing_number}</span>}
-            {drawing.revision && <span>Rev. {drawing.revision}</span>}
-            {drawing.status && <span>{drawing.status}</span>}
-            {drawing.scale && <span>{drawing.scale}</span>}
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
+          {/* Prev button */}
+          {drawingsList.length > 1 && (
+            <button className="btn" onClick={() => hasPrev && setCurrentIdx(i => i - 1)} style={navBtnStyle(hasPrev)} title="Previous drawing (←)">‹</button>
+          )}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#fff", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{drawing.title}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginTop: 2, display: "flex", gap: 16 }}>
+              {drawing.drawing_number && <span>{drawing.drawing_number}</span>}
+              {drawing.revision && <span>Rev. {drawing.revision}</span>}
+              {drawing.status && <span>{drawing.status}</span>}
+              {drawing.scale && <span>{drawing.scale}</span>}
+              {drawingsList.length > 1 && <span style={{ color: "rgba(255,255,255,0.4)" }}>{currentIdx + 1} / {drawingsList.length}</span>}
+            </div>
           </div>
+          {/* Next button */}
+          {drawingsList.length > 1 && (
+            <button className="btn" onClick={() => hasNext && setCurrentIdx(i => i + 1)} style={navBtnStyle(hasNext)} title="Next drawing (→)">›</button>
+          )}
         </div>
         <button className="btn" onClick={onClose}
-          style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}>
+          style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", marginLeft: 16, flexShrink: 0 }}>
           Close ✕
         </button>
       </div>
@@ -197,7 +237,7 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
   return (
     <div style={{
       display: "grid",
-      gridTemplateColumns: "minmax(120px,180px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px",
+      gridTemplateColumns: "minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px",
       gap: "0 12px", padding: "9px 16px", alignItems: "center",
       background: highlight ? "#f0f8f0" : "inherit",
       borderBottom: "1px solid #f0ede8",
@@ -274,6 +314,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
   const [expanded, setExpanded] = useState(false);
   const [downloadingId, setDownloadingId] = useState(null);
   const [viewingDrawing, setViewingDrawing] = useState(null);
+  const [lastQuestion, setLastQuestion] = useState("");
 
   async function handleDownload(drawing) {
     setDownloadingId(drawing.id);
@@ -289,9 +330,41 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
     setDownloadingId(null);
   }
 
+  const [downloadingAll, setDownloadingAll] = useState(false);
+
+  async function downloadAll() {
+    if (matchedDrawings.length === 0 || downloadingAll) return;
+    setDownloadingAll(true);
+    try {
+      if (!window.JSZip) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+          script.onload = resolve; script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+      const zip = new window.JSZip();
+      for (const drawing of matchedDrawings) {
+        try {
+          const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
+          zip.file(file_name || drawing.file_name || `${drawing.drawing_number || drawing.id}.pdf`, base64, { base64: true });
+        } catch (e) { console.error("Failed to fetch drawing:", drawing.id, e); }
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url;
+      const safeName = (lastQuestion || "drawings").replace(/[^a-z0-9]/gi, "-").slice(0, 40);
+      a.download = `drawings-${safeName}.zip`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (e) { console.error("Download all failed:", e); }
+    setDownloadingAll(false);
+  }
+
   async function ask() {
     if (!question.trim() || running) return;
     const q = question.trim();
+    setLastQuestion(q);
     setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setExpanded(true); setStatus("Thinking…");
 
     // Build drawing register context
@@ -346,16 +419,26 @@ Rules:
       );
 
       // Parse JSON response
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        setAnswer(parsed.answer || text);
-        if (parsed.drawing_ids && parsed.drawing_ids.length > 0) {
-          const matched = drawings.filter(d => parsed.drawing_ids.includes(d.id));
-          setMatchedDrawings(matched);
+      let answerText = text;
+      let matchedIds = [];
+      try {
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (typeof parsed.answer === "string" && parsed.answer.trim()) {
+            answerText = parsed.answer;
+          }
+          if (Array.isArray(parsed.drawing_ids) && parsed.drawing_ids.length > 0) {
+            matchedIds = parsed.drawing_ids;
+          }
         }
-      } else {
-        setAnswer(text);
+      } catch (parseErr) {
+        // fall through — answerText remains the raw text
+      }
+      setAnswer(answerText);
+      if (matchedIds.length > 0) {
+        const matched = drawings.filter(d => matchedIds.includes(d.id));
+        setMatchedDrawings(matched);
       }
       setStatus("");
     } catch (e) {
@@ -392,9 +475,13 @@ Rules:
                 <span style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase" }}>
                   {matchedDrawings.length} drawing{matchedDrawings.length !== 1 ? "s" : ""} found
                 </span>
+                <button className="btn" onClick={downloadAll} disabled={downloadingAll}
+                  style={{ fontSize: 10, fontWeight: 600, color: ARC_NAVY, background: "none", border: `1px solid ${ARC_NAVY}`, padding: "3px 10px", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
+                  {downloadingAll ? <><Spinner size={10} /> Downloading…</> : "↓ Download All"}
+                </button>
               </div>
               {/* Column headers */}
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(120px,180px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "6px 16px", background: ARC_NAVY }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "6px 16px", background: ARC_NAVY }}>
                 {["Drawing No.", "Title", "Rev.", "Status", "Scale", "", "", ""].map((h, i) => (
                   <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
                 ))}
@@ -425,7 +512,15 @@ Rules:
         )}
       </div>
 
-      {viewingDrawing && <PdfViewerModal drawing={viewingDrawing} projectId={projectId} onClose={() => setViewingDrawing(null)} />}
+      {viewingDrawing && (
+        <PdfViewerModal
+          drawing={viewingDrawing}
+          projectId={projectId}
+          onClose={() => setViewingDrawing(null)}
+          drawings={matchedDrawings}
+          currentIndex={matchedDrawings.findIndex(d => d.id === viewingDrawing.id)}
+        />
+      )}
     </div>
   );
 }
@@ -596,7 +691,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       ) : (
         <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
           {/* Column headers */}
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(120px,180px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "8px 16px", background: ARC_NAVY }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "8px 16px", background: ARC_NAVY }}>
             {["Drawing No.", "Title", "Rev.", "Status", "Scale", "", "", ""].map((h, i) => (
               <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
             ))}
@@ -617,7 +712,15 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
         </p>
       )}
 
-      {viewingDrawing && <PdfViewerModal drawing={viewingDrawing} projectId={projectId} onClose={() => setViewingDrawing(null)} />}
+      {viewingDrawing && (
+        <PdfViewerModal
+          drawing={viewingDrawing}
+          projectId={projectId}
+          onClose={() => setViewingDrawing(null)}
+          drawings={drawings}
+          currentIndex={drawings.findIndex(d => d.id === viewingDrawing.id)}
+        />
+      )}
     </div>
   );
 }
