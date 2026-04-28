@@ -1,10 +1,28 @@
+import { createClient } from "@supabase/supabase-js";
+
+// ── Supabase client (singleton) ───────────────────────────────────────────────
+export const supabase = createClient(
+  process.env.REACT_APP_SUPABASE_URL,
+  process.env.REACT_APP_SUPABASE_ANON_KEY
+);
+
+// Returns the current session's JWT, or null if not signed in
+async function getAuthToken() {
+  const { data } = await supabase.auth.getSession();
+  return data?.session?.access_token || null;
+}
+
 const API_BASE = process.env.REACT_APP_API_URL || "https://archimind.up.railway.app";
 
 // ── Generic fetch wrapper ─────────────────────────────────────────────────────
 export async function api(path, options = {}) {
+  const token = await getAuthToken();
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
     ...options,
+    headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   if (!res.ok) {
@@ -64,6 +82,10 @@ export async function splitPdfIntoChunks(base64Data, chunkSize) {
 
 // ── Gemini proxy call ─────────────────────────────────────────────────────────
 export async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash", timeoutMs = 240000, options = {}) {
+  const token = await getAuthToken();
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -71,7 +93,7 @@ export async function callClaude(messages, systemPrompt, maxTokens = 1000, retri
   try {
     res = await fetch(`${API_BASE}/api/claude`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers,
       signal: controller.signal,
       body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt, messages, ...options }),
     });

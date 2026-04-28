@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
-import { api, callClaude, fileToBase64 } from "./api/client";
+import { api, callClaude, fileToBase64, supabase } from "./api/client";
 import AnswerRenderer from "./components/common/AnswerRenderer";
 import { Spinner, ProgressBar } from "./components/common/Spinner";
 import VaultManagementModal from "./components/VaultManagementModal";
@@ -70,9 +70,6 @@ export default function App() {
   const [conversationHistory, setConversationHistory] = useState([]);
   const [loadingVaults, setLoadingVaults] = useState(true);
   const [uploadingPdf, setUploadingPdf] = useState(false);
-  const [authenticated, setAuthenticated] = useState(null);
-  const [passwordInput, setPasswordInput] = useState("");
-  const [passwordError, setPasswordError] = useState(false);
   const [tempDoc, setTempDoc] = useState(null);
   const [tempDocDragOver, setTempDocDragOver] = useState(false);
   const [lastQuestion, setLastQuestion] = useState("");
@@ -81,20 +78,60 @@ export default function App() {
   const fileInputRef = useRef();
   const tempDocInputRef = useRef();
 
-  const PASSWORDS = {
-    "4Rawbn11": "user",
-    "H8ndh0le": "admin",
+  // ── Auth state ────────────────────────────────────────────────────────────────
+  const [authLoading, setAuthLoading] = useState(true);
+  const [session, setSession] = useState(null);
+  const [userRole, setUserRole] = useState(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
+
+  // ── Bootstrap auth session ────────────────────────────────────────────────────
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session) {
+        const role = session.user?.user_metadata?.role || "user";
+        setUserRole(role);
+      }
+      setAuthLoading(false);
+    });
+
+    // Listen for auth state changes (sign in / sign out)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) {
+        const role = session.user?.user_metadata?.role || "user";
+        setUserRole(role);
+      } else {
+        setUserRole(null);
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) return;
+    setLoggingIn(true);
+    setLoginError("");
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+    if (error) {
+      setLoginError("Incorrect email or password. Please try again.");
+      setPassword("");
+    }
+    setLoggingIn(false);
   };
 
-  const handleLogin = () => {
-    const role = PASSWORDS[passwordInput];
-    if (role) {
-      setAuthenticated(role);
-      setPasswordError(false);
-    } else {
-      setPasswordError(true);
-      setPasswordInput("");
-    }
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    setAppSection("home");
+    setSelectedVault(null);
+    setVaults([]);
+    setAnswer(null);
+    setHistory([]);
   };
 
   const loadTempDoc = async (file) => {
@@ -107,7 +144,7 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  const isAdmin = authenticated === "admin";
+  const isAdmin = userRole === "admin";
 
   const vault = (() => {
     for (const v of vaults) {
@@ -128,7 +165,9 @@ export default function App() {
     document.title = isStaging ? "Archimind [Staging]" : "Archimind";
   }, []);
 
-  useEffect(() => { loadVaults(); }, []);
+  useEffect(() => {
+    if (session) loadVaults();
+  }, [session]);
 
   const loadVaults = async () => {
     setLoadingVaults(true);
@@ -245,13 +284,7 @@ export default function App() {
 
   const indexOnePdf = async (pdfName, base64) => {
     const SYSTEM = "You are a document indexer. Extract only structural metadata. Return pure JSON only, no markdown, no explanation.";
-    const INDEX_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.
-
-Do not extract body text or bullet points.
-
-For pageHint, use only the position of the page within this PDF file — page 1 is the first page of this file, page 2 is the second, etc. Ignore all printed page numbers on the pages.
-
-Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
+    const INDEX_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.\r\n\r\nDo not extract body text or bullet points.\r\n\r\nFor pageHint, use only the position of the page within this PDF file — page 1 is the first page of this file, page 2 is the second, etc. Ignore all printed page numbers on the pages.\r\n\r\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
 
     const tryParse = (text) => {
       const clean = text.replace(/```json|```/g, "").trim();
@@ -300,13 +333,7 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
         setStatusMsg(`Indexing ${pdfName} — pages ${startPage + 1}–${endPage} of ${pageCount}…`);
         const { base64: chunkBase64 } = await extractPdfPages(base64, Array.from({ length: endPage - startPage }, (_, i) => startPage + i));
         try {
-          const chunkPrompt = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.
-
-Do not extract body text or bullet points.
-
-For pageHint, use only the page number within this chunk — page 1 is the first page of this chunk, page 2 is the second, up to page ${endPage - startPage}. Ignore all printed page numbers on the pages completely.
-
-Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
+          const chunkPrompt = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.\r\n\r\nDo not extract body text or bullet points.\r\n\r\nFor pageHint, use only the page number within this chunk — page 1 is the first page of this chunk, page 2 is the second, up to page ${endPage - startPage}. Ignore all printed page numbers on the pages completely.\r\n\r\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
           const { text: result } = await callClaude(
             [{ role: "user", content: [
               { type: "document", source: { type: "base64", media_type: "application/pdf", data: chunkBase64 } },
@@ -488,37 +515,7 @@ Output ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pag
         ? `\n\nCONVERSATION HISTORY (this is a continuing conversation — the current question may be a follow-up to earlier questions):\n${recentHistory.map((h, i) => `Q${i+1}: ${h.question}\nA${i+1}: ${h.answer.slice(0, 600)}…`).join("\n\n")}`
         : "";
 
-      const scoringPrompt = `You are an expert technical document analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain the answer to the question.
-
-DOCUMENT INDEX (headings, sections and page numbers extracted from vault documents):
-${indexSummary}
-${conversationContext}
-
-QUESTION: ${q}
-${recentHistory.length > 0 ? "NOTE: This may be a follow-up question. Use the conversation history above to understand the full context before scoring." : ""}
-
-Analyse the index carefully. For every section that could possibly be relevant — even tangentially — assign a probability score. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections. Be CONSERVATIVE — it is better to include a borderline section than to miss critical information.
-
-NOTE: Select ALL sections that are relevant to the question — do not limit to just one section if multiple sections are relevant.
-
-TABLES AND FIGURES: If the question relates to a requirement that is likely defined or quantified in a table or figure (e.g. fire resistance ratings, dimensions, classifications), you MUST also select any table or figure entries in the index that are likely to contain that data. For example, if the index contains "Table 3 — Fire resistance of cavity barriers" or "Table 5 — Minimum fire resistance", select those entries with high probability. Never rely solely on clause text pages when the actual values are in a table.
-
-Respond ONLY as compact JSON — no other text, no explanations, no reasons:
-{
-  "selectedDocs": [
-    {
-      "docName": "exact filename from index",
-      "sections": [
-        {"heading": "exact heading from index", "pageHint": 42, "probability": 0.95}
-      ]
-    }
-  ]
-}
-
-Rules:
-- Include sections with probability > 0.5
-- pageHint MUST be a plain integer. Never use "p.12" or "page 12". Use 1 if unknown.
-- Omit "styleNotes", "reason" and "crossRefs" fields entirely — keep JSON compact`;
+      const scoringPrompt = `You are an expert technical document analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain the answer to the question.\n\nDOCUMENT INDEX (headings, sections and page numbers extracted from vault documents):\n${indexSummary}\n${conversationContext}\n\nQUESTION: ${q}\n${recentHistory.length > 0 ? "NOTE: This may be a follow-up question. Use the conversation history above to understand the full context before scoring." : ""}\n\nAnalyse the index carefully. For every section that could possibly be relevant — even tangentially — assign a probability score. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections. Be CONSERVATIVE — it is better to include a borderline section than to miss critical information.\n\nNOTE: Select ALL sections that are relevant to the question — do not limit to just one section if multiple sections are relevant.\n\nTABLES AND FIGURES: If the question relates to a requirement that is likely defined or quantified in a table or figure (e.g. fire resistance ratings, dimensions, classifications), you MUST also select any table or figure entries in the index that are likely to contain that data. For example, if the index contains "Table 3 — Fire resistance of cavity barriers" or "Table 5 — Minimum fire resistance", select those entries with high probability. Never rely solely on clause text pages when the actual values are in a table.\n\nRespond ONLY as compact JSON — no other text, no explanations, no reasons:\n{\n  "selectedDocs": [\n    {\n      "docName": "exact filename from index",\n      "sections": [\n        {"heading": "exact heading from index", "pageHint": 42, "probability": 0.95}\n      ]\n    }\n  ]\n}\n\nRules:\n- Include sections with probability > 0.5\n- pageHint MUST be a plain integer. Never use "p.12" or "page 12". Use 1 if unknown.\n- Omit "styleNotes", "reason" and "crossRefs" fields entirely — keep JSON compact`;
 
       const { text: scoringText, usage: scoringUsage } = await callClaude(
         [{ role: "user", content: scoringPrompt }],
@@ -749,107 +746,7 @@ Rules:
         ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
         : "";
 
-      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `\n\nNOTE: A temporary document has been included for reference: "${tempDoc.name}". This is not part of the permanent vault — treat it as an additional reference document when answering.` : ""}
-
-${contextBlock}CURRENT QUESTION: ${q}
-
-PRIORITY SECTIONS: ${focusSections || "all sections"}
-
----
-
-TABLES — GLOBAL RULE (applies to every section):
-When multiple documents contain tables that are near-identical in structure and content (e.g. minimum fire resistance performance tables across different versions of the same standard), do NOT reproduce each one separately. Instead:
-1. Reproduce the single most complete and relevant version in full
-2. After the citation, add a plain italic note: *Note: [Other Document] [Table X] contains equivalent/near-identical data. [Note any meaningful differences, e.g. if one table lacks a cavity barrier row.]*
-
-For the one table you reproduce:
-1. Output the table title on its own line in bold: **Table X — Title of table**
-2. Reproduce the COMPLETE table — EVERY row, EVERY column, NO exceptions. Do not extract only the relevant row. Do not summarise. If the table has 30 rows, output all 30 rows. Every row starts and ends with | pipe characters.
-3. After the header row output a separator row: | --- | --- | --- |
-4. For the specific row(s) that directly answer the question, prefix that ENTIRE ROW with >> ONCE at the very start, before the first pipe: >> | cell | cell | cell |
-   CRITICAL: The >> prefix appears ONCE at the start of the row only. Do NOT put >> before each cell.
-5. Do NOT wrap tables in > block quote syntax
-6. Place the citation immediately below the table, then the equivalence note
-7. If the table spans multiple pages, combine ALL parts into one complete table — do not stop at the first page
-
-If only one table is referenced, reproduce it in full without any equivalence note.
-
-RESPONSE FORMAT — output in this exact order every time:
-
-## Summary
-
-WRITE THIS FIRST. A confident, definitive answer in 2–4 sentences. Must:
-- Open with a direct answer in plain English
-- Cite ALL relevant documents provided — not just one
-- Build on any prior conversation context where relevant
-- Reproduce any table directly relevant to the answer
-- After any table include footnotes/qualifications as plain italic text
-
-For each key fact, include the exact supporting phrase and citation as a consecutive pair:
-
-> "Exact short phrase from document."
-*Document Name | X.X.X Clause Title (Parent Section Title)*
-
-CITATION FORMAT: *Document | Clause number and title (Parent section title)*
-CRITICAL: Citation MUST start AND end with * asterisk.
-
-CITATION PLACEMENT — strictly follow these rules:
-- Every citation goes on its OWN LINE, never embedded within a sentence
-- Never write: "Quote." *Citation* and more text continues here.
-- Never chain citations with "and": *Citation A* and *Citation B* — WRONG
-- If multiple documents support the same fact, each citation goes on its own separate line:
-  > "Quote."
-  *Document A | Clause*
-  *Document B | Clause*
-- A citation always ends a paragraph, never appears mid-sentence
-
----
-
-## Detailed Analysis
-
-WRITE THIS SECOND. Only content that adds value beyond the summary.
-
-Check ALL of the following — if ANY apply, write Case 2:
-- Location/scenario-specific requirements beyond the general rule?
-- Exceptions or conditions where the rule does NOT apply?
-- Construction/specification requirements beyond the fire rating?
-- Cross-references to other clauses, standards, or ADs?
-- Do the multiple documents differ or add to each other?
-- Inspection, testing, or certification requirements?
-
-CASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."
-
-CASE 2 — Concise bullet points. One sentence each. Reproduce any referenced table in full below the bullet. Citation after each bullet or table:
-*Document Name | X.X.X Clause Title (Parent Section Title)*
-
-RULES:
-- No repetition of summary content
-- Citations: opening AND closing * required
-- Cite ALL documents where relevant — never rely on just one
-- Maximum 6 bullets
-
----
-
-## Regulatory Context
-
-WRITE THIS THIRD. Broader background tightly scoped to the question. 2–4 bullets maximum.
-Citation after each bullet: *Document Name | X.X.X Clause Title (Parent Section Title)*
-If nothing to add: "No additional context required."
-
----
-
-## Contradictions & Conflicts
-
-WRITE THIS LAST. Conflicts: state conflict, quote both sides with citations, give practical conclusion.
-No conflicts: "No contradictions identified."
-
----
-
-RULES:
-- Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions
-- Use ONLY the provided document pages — no external knowledge
-- Every factual statement needs a citation with opening AND closing asterisks
-- Draw from ALL provided documents — never rely on just one`;
+      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `\n\nNOTE: A temporary document has been included for reference: "${tempDoc.name}". This is not part of the permanent vault — treat it as an additional reference document when answering.` : ""}\n\n${contextBlock}CURRENT QUESTION: ${q}\n\nPRIORITY SECTIONS: ${focusSections || "all sections"}\n\n---\n\nTABLES — GLOBAL RULE (applies to every section):\nWhen multiple documents contain tables that are near-identical in structure and content (e.g. minimum fire resistance performance tables across different versions of the same standard), do NOT reproduce each one separately. Instead:\n1. Reproduce the single most complete and relevant version in full\n2. After the citation, add a plain italic note: *Note: [Other Document] [Table X] contains equivalent/near-identical data. [Note any meaningful differences, e.g. if one table lacks a cavity barrier row.]*\n\nFor the one table you reproduce:\n1. Output the table title on its own line in bold: **Table X — Title of table**\n2. Reproduce the COMPLETE table — EVERY row, EVERY column, NO exceptions. Do not extract only the relevant row. Do not summarise. If the table has 30 rows, output all 30 rows. Every row starts and ends with | pipe characters.\n3. After the header row output a separator row: | --- | --- | --- |\n4. For the specific row(s) that directly answer the question, prefix that ENTIRE ROW with >> ONCE at the very start, before the first pipe: >> | cell | cell | cell |\n   CRITICAL: The >> prefix appears ONCE at the start of the row only. Do NOT put >> before each cell.\n5. Do NOT wrap tables in > block quote syntax\n6. Place the citation immediately below the table, then the equivalence note\n7. If the table spans multiple pages, combine ALL parts into one complete table — do not stop at the first page\n\nIf only one table is referenced, reproduce it in full without any equivalence note.\n\nRESPONSE FORMAT — output in this exact order every time:\n\n## Summary\n\nWRITE THIS FIRST. A confident, definitive answer in 2–4 sentences. Must:\n- Open with a direct answer in plain English\n- Cite ALL relevant documents provided — not just one\n- Build on any prior conversation context where relevant\n- Reproduce any table directly relevant to the answer\n- After any table include footnotes/qualifications as plain italic text\n\nFor each key fact, include the exact supporting phrase and citation as a consecutive pair:\n\n> "Exact short phrase from document."\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nCITATION FORMAT: *Document | Clause number and title (Parent section title)*\nCRITICAL: Citation MUST start AND end with * asterisk.\n\nCITATION PLACEMENT — strictly follow these rules:\n- Every citation goes on its OWN LINE, never embedded within a sentence\n- Never write: "Quote." *Citation* and more text continues here.\n- Never chain citations with "and": *Citation A* and *Citation B* — WRONG\n- If multiple documents support the same fact, each citation goes on its own separate line:\n  > "Quote."\n  *Document A | Clause*\n  *Document B | Clause*\n- A citation always ends a paragraph, never appears mid-sentence\n\n---\n\n## Detailed Analysis\n\nWRITE THIS SECOND. Only content that adds value beyond the summary.\n\nCheck ALL of the following — if ANY apply, write Case 2:\n- Location/scenario-specific requirements beyond the general rule?\n- Exceptions or conditions where the rule does NOT apply?\n- Construction/specification requirements beyond the fire rating?\n- Cross-references to other clauses, standards, or ADs?\n- Do the multiple documents differ or add to each other?\n- Inspection, testing, or certification requirements?\n\nCASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."\n\nCASE 2 — Concise bullet points. One sentence each. Reproduce any referenced table in full below the bullet. Citation after each bullet or table:\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nRULES:\n- No repetition of summary content\n- Citations: opening AND closing * required\n- Cite ALL documents where relevant — never rely on just one\n- Maximum 6 bullets\n\n---\n\n## Regulatory Context\n\nWRITE THIS THIRD. Broader background tightly scoped to the question. 2–4 bullets maximum.\nCitation after each bullet: *Document Name | X.X.X Clause Title (Parent Section Title)*\nIf nothing to add: "No additional context required."\n\n---\n\n## Contradictions & Conflicts\n\nWRITE THIS LAST. Conflicts: state conflict, quote both sides with citations, give practical conclusion.\nNo conflicts: "No contradictions identified."\n\n---\n\nRULES:\n- Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions\n- Use ONLY the provided document pages — no external knowledge\n- Every factual statement needs a citation with opening AND closing asterisks\n- Draw from ALL provided documents — never rely on just one`;
 
       const { text: finalAnswer, usage: answerUsage } = await callClaude(
         [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
@@ -916,8 +813,18 @@ RULES:
     body { font-family: Inter, Arial, sans-serif; }
   `;
 
+  // ── Auth loading screen ───────────────────────────────────────────────────────
+  if (authLoading) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: ARC_STONE, fontFamily: "Inter, Arial, sans-serif" }}>
+        <style>{globalStyles}</style>
+        <Spinner size={20} />
+      </div>
+    );
+  }
+
   // ── Login screen ──────────────────────────────────────────────────────────────
-  if (!authenticated) {
+  if (!session) {
     return (
       <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
         <style>{globalStyles}</style>
@@ -928,20 +835,29 @@ RULES:
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: ARC_STONE }}>
           <div style={{ background: "#ffffff", padding: "48px 48px", width: 400, borderTop: `3px solid ${ARC_TERRACOTTA}` }}>
             <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 32, letterSpacing: "0.1em", textTransform: "uppercase" }}>Secure Access</p>
-            <label style={{ fontSize: 12, fontWeight: 500, color: ARC_NAVY, display: "block", marginBottom: 8, letterSpacing: "0.05em", textTransform: "uppercase" }}>Password</label>
+            <label style={{ fontSize: 12, fontWeight: 500, color: ARC_NAVY, display: "block", marginBottom: 8, letterSpacing: "0.05em", textTransform: "uppercase" }}>Email</label>
             <input
-              type="password"
-              value={passwordInput}
-              onChange={e => { setPasswordInput(e.target.value); setPasswordError(false); }}
+              type="email"
+              value={email}
+              onChange={e => { setEmail(e.target.value); setLoginError(""); }}
               onKeyDown={e => e.key === "Enter" && handleLogin()}
               autoFocus
               className="arc-input"
-              style={{ width: "100%", border: passwordError ? `1px solid ${ARC_TERRACOTTA}` : `1px solid #ccc`, padding: "12px 14px", fontSize: 14, marginBottom: 6, outline: "none", fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY }}
+              style={{ width: "100%", border: loginError ? `1px solid ${ARC_TERRACOTTA}` : `1px solid #ccc`, padding: "12px 14px", fontSize: 14, marginBottom: 14, outline: "none", fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY }}
             />
-            {passwordError && <p style={{ color: ARC_TERRACOTTA, fontSize: 12, marginBottom: 16, letterSpacing: "0.02em" }}>Incorrect password. Please try again.</p>}
-            <button className="btn" onClick={handleLogin}
-              style={{ marginTop: 20, width: "100%", background: ARC_NAVY, color: "#ffffff", padding: "12px 0", fontSize: 13, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-              Sign In
+            <label style={{ fontSize: 12, fontWeight: 500, color: ARC_NAVY, display: "block", marginBottom: 8, letterSpacing: "0.05em", textTransform: "uppercase" }}>Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => { setPassword(e.target.value); setLoginError(""); }}
+              onKeyDown={e => e.key === "Enter" && handleLogin()}
+              className="arc-input"
+              style={{ width: "100%", border: loginError ? `1px solid ${ARC_TERRACOTTA}` : `1px solid #ccc`, padding: "12px 14px", fontSize: 14, marginBottom: 6, outline: "none", fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY }}
+            />
+            {loginError && <p style={{ color: ARC_TERRACOTTA, fontSize: 12, marginBottom: 16, letterSpacing: "0.02em" }}>{loginError}</p>}
+            <button className="btn" onClick={handleLogin} disabled={loggingIn}
+              style={{ marginTop: 20, width: "100%", background: ARC_NAVY, color: "#ffffff", padding: "12px 0", fontSize: 13, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              {loggingIn ? <><Spinner size={13} /> Signing in…</> : "Sign In"}
             </button>
           </div>
         </div>
@@ -982,6 +898,10 @@ RULES:
           <span style={{ fontSize: 10, color: isAdmin ? ARC_TERRACOTTA : "#7a9aaa", letterSpacing: "0.1em", textTransform: "uppercase", border: `1px solid ${isAdmin ? ARC_TERRACOTTA : "#3a5a6a"}`, padding: "2px 8px" }}>
             {isAdmin ? "Admin" : "User"}
           </span>
+          <button className="btn" onClick={handleSignOut}
+            style={{ background: "none", color: "#7a9aaa", fontSize: 11, border: "1px solid #3a5a6a", padding: "3px 10px", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            Sign Out
+          </button>
         </div>
       </div>
 
@@ -990,7 +910,7 @@ RULES:
         {appSection === "home" && <LandingPage onSelect={setAppSection} isAdmin={isAdmin} />}
         {appSection === "compare" && <CompareSection vaults={vaults} isAdmin={isAdmin} />}
         {appSection === "library" && <DatasheetsLibrarySection vaults={vaults} isAdmin={isAdmin} />}
-{appSection === "projects" && <ProjectsSection isAdmin={isAdmin} />}
+        {appSection === "projects" && <ProjectsSection isAdmin={isAdmin} />}
 
         {/* ── VAULT ─────────────────────────────────────────────────────── */}
         {appSection === "vault" && <>

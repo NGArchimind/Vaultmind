@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand } = require("@aws-sdk/client-s3");
 const { createClient } = require("@supabase/supabase-js");
 
@@ -78,8 +79,32 @@ async function deletePrefix(prefix) {
   }
 }
 
+// ── JWT auth middleware ───────────────────────────────────────────────────────
+function requireAuth(req, res, next) {
+  const authHeader = req.headers["authorization"];
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return res.status(401).json({ error: "Unauthorised — no token provided" });
+  }
+
+  const token = authHeader.slice(7);
+  const jwtSecret = process.env.SUPABASE_JWT_SECRET;
+
+  if (!jwtSecret) {
+    console.error("SUPABASE_JWT_SECRET is not set");
+    return res.status(500).json({ error: "Server auth configuration error" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, jwtSecret, { algorithms: ["HS256"] });
+    req.user = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "Unauthorised — invalid or expired token" });
+  }
+}
+
 // ── Gemini AI proxy ───────────────────────────────────────────────────────────
-app.post("/api/claude", async (req, res) => {
+app.post("/api/claude", requireAuth, async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "GEMINI_API_KEY not set." });
 
@@ -166,7 +191,7 @@ app.post("/api/claude", async (req, res) => {
 // ── vault routes ──────────────────────────────────────────────────────────────
 
 // GET /api/vaults — returns flat vaults and master vaults with their sub-vaults
-app.get("/api/vaults", async (req, res) => {
+app.get("/api/vaults", requireAuth, async (req, res) => {
   try {
     // List top-level "folders" (depth-1 prefixes)
     const topCmd = new ListObjectsV2Command({ Bucket: BUCKET, Delimiter: "/" });
@@ -212,13 +237,12 @@ app.get("/api/vaults", async (req, res) => {
 });
 
 // POST /api/vaults — create a regular vault or master vault
-app.post("/api/vaults", async (req, res) => {
+app.post("/api/vaults", requireAuth, async (req, res) => {
   const { name, type = "vault", parentVault } = req.body;
   if (!name) return res.status(400).json({ error: "Name required" });
 
   try {
     if (type === "master") {
-      // Create master vault with type metadata
       await r2.send(new PutObjectCommand({
         Bucket: BUCKET,
         Key: `${name}/.vault`,
@@ -228,7 +252,6 @@ app.post("/api/vaults", async (req, res) => {
       res.json({ id: name, name, type: "master", subVaults: [] });
 
     } else if (parentVault) {
-      // Create sub-vault inside a master vault
       const path = `${parentVault}/${name}`;
       await r2.send(new PutObjectCommand({
         Bucket: BUCKET,
@@ -239,7 +262,6 @@ app.post("/api/vaults", async (req, res) => {
       res.json({ id: path, name, path, type: "vault" });
 
     } else {
-      // Regular flat vault
       await r2.send(new PutObjectCommand({
         Bucket: BUCKET,
         Key: `${name}/.vault`,
@@ -253,10 +275,9 @@ app.post("/api/vaults", async (req, res) => {
   }
 });
 
-// PATCH /api/vaults/:vault — rename a vault (works for flat, master, or sub-vault)
-// For sub-vaults pass the full path: "British Standards/BS 9991"
-app.patch("/api/vaults/*", async (req, res) => {
-  const vaultPath = req.params[0]; // full path including any parent
+// PATCH /api/vaults/:vault — rename a vault
+app.patch("/api/vaults/*", requireAuth, async (req, res) => {
+  const vaultPath = req.params[0];
   const { name: newName } = req.body;
   if (!newName) return res.status(400).json({ error: "New name required" });
 
@@ -264,10 +285,8 @@ app.patch("/api/vaults/*", async (req, res) => {
     const parts = vaultPath.split("/");
     let newPath;
     if (parts.length === 1) {
-      // Top-level vault rename
       newPath = newName;
     } else {
-      // Sub-vault rename — keep parent, change last segment
       newPath = [...parts.slice(0, -1), newName].join("/");
     }
 
@@ -282,8 +301,7 @@ app.patch("/api/vaults/*", async (req, res) => {
 });
 
 // DELETE /api/vaults/:vault — delete a vault and all its contents
-app.delete("/api/vaults/*", async (req, res) => {
-  // Avoid conflict with the PDF delete route
+app.delete("/api/vaults/*", requireAuth, async (req, res) => {
   if (req.params[0].includes("/pdfs/")) return res.status(404).json({ error: "Not found" });
 
   const vaultPath = req.params[0];
@@ -296,9 +314,9 @@ app.delete("/api/vaults/*", async (req, res) => {
 });
 
 // POST /api/vaults/:vault/adopt — adopt an existing flat vault as a sub-vault of a master
-app.post("/api/vaults/*/adopt", async (req, res) => {
+app.post("/api/vaults/*/adopt", requireAuth, async (req, res) => {
   const masterPath = req.params[0];
-  const { sourceVault } = req.body; // name of the flat vault to adopt
+  const { sourceVault } = req.body;
   if (!sourceVault) return res.status(400).json({ error: "sourceVault required" });
 
   try {
@@ -306,7 +324,6 @@ app.post("/api/vaults/*/adopt", async (req, res) => {
     const toPrefix = `${masterPath}/${sourceVault}/`;
     await movePrefix(fromPrefix, toPrefix);
 
-    // Update .vault metadata to record parent
     try {
       const metaResult = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${toPrefix}.vault` }));
       const buf = await streamToBuffer(metaResult.Body);
@@ -327,7 +344,7 @@ app.post("/api/vaults/*/adopt", async (req, res) => {
 });
 
 // GET /api/vaults/:vault/pdfs
-app.get("/api/vaults/*/pdfs", async (req, res) => {
+app.get("/api/vaults/*/pdfs", requireAuth, async (req, res) => {
   const vaultPath = req.params[0];
   try {
     const result = await r2.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${vaultPath}/` }));
@@ -341,7 +358,7 @@ app.get("/api/vaults/*/pdfs", async (req, res) => {
 });
 
 // POST /api/vaults/:vault/pdfs
-app.post("/api/vaults/*/pdfs", async (req, res) => {
+app.post("/api/vaults/*/pdfs", requireAuth, async (req, res) => {
   const vaultPath = req.params[0];
   const { name, base64 } = req.body;
   if (!name || !base64) return res.status(400).json({ error: "name and base64 required" });
@@ -360,7 +377,7 @@ app.post("/api/vaults/*/pdfs", async (req, res) => {
 });
 
 // GET /api/vaults/:vault/pdfs/:filename
-app.get("/api/vaults/*/pdfs/:filename", async (req, res) => {
+app.get("/api/vaults/*/pdfs/:filename", requireAuth, async (req, res) => {
   const vaultPath = req.params[0];
   const { filename } = req.params;
   try {
@@ -373,7 +390,7 @@ app.get("/api/vaults/*/pdfs/:filename", async (req, res) => {
 });
 
 // DELETE /api/vaults/:vault/pdfs/:filename
-app.delete("/api/vaults/*/pdfs/:filename", async (req, res) => {
+app.delete("/api/vaults/*/pdfs/:filename", requireAuth, async (req, res) => {
   const vaultPath = req.params[0];
   const { filename } = req.params;
   try {
@@ -385,7 +402,7 @@ app.delete("/api/vaults/*/pdfs/:filename", async (req, res) => {
 });
 
 // POST /api/vaults/:vault/index
-app.post("/api/vaults/*/index", async (req, res) => {
+app.post("/api/vaults/*/index", requireAuth, async (req, res) => {
   const vaultPath = req.params[0];
   try {
     await r2.send(new PutObjectCommand({
@@ -401,7 +418,7 @@ app.post("/api/vaults/*/index", async (req, res) => {
 });
 
 // GET /api/vaults/:vault/index
-app.get("/api/vaults/*/index", async (req, res) => {
+app.get("/api/vaults/*/index", requireAuth, async (req, res) => {
   const vaultPath = req.params[0];
   try {
     const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${vaultPath}/.index.json` }));
@@ -414,7 +431,7 @@ app.get("/api/vaults/*/index", async (req, res) => {
 });
 
 // ── text extraction — server side ────────────────────────────────────────────
-app.post("/api/extract-text", async (req, res) => {
+app.post("/api/extract-text", requireAuth, async (req, res) => {
   const { base64 } = req.body;
   if (!base64) return res.status(400).json({ error: "base64 required" });
 
@@ -448,7 +465,7 @@ app.post("/api/extract-text", async (req, res) => {
 });
 
 // ── page extraction — server side ────────────────────────────────────────────
-app.post("/api/extract-pages", async (req, res) => {
+app.post("/api/extract-pages", requireAuth, async (req, res) => {
   const { base64, pages } = req.body;
   if (!base64 || !pages || !Array.isArray(pages)) {
     return res.status(400).json({ error: "base64 and pages array required" });
@@ -501,8 +518,7 @@ app.post("/api/extract-pages", async (req, res) => {
 
 // ── Product Library routes ────────────────────────────────────────────────────
 
-// POST /api/products/upload-pdf — store datasheet PDF in R2, return key
-app.post("/api/products/upload-pdf", async (req, res) => {
+app.post("/api/products/upload-pdf", requireAuth, async (req, res) => {
   const { base64, filename } = req.body;
   if (!base64 || !filename) return res.status(400).json({ error: "base64 and filename required" });
 
@@ -522,8 +538,7 @@ app.post("/api/products/upload-pdf", async (req, res) => {
   }
 });
 
-// GET /api/products — list all products
-app.get("/api/products", async (req, res) => {
+app.get("/api/products", requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("products")
@@ -536,8 +551,7 @@ app.get("/api/products", async (req, res) => {
   }
 });
 
-// GET /api/products/:id — get a single product with its attributes
-app.get("/api/products/:id", async (req, res) => {
+app.get("/api/products/:id", requireAuth, async (req, res) => {
   try {
     const { data: product, error: productError } = await supabase
       .from("products")
@@ -559,8 +573,7 @@ app.get("/api/products/:id", async (req, res) => {
   }
 });
 
-// PATCH /api/products/:id — update product fields (e.g. product_type)
-app.patch("/api/products/:id", async (req, res) => {
+app.patch("/api/products/:id", requireAuth, async (req, res) => {
   const { product_type } = req.body;
   try {
     const { data, error } = await supabase
@@ -576,8 +589,7 @@ app.patch("/api/products/:id", async (req, res) => {
   }
 });
 
-// POST /api/products — create a new product record
-app.post("/api/products", async (req, res) => {
+app.post("/api/products", requireAuth, async (req, res) => {
   const { name, manufacturer, file_key, raw_text, product_type, attributes = [] } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
 
@@ -601,8 +613,7 @@ app.post("/api/products", async (req, res) => {
   }
 });
 
-// GET /api/products/:id/pdf — fetch PDF from R2 and return as base64
-app.get("/api/products/:id/pdf", async (req, res) => {
+app.get("/api/products/:id/pdf", requireAuth, async (req, res) => {
   try {
     const { data: product, error } = await supabase
       .from("products")
@@ -620,10 +631,8 @@ app.get("/api/products/:id/pdf", async (req, res) => {
   }
 });
 
-// DELETE /api/products/:id — delete product from Supabase and PDF from R2
-app.delete("/api/products/:id", async (req, res) => {
+app.delete("/api/products/:id", requireAuth, async (req, res) => {
   try {
-    // Get file_key before deleting
     const { data: product, error: fetchError } = await supabase
       .from("products")
       .select("file_key")
@@ -631,14 +640,12 @@ app.delete("/api/products/:id", async (req, res) => {
       .single();
     if (fetchError) throw fetchError;
 
-    // Delete from Supabase (cascades to attributes)
     const { error } = await supabase
       .from("products")
       .delete()
       .eq("id", req.params.id);
     if (error) throw error;
 
-    // Delete PDF from R2 if stored
     if (product.file_key && product.file_key.startsWith("products/")) {
       try {
         await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: product.file_key }));
@@ -653,8 +660,7 @@ app.delete("/api/products/:id", async (req, res) => {
 
 // ── Project routes ────────────────────────────────────────────────────────────
 
-// GET /api/projects — list all projects
-app.get("/api/projects", async (req, res) => {
+app.get("/api/projects", requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("projects")
@@ -667,8 +673,7 @@ app.get("/api/projects", async (req, res) => {
   }
 });
 
-// GET /api/projects/:id — get a single project with all related data
-app.get("/api/projects/:id", async (req, res) => {
+app.get("/api/projects/:id", requireAuth, async (req, res) => {
   try {
     const { data: project, error: projectError } = await supabase
       .from("projects")
@@ -703,8 +708,7 @@ app.get("/api/projects/:id", async (req, res) => {
   }
 });
 
-// POST /api/projects — create a new project
-app.post("/api/projects", async (req, res) => {
+app.post("/api/projects", requireAuth, async (req, res) => {
   const { name, job_number, client, location, stage, description, status = "active", project_lead } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
 
@@ -716,7 +720,6 @@ app.post("/api/projects", async (req, res) => {
       .single();
     if (error) throw error;
 
-    // Seed default U-value elements
     const DEFAULT_UVALUES = [
       { element: "Roof", target: null, achieved: null, notes: null },
       { element: "External Wall", target: null, achieved: null, notes: null },
@@ -735,8 +738,7 @@ app.post("/api/projects", async (req, res) => {
   }
 });
 
-// PATCH /api/projects/:id — update project core fields
-app.patch("/api/projects/:id", async (req, res) => {
+app.patch("/api/projects/:id", requireAuth, async (req, res) => {
   const { name, job_number, client, location, stage, description, status, project_lead } = req.body;
   try {
     const { data, error } = await supabase
@@ -752,8 +754,7 @@ app.patch("/api/projects/:id", async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id — delete project and all related data (cascades via FK)
-app.delete("/api/projects/:id", async (req, res) => {
+app.delete("/api/projects/:id", requireAuth, async (req, res) => {
   try {
     const { error } = await supabase
       .from("projects")
@@ -768,8 +769,7 @@ app.delete("/api/projects/:id", async (req, res) => {
 
 // ── Consultants ───────────────────────────────────────────────────────────────
 
-// POST /api/projects/:id/consultants
-app.post("/api/projects/:id/consultants", async (req, res) => {
+app.post("/api/projects/:id/consultants", requireAuth, async (req, res) => {
   const { discipline, company, contact_name, email, phone } = req.body;
   try {
     const { data, error } = await supabase
@@ -784,8 +784,7 @@ app.post("/api/projects/:id/consultants", async (req, res) => {
   }
 });
 
-// PATCH /api/projects/:id/consultants/:cid
-app.patch("/api/projects/:id/consultants/:cid", async (req, res) => {
+app.patch("/api/projects/:id/consultants/:cid", requireAuth, async (req, res) => {
   const { discipline, company, contact_name, email, phone } = req.body;
   try {
     const { data, error } = await supabase
@@ -802,8 +801,7 @@ app.patch("/api/projects/:id/consultants/:cid", async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id/consultants/:cid
-app.delete("/api/projects/:id/consultants/:cid", async (req, res) => {
+app.delete("/api/projects/:id/consultants/:cid", requireAuth, async (req, res) => {
   try {
     const { error } = await supabase
       .from("project_consultants")
@@ -819,8 +817,7 @@ app.delete("/api/projects/:id/consultants/:cid", async (req, res) => {
 
 // ── U-values ──────────────────────────────────────────────────────────────────
 
-// PATCH /api/projects/:id/uvalues/:uid
-app.patch("/api/projects/:id/uvalues/:uid", async (req, res) => {
+app.patch("/api/projects/:id/uvalues/:uid", requireAuth, async (req, res) => {
   const { target, achieved, notes } = req.body;
   try {
     const { data, error } = await supabase
@@ -837,8 +834,7 @@ app.patch("/api/projects/:id/uvalues/:uid", async (req, res) => {
   }
 });
 
-// POST /api/projects/:id/uvalues — add a custom U-value element
-app.post("/api/projects/:id/uvalues", async (req, res) => {
+app.post("/api/projects/:id/uvalues", requireAuth, async (req, res) => {
   const { element, target, achieved, notes } = req.body;
   if (!element) return res.status(400).json({ error: "element required" });
   try {
@@ -854,8 +850,7 @@ app.post("/api/projects/:id/uvalues", async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id/uvalues/:uid
-app.delete("/api/projects/:id/uvalues/:uid", async (req, res) => {
+app.delete("/api/projects/:id/uvalues/:uid", requireAuth, async (req, res) => {
   try {
     const { error } = await supabase
       .from("project_uvalues")
@@ -869,10 +864,9 @@ app.delete("/api/projects/:id/uvalues/:uid", async (req, res) => {
   }
 });
 
-// ── Project notes (misc info) ─────────────────────────────────────────────────
+// ── Project notes ─────────────────────────────────────────────────────────────
 
-// POST /api/projects/:id/notes
-app.post("/api/projects/:id/notes", async (req, res) => {
+app.post("/api/projects/:id/notes", requireAuth, async (req, res) => {
   const { label, value, sort_order = 0 } = req.body;
   try {
     const { data, error } = await supabase
@@ -887,8 +881,7 @@ app.post("/api/projects/:id/notes", async (req, res) => {
   }
 });
 
-// PATCH /api/projects/:id/notes/:nid
-app.patch("/api/projects/:id/notes/:nid", async (req, res) => {
+app.patch("/api/projects/:id/notes/:nid", requireAuth, async (req, res) => {
   const { label, value, sort_order } = req.body;
   try {
     const { data, error } = await supabase
@@ -905,8 +898,7 @@ app.patch("/api/projects/:id/notes/:nid", async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id/notes/:nid
-app.delete("/api/projects/:id/notes/:nid", async (req, res) => {
+app.delete("/api/projects/:id/notes/:nid", requireAuth, async (req, res) => {
   try {
     const { error } = await supabase
       .from("project_notes")
@@ -922,8 +914,7 @@ app.delete("/api/projects/:id/notes/:nid", async (req, res) => {
 
 // ── Project drawings ──────────────────────────────────────────────────────────
 
-// GET /api/projects/:id/drawings — list all drawings for a project
-app.get("/api/projects/:id/drawings", async (req, res) => {
+app.get("/api/projects/:id/drawings", requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("project_drawings")
@@ -938,8 +929,7 @@ app.get("/api/projects/:id/drawings", async (req, res) => {
   }
 });
 
-// POST /api/projects/:id/drawings — upload a drawing file and create record
-app.post("/api/projects/:id/drawings", async (req, res) => {
+app.post("/api/projects/:id/drawings", requireAuth, async (req, res) => {
   const { title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, base64 } = req.body;
   if (!title || !file_name || !base64) return res.status(400).json({ error: "title, file_name and base64 required" });
 
@@ -950,7 +940,6 @@ app.post("/api/projects/:id/drawings", async (req, res) => {
   const buffer = Buffer.from(base64, "base64");
 
   try {
-    // Upload file to R2
     await r2.send(new PutObjectCommand({
       Bucket: BUCKET,
       Key: r2Key,
@@ -958,7 +947,6 @@ app.post("/api/projects/:id/drawings", async (req, res) => {
       ContentType: contentType,
     }));
 
-    // Create Supabase record
     const { data, error } = await supabase
       .from("project_drawings")
       .insert({
@@ -986,8 +974,7 @@ app.post("/api/projects/:id/drawings", async (req, res) => {
   }
 });
 
-// PATCH /api/projects/:id/drawings/:did — update drawing metadata
-app.patch("/api/projects/:id/drawings/:did", async (req, res) => {
+app.patch("/api/projects/:id/drawings/:did", requireAuth, async (req, res) => {
   const { title, drawing_number, revision, status, scale, volume, level, drawing_type } = req.body;
   try {
     const { data, error } = await supabase
@@ -1004,8 +991,7 @@ app.patch("/api/projects/:id/drawings/:did", async (req, res) => {
   }
 });
 
-// GET /api/projects/:id/drawings/:did/file — download drawing file from R2
-app.get("/api/projects/:id/drawings/:did/file", async (req, res) => {
+app.get("/api/projects/:id/drawings/:did/file", requireAuth, async (req, res) => {
   try {
     const { data: drawing, error } = await supabase
       .from("project_drawings")
@@ -1024,10 +1010,8 @@ app.get("/api/projects/:id/drawings/:did/file", async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id/drawings/:did — delete drawing record and R2 file
-app.delete("/api/projects/:id/drawings/:did", async (req, res) => {
+app.delete("/api/projects/:id/drawings/:did", requireAuth, async (req, res) => {
   try {
-    // Get file_key before deleting
     const { data: drawing, error: fetchError } = await supabase
       .from("project_drawings")
       .select("file_key")
@@ -1036,7 +1020,6 @@ app.delete("/api/projects/:id/drawings/:did", async (req, res) => {
       .single();
     if (fetchError) throw fetchError;
 
-    // Delete Supabase record
     const { error } = await supabase
       .from("project_drawings")
       .delete()
@@ -1044,7 +1027,6 @@ app.delete("/api/projects/:id/drawings/:did", async (req, res) => {
       .eq("project_id", req.params.id);
     if (error) throw error;
 
-    // Delete file from R2 (best effort)
     if (drawing.file_key) {
       try {
         await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: drawing.file_key }));
@@ -1058,23 +1040,18 @@ app.delete("/api/projects/:id/drawings/:did", async (req, res) => {
 });
 
 // ── Drawing sync (bulk upsert from desktop sync tool) ────────────────────────
-// POST /api/projects/:id/drawings/sync
-// Body: { drawings: [{ title, drawing_number, revision, status, file_name, file_size, base64 }] }
-// Returns: { results: [{ drawing_number, action: "created"|"updated"|"skipped"|"error", ... }] }
-app.post("/api/projects/:id/drawings/sync", async (req, res) => {
+app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
   const { drawings: incoming } = req.body;
   if (!Array.isArray(incoming) || incoming.length === 0) {
     return res.status(400).json({ error: "drawings array required" });
   }
 
-  // Fetch existing drawings for this project
   const { data: existing, error: fetchError } = await supabase
     .from("project_drawings")
     .select("id, drawing_number, revision, file_key, file_name")
     .eq("project_id", req.params.id);
   if (fetchError) return res.status(500).json({ error: fetchError.message });
 
-  // Build lookup: drawing_number → existing record
   const existingMap = {};
   for (const d of existing) {
     if (d.drawing_number) existingMap[d.drawing_number] = d;
@@ -1099,23 +1076,19 @@ app.post("/api/projects/:id/drawings/sync", async (req, res) => {
       const existingRecord = existingMap[drawing_number];
 
       if (existingRecord) {
-        // Drawing exists — skip if same revision
         if (existingRecord.revision === revision) {
           results.push({ drawing_number, action: "skipped", reason: "Same revision already in register" });
           continue;
         }
 
-        // Upload new file to R2
         await r2.send(new PutObjectCommand({
           Bucket: BUCKET, Key: r2Key, Body: buffer, ContentType: contentType,
         }));
 
-        // Delete old file from R2 (best effort)
         if (existingRecord.file_key) {
           try { await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: existingRecord.file_key })); } catch (_) {}
         }
 
-        // Update Supabase record
         const { data: updated, error: updateError } = await supabase
           .from("project_drawings")
           .update({
@@ -1136,7 +1109,6 @@ app.post("/api/projects/:id/drawings/sync", async (req, res) => {
         results.push({ drawing_number, action: "updated", previous_revision: existingRecord.revision, drawing: updated });
 
       } else {
-        // New drawing — upload and insert
         await r2.send(new PutObjectCommand({
           Bucket: BUCKET, Key: r2Key, Body: buffer, ContentType: contentType,
         }));
@@ -1166,6 +1138,123 @@ app.post("/api/projects/:id/drawings/sync", async (req, res) => {
   }
 
   res.json({ results });
+});
+
+// ── Todos ─────────────────────────────────────────────────────────────────────
+
+app.get("/api/projects/:id/todos", requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("project_todos")
+      .select("*")
+      .eq("project_id", req.params.id)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    res.json({ todos: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/projects/:id/todos", requireAuth, async (req, res) => {
+  const { description, assigned_to, due_date, status = "open" } = req.body;
+  if (!description) return res.status(400).json({ error: "description required" });
+  try {
+    const { data, error } = await supabase
+      .from("project_todos")
+      .insert({ project_id: req.params.id, description, assigned_to, due_date: due_date || null, status })
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ todo: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.patch("/api/projects/:id/todos/:tid", requireAuth, async (req, res) => {
+  const { description, assigned_to, due_date, status } = req.body;
+  try {
+    const { data, error } = await supabase
+      .from("project_todos")
+      .update({ description, assigned_to, due_date: due_date || null, status })
+      .eq("id", req.params.tid)
+      .eq("project_id", req.params.id)
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ todo: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/projects/:id/todos/:tid", requireAuth, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from("project_todos")
+      .delete()
+      .eq("id", req.params.tid)
+      .eq("project_id", req.params.id);
+    if (error) throw error;
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Transmittals ──────────────────────────────────────────────────────────────
+
+app.get("/api/projects/:id/transmittals", requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("project_transmittals")
+      .select("*")
+      .eq("project_id", req.params.id)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    res.json({ transmittals: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/projects/:id/transmittals", requireAuth, async (req, res) => {
+  const { reference, issued_to, issued_by, issue_date, notes, drawing_ids } = req.body;
+  if (!reference) return res.status(400).json({ error: "reference required" });
+  try {
+    const { data, error } = await supabase
+      .from("project_transmittals")
+      .insert({
+        project_id: req.params.id,
+        reference,
+        issued_to,
+        issued_by,
+        issue_date: issue_date || null,
+        notes,
+        drawing_ids: drawing_ids || [],
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ transmittal: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete("/api/projects/:id/transmittals/:tid", requireAuth, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from("project_transmittals")
+      .delete()
+      .eq("id", req.params.tid)
+      .eq("project_id", req.params.id);
+    if (error) throw error;
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));
