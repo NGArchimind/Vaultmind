@@ -4,6 +4,12 @@ import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
 import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
 
+const DRAWING_TYPE_OPTIONS = [
+  'Plan', 'Floor Plan', 'Roof Plan', 'Reflected Ceiling Plan', 'Site Plan',
+  'Elevation', 'Section', 'Detail', 'GA', 'Setting Out',
+  'Schedule', 'Specification', 'Diagram', 'Survey', 'Other'
+];
+
 const RIBA_STAGES = [
   "Stage 0 — Strategic Definition",
   "Stage 1 — Preparation & Briefing",
@@ -234,54 +240,71 @@ function StatusBadge({ status }) {
 
 // ── Drawing row (used in register and in QA results) ──────────────────────────
 function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, highlight = false, selectable = false, selected = false, onSelect }) {
-  const cols = selectable
-    ? "32px minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px"
-    : "minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px";
+  const COLS = selectable
+    ? "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px"
+    : "minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px";
   return (
     <div style={{
-      display: "grid",
-      gridTemplateColumns: cols,
-      gap: "0 12px", padding: "9px 16px", alignItems: "center",
+      display: "grid", gridTemplateColumns: COLS,
+      gap: "0 10px", padding: "9px 16px", alignItems: "center",
       background: selected ? "#eef6ff" : highlight ? "#f0f8f0" : "inherit",
-      borderBottom: "1px solid #f0ede8",
+      borderBottom: "1px solid #f0ede8", minWidth: 900,
     }}>
-      {/* Checkbox */}
       {selectable && (
         <div style={{ display: "flex", justifyContent: "center" }}>
           <input type="checkbox" checked={selected} onChange={() => onSelect(d.id)}
             style={{ cursor: "pointer", width: 14, height: 14, accentColor: ARC_NAVY }} />
         </div>
       )}
-      {/* Drawing number + file type */}
+      {/* Drawing number */}
       <div style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
         {isAdmin && onUpdate
           ? <EditableField value={d.drawing_number} onSave={v => onUpdate(d.id, "drawing_number", v)} placeholder="—" style={{ fontSize: 11 }} />
           : <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.drawing_number || "—"}</span>}
         <FileTypeBadge fileName={d.file_name} />
       </div>
-
       {/* Title */}
       <div style={{ fontSize: 13, color: ARC_NAVY, minWidth: 0, overflow: "hidden" }}>
         {isAdmin && onUpdate
           ? <EditableField value={d.title} onSave={v => onUpdate(d.id, "title", v)} placeholder="Untitled" />
           : <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.title}</span>}
       </div>
-
       {/* Revision */}
       <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, textAlign: "center" }}>
         {isAdmin && onUpdate
           ? <EditableField value={d.revision} onSave={v => onUpdate(d.id, "revision", v)} placeholder="—" style={{ fontSize: 12, textAlign: "center" }} />
           : <span>{d.revision || "—"}</span>}
       </div>
-
-      {/* Status — read only for everyone */}
+      {/* Status */}
       <div><StatusBadge status={d.status} /></div>
-
       {/* Scale */}
-      <div style={{ fontSize: 11, color: "#9a9088", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {d.scale || "—"}
+      <div style={{ fontSize: 11, color: "#9a9088", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.scale || "—"}</div>
+      {/* Type */}
+      <div style={{ minWidth: 0 }}>
+        {isAdmin && onUpdate ? (
+          <select value={d.drawing_type || ""} onChange={e => onUpdate(d.id, "drawing_type", e.target.value)}
+            style={{ width: "100%", border: "1px solid #ddd8d0", padding: "3px 5px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: d.drawing_type ? ARC_NAVY : "#b0a8a0", outline: "none", background: "#fff" }}>
+            <option value="">— type —</option>
+            {DRAWING_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        ) : (
+          <span style={{ fontSize: 11, color: d.drawing_type ? ARC_NAVY : "#b0a8a0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+            {d.drawing_type || "—"}
+          </span>
+        )}
       </div>
-
+      {/* Volume */}
+      <div style={{ fontSize: 11, color: "#9a9088", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {isAdmin && onUpdate
+          ? <EditableField value={d.volume} onSave={v => onUpdate(d.id, "volume", v)} placeholder="—" style={{ fontSize: 11 }} />
+          : <span>{d.volume || "—"}</span>}
+      </div>
+      {/* Level */}
+      <div style={{ fontSize: 11, color: "#9a9088", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {isAdmin && onUpdate
+          ? <EditableField value={d.level} onSave={v => onUpdate(d.id, "level", v)} placeholder="—" style={{ fontSize: 11 }} />
+          : <span>{d.level || "—"}</span>}
+      </div>
       {/* Download */}
       <div style={{ display: "flex", justifyContent: "center" }}>
         <button className="btn" onClick={() => onDownload(d)} disabled={downloadingId === d.id} title="Download"
@@ -290,18 +313,14 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
           {downloadingId === d.id ? <Spinner size={11} /> : "↓"}
         </button>
       </div>
-
-      {/* Quick view (PDF only) */}
+      {/* Quick view */}
       <div style={{ display: "flex", justifyContent: "center" }}>
         {!(d.file_name || "").endsWith(".dwg") && (
           <button className="btn" onClick={() => onView(d)} title="Full screen view"
             style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 8px", fontSize: 12, lineHeight: 1 }}
-            onMouseEnter={e => e.currentTarget.style.color = ARC_NAVY} onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>
-            👁
-          </button>
+            onMouseEnter={e => e.currentTarget.style.color = ARC_NAVY} onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>👁</button>
         )}
       </div>
-
       {/* Delete */}
       <div style={{ display: "flex", justifyContent: "center" }}>
         {isAdmin && onDelete && (
@@ -565,8 +584,11 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
 
   // Filters
   const [filterText, setFilterText] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
   const [filterType, setFilterType] = useState("");
+  const [filterVolume, setFilterVolume] = useState("");
+  const [filterLevel, setFilterLevel] = useState("");
+  const [filterDrawingType, setFilterDrawingType] = useState("");
+  const [filterFileType, setFilterFileType] = useState("");
 
   const emptyForm = { title: "", drawing_number: "", revision: "", status: "" };
   const [form, setForm] = useState(emptyForm);
@@ -654,26 +676,35 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  // Filtered drawing list
+  // Filtered list
   const filteredDrawings = drawings.filter(d => {
     if (filterText) {
       const q = filterText.toLowerCase();
       if (!((d.drawing_number || "").toLowerCase().includes(q) || (d.title || "").toLowerCase().includes(q))) return false;
     }
-    if (filterStatus && d.status !== filterStatus) return false;
-    if (filterType) {
+    if (filterDrawingType && d.drawing_type !== filterDrawingType) return false;
+    if (filterVolume && d.volume !== filterVolume) return false;
+    if (filterLevel && d.level !== filterLevel) return false;
+    if (filterFileType) {
       const ext = (d.file_name || "").split(".").pop().toLowerCase();
-      if (filterType === "pdf" && ext !== "pdf") return false;
-      if (filterType === "dwg" && ext !== "dwg") return false;
+      if (filterFileType === "pdf" && ext !== "pdf") return false;
+      if (filterFileType === "dwg" && ext !== "dwg") return false;
     }
     return true;
   });
 
-  // Unique status values for filter dropdown
-  const statusOptions = [...new Set(drawings.map(d => d.status).filter(Boolean))].sort();
-  const hasFilters = filterText || filterStatus || filterType;
+  // Unique values for filter dropdowns (from actual data)
+  const drawingTypeOptions = [...new Set(drawings.map(d => d.drawing_type).filter(Boolean))].sort();
+  const volumeOptions = [...new Set(drawings.map(d => d.volume).filter(Boolean))].sort();
+  const levelOptions = [...new Set(drawings.map(d => d.level).filter(Boolean))].sort();
+  const hasFilters = filterText || filterDrawingType || filterVolume || filterLevel || filterFileType;
 
-  // Select/deselect
+  function clearFilters() {
+    setFilterText(""); setFilterDrawingType(""); setFilterVolume(""); setFilterLevel(""); setFilterFileType("");
+    setSelectedIds(new Set());
+  }
+
+  // Select / deselect
   function toggleSelect(id) {
     setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
@@ -690,8 +721,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
   async function deleteSelected() {
     if (!window.confirm(`Delete ${selectedIds.size} drawing${selectedIds.size !== 1 ? "s" : ""}? This cannot be undone.`)) return;
     setDeletingSelected(true);
-    const ids = [...selectedIds];
-    for (const id of ids) {
+    for (const id of [...selectedIds]) {
       try { await api(`/api/projects/${projectId}/drawings/${id}`, { method: "DELETE" }); } catch (e) { console.error(e); }
     }
     const updated = drawings.filter(d => !selectedIds.has(d.id));
@@ -714,24 +744,24 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
         });
       }
       const zip = new window.JSZip();
-      const toDownload = drawings.filter(d => selectedIds.has(d.id));
-      for (const drawing of toDownload) {
+      for (const drawing of drawings.filter(d => selectedIds.has(d.id))) {
         try {
           const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
           zip.file(file_name || drawing.file_name || `${drawing.drawing_number || drawing.id}.pdf`, base64, { base64: true });
-        } catch (e) { console.error("Failed to fetch drawing:", drawing.id, e); }
+        } catch (e) { console.error("Failed:", drawing.id, e); }
       }
       const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement("a"); a.href = url;
-      a.download = `drawings-selection.zip`;
+      const a = document.createElement("a"); a.href = url; a.download = "drawings-selection.zip";
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { console.error("Download selected failed:", e); }
+    } catch (e) { console.error(e); }
     setDownloadingSelected(false);
   }
 
   const labelStyle = { fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
   const inputStyle = { width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" };
+  const filterSelectStyle = { border: "1px solid #ddd8d0", padding: "6px 8px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", outline: "none", background: "#fff", color: "#9a9088" };
+  const COLS = "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px";
 
   return (
     <div>
@@ -777,23 +807,35 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
 
       {/* Filter bar */}
       {drawings.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
           <input value={filterText} onChange={e => { setFilterText(e.target.value); setSelectedIds(new Set()); }}
-            placeholder="Search drawing no. or title…"
-            style={{ flex: "1 1 220px", minWidth: 180, border: "1px solid #ddd8d0", padding: "6px 10px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" }} />
-          <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setSelectedIds(new Set()); }}
-            style={{ border: "1px solid #ddd8d0", padding: "6px 10px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: filterStatus ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff", minWidth: 140 }}>
-            <option value="">All statuses</option>
-            {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <select value={filterType} onChange={e => { setFilterType(e.target.value); setSelectedIds(new Set()); }}
-            style={{ border: "1px solid #ddd8d0", padding: "6px 10px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: filterType ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff", minWidth: 100 }}>
-            <option value="">All types</option>
-            <option value="pdf">PDF</option>
-            <option value="dwg">DWG</option>
+            placeholder="Search no. or title…"
+            style={{ flex: "1 1 180px", minWidth: 140, border: "1px solid #ddd8d0", padding: "6px 10px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" }} />
+          {drawingTypeOptions.length > 0 && (
+            <select value={filterDrawingType} onChange={e => { setFilterDrawingType(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
+              <option value="">All types</option>
+              {drawingTypeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          )}
+          {volumeOptions.length > 0 && (
+            <select value={filterVolume} onChange={e => { setFilterVolume(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
+              <option value="">All volumes</option>
+              {volumeOptions.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          )}
+          {levelOptions.length > 0 && (
+            <select value={filterLevel} onChange={e => { setFilterLevel(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
+              <option value="">All levels</option>
+              {levelOptions.map(l => <option key={l} value={l}>{l}</option>)}
+            </select>
+          )}
+          <select value={filterFileType} onChange={e => { setFilterFileType(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
+            <option value="">PDF + DWG</option>
+            <option value="pdf">PDF only</option>
+            <option value="dwg">DWG only</option>
           </select>
           {hasFilters && (
-            <button className="btn" onClick={() => { setFilterText(""); setFilterStatus(""); setFilterType(""); setSelectedIds(new Set()); }}
+            <button className="btn" onClick={clearFilters}
               style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "5px 10px" }}>
               Clear ×
             </button>
@@ -809,12 +851,12 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "#eef6ff", border: "1px solid #b8d0e8", marginBottom: 8 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY }}>{selectedIds.size} selected</span>
           <button className="btn" onClick={downloadSelected} disabled={downloadingSelected}
-            style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, background: "#fff", border: `1px solid ${ARC_NAVY}`, padding: "4px 12px", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
+            style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, background: "#fff", border: `1px solid ${ARC_NAVY}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
             {downloadingSelected ? <><Spinner size={10} /> Downloading…</> : "↓ Download Selected"}
           </button>
           {isAdmin && (
             <button className="btn" onClick={deleteSelected} disabled={deletingSelected}
-              style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: ARC_TERRACOTTA, border: `1px solid ${ARC_TERRACOTTA}`, padding: "4px 12px", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
+              style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: ARC_TERRACOTTA, border: `1px solid ${ARC_TERRACOTTA}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
               {deletingSelected ? <><Spinner size={10} /> Deleting…</> : "× Delete Selected"}
             </button>
           )}
@@ -839,20 +881,19 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
           <p style={{ fontSize: 13, color: "#9a9088", fontStyle: "italic" }}>No drawings match the current filters.</p>
         </div>
       ) : (
-        <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
+        <div style={{ background: "#fff", border: "1px solid #e8e0d5", overflowX: "auto" }}>
           {/* Column headers */}
-          <div style={{ display: "grid", gridTemplateColumns: "32px minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "8px 16px", background: ARC_NAVY }}>
-            {/* Select all checkbox */}
+          <div style={{ display: "grid", gridTemplateColumns: COLS, gap: "0 10px", padding: "8px 16px", background: ARC_NAVY, minWidth: 900 }}>
             <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
               <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
                 style={{ cursor: "pointer", width: 14, height: 14, accentColor: "#fff" }} />
             </div>
-            {["Drawing No.", "Title", "Rev.", "Status", "Scale", "", "", ""].map((h, i) => (
+            {["Drawing No.", "Title", "Rev.", "Status", "Scale", "Type", "Volume", "Level", "", "", ""].map((h, i) => (
               <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
             ))}
           </div>
           {filteredDrawings.map((d, i) => (
-            <div key={d.id} style={{ background: selectedIds.has(d.id) ? "#eef6ff" : i % 2 === 0 ? "#faf8f5" : "#fff" }}>
+            <div key={d.id} style={{ background: selectedIds.has(d.id) ? "#eef6ff" : i % 2 === 0 ? "#faf8f5" : "#fff", minWidth: 900 }}>
               <DrawingRow d={d} projectId={projectId} isAdmin={isAdmin}
                 onUpdate={updateField} onDelete={handleDelete}
                 onView={setViewingDrawing} downloadingId={downloadingId} onDownload={handleDownload}
@@ -864,7 +905,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
 
       {drawings.length > 0 && (
         <p style={{ fontSize: 11, color: "#b0a8a0", marginTop: 8, fontStyle: "italic" }}>
-          {drawings.length} drawing{drawings.length !== 1 ? "s" : ""}{isAdmin ? " · Click title, drawing number, or revision to edit." : ""}
+          {drawings.length} drawing{drawings.length !== 1 ? "s" : ""}{isAdmin ? " · Click title, drawing number, or revision to edit inline. Type, volume and level are also editable." : ""}
         </p>
       )}
 

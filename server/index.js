@@ -940,7 +940,7 @@ app.get("/api/projects/:id/drawings", async (req, res) => {
 
 // POST /api/projects/:id/drawings — upload a drawing file and create record
 app.post("/api/projects/:id/drawings", async (req, res) => {
-  const { title, drawing_number, revision, status, scale, file_name, file_size, base64 } = req.body;
+  const { title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, base64 } = req.body;
   if (!title || !file_name || !base64) return res.status(400).json({ error: "title, file_name and base64 required" });
 
   const ext = file_name.split(".").pop().toLowerCase();
@@ -968,6 +968,9 @@ app.post("/api/projects/:id/drawings", async (req, res) => {
         revision: revision || null,
         status: status || "Preliminary",
         scale: scale || null,
+        volume: volume || null,
+        level: level || null,
+        drawing_type: drawing_type || null,
         file_key: r2Key,
         file_name: safeFileName,
         file_size: file_size || buffer.length,
@@ -978,18 +981,14 @@ app.post("/api/projects/:id/drawings", async (req, res) => {
     if (error) throw error;
 
     res.json({ drawing: data });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // PATCH /api/projects/:id/drawings/:did — update drawing metadata
 app.patch("/api/projects/:id/drawings/:did", async (req, res) => {
-  const { title, drawing_number, revision, status, scale } = req.body;
+  const { title, drawing_number, revision, status, scale, volume, level, drawing_type } = req.body;
   try {
     const { data, error } = await supabase
       .from("project_drawings")
-      .update({ title, drawing_number, revision, status, scale })
+      .update({ title, drawing_number, revision, status, scale, volume, level, drawing_type })
       .eq("id", req.params.did)
       .eq("project_id", req.params.id)
       .select()
@@ -1080,7 +1079,7 @@ app.post("/api/projects/:id/drawings/sync", async (req, res) => {
   const results = [];
 
   for (const item of incoming) {
-    const { title, drawing_number, revision, status, scale, file_name, file_size, base64 } = item;
+    const { title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, base64 } = item;
     if (!title || !drawing_number || !file_name || !base64) {
       results.push({ drawing_number, action: "skipped", error: "Missing required fields" });
       continue;
@@ -1118,6 +1117,9 @@ app.post("/api/projects/:id/drawings/sync", async (req, res) => {
           .update({
             title, revision, status: status || "For Information",
             scale: scale || null,
+            volume: volume || null,
+            level: level || null,
+            drawing_type: drawing_type || null,
             file_key: r2Key, file_name: safeFileName,
             file_size: file_size || buffer.length,
             uploaded_at: new Date().toISOString(),
@@ -1141,6 +1143,9 @@ app.post("/api/projects/:id/drawings/sync", async (req, res) => {
             project_id: req.params.id, title, drawing_number, revision,
             status: status || "Preliminary",
             scale: scale || null,
+            volume: volume || null,
+            level: level || null,
+            drawing_type: drawing_type || null,
             file_key: r2Key, file_name: safeFileName,
             file_size: file_size || buffer.length,
             uploaded_at: new Date().toISOString(),
