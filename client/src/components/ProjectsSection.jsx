@@ -233,15 +233,25 @@ function StatusBadge({ status }) {
 }
 
 // ── Drawing row (used in register and in QA results) ──────────────────────────
-function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, highlight = false }) {
+function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, highlight = false, selectable = false, selected = false, onSelect }) {
+  const cols = selectable
+    ? "32px minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px"
+    : "minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px";
   return (
     <div style={{
       display: "grid",
-      gridTemplateColumns: "minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px",
+      gridTemplateColumns: cols,
       gap: "0 12px", padding: "9px 16px", alignItems: "center",
-      background: highlight ? "#f0f8f0" : "inherit",
+      background: selected ? "#eef6ff" : highlight ? "#f0f8f0" : "inherit",
       borderBottom: "1px solid #f0ede8",
     }}>
+      {/* Checkbox */}
+      {selectable && (
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <input type="checkbox" checked={selected} onChange={() => onSelect(d.id)}
+            style={{ cursor: "pointer", width: 14, height: 14, accentColor: ARC_NAVY }} />
+        </div>
+      )}
       {/* Drawing number + file type */}
       <div style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
         {isAdmin && onUpdate
@@ -548,6 +558,16 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
   const [viewingDrawing, setViewingDrawing] = useState(null);
   const fileInputRef = useRef(null);
 
+  // Multi-select
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [deletingSelected, setDeletingSelected] = useState(false);
+  const [downloadingSelected, setDownloadingSelected] = useState(false);
+
+  // Filters
+  const [filterText, setFilterText] = useState("");
+  const [filterStatus, setFilterStatus] = useState("");
+  const [filterType, setFilterType] = useState("");
+
   const emptyForm = { title: "", drawing_number: "", revision: "", status: "" };
   const [form, setForm] = useState(emptyForm);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -634,6 +654,82 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
+  // Filtered drawing list
+  const filteredDrawings = drawings.filter(d => {
+    if (filterText) {
+      const q = filterText.toLowerCase();
+      if (!((d.drawing_number || "").toLowerCase().includes(q) || (d.title || "").toLowerCase().includes(q))) return false;
+    }
+    if (filterStatus && d.status !== filterStatus) return false;
+    if (filterType) {
+      const ext = (d.file_name || "").split(".").pop().toLowerCase();
+      if (filterType === "pdf" && ext !== "pdf") return false;
+      if (filterType === "dwg" && ext !== "dwg") return false;
+    }
+    return true;
+  });
+
+  // Unique status values for filter dropdown
+  const statusOptions = [...new Set(drawings.map(d => d.status).filter(Boolean))].sort();
+  const hasFilters = filterText || filterStatus || filterType;
+
+  // Select/deselect
+  function toggleSelect(id) {
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  }
+  function toggleSelectAll() {
+    if (selectedIds.size === filteredDrawings.length && filteredDrawings.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredDrawings.map(d => d.id)));
+    }
+  }
+  const allSelected = filteredDrawings.length > 0 && selectedIds.size === filteredDrawings.length;
+  const someSelected = selectedIds.size > 0;
+
+  async function deleteSelected() {
+    if (!window.confirm(`Delete ${selectedIds.size} drawing${selectedIds.size !== 1 ? "s" : ""}? This cannot be undone.`)) return;
+    setDeletingSelected(true);
+    const ids = [...selectedIds];
+    for (const id of ids) {
+      try { await api(`/api/projects/${projectId}/drawings/${id}`, { method: "DELETE" }); } catch (e) { console.error(e); }
+    }
+    const updated = drawings.filter(d => !selectedIds.has(d.id));
+    setDrawings(updated);
+    if (onDrawingsLoaded) onDrawingsLoaded(updated);
+    setSelectedIds(new Set());
+    setDeletingSelected(false);
+  }
+
+  async function downloadSelected() {
+    if (selectedIds.size === 0 || downloadingSelected) return;
+    setDownloadingSelected(true);
+    try {
+      if (!window.JSZip) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+          script.onload = resolve; script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+      const zip = new window.JSZip();
+      const toDownload = drawings.filter(d => selectedIds.has(d.id));
+      for (const drawing of toDownload) {
+        try {
+          const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
+          zip.file(file_name || drawing.file_name || `${drawing.drawing_number || drawing.id}.pdf`, base64, { base64: true });
+        } catch (e) { console.error("Failed to fetch drawing:", drawing.id, e); }
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url;
+      a.download = `drawings-selection.zip`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (e) { console.error("Download selected failed:", e); }
+    setDownloadingSelected(false);
+  }
+
   const labelStyle = { fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
   const inputStyle = { width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" };
 
@@ -679,6 +775,56 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
         </div>
       )}
 
+      {/* Filter bar */}
+      {drawings.length > 0 && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
+          <input value={filterText} onChange={e => { setFilterText(e.target.value); setSelectedIds(new Set()); }}
+            placeholder="Search drawing no. or title…"
+            style={{ flex: "1 1 220px", minWidth: 180, border: "1px solid #ddd8d0", padding: "6px 10px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" }} />
+          <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setSelectedIds(new Set()); }}
+            style={{ border: "1px solid #ddd8d0", padding: "6px 10px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: filterStatus ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff", minWidth: 140 }}>
+            <option value="">All statuses</option>
+            {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={filterType} onChange={e => { setFilterType(e.target.value); setSelectedIds(new Set()); }}
+            style={{ border: "1px solid #ddd8d0", padding: "6px 10px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: filterType ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff", minWidth: 100 }}>
+            <option value="">All types</option>
+            <option value="pdf">PDF</option>
+            <option value="dwg">DWG</option>
+          </select>
+          {hasFilters && (
+            <button className="btn" onClick={() => { setFilterText(""); setFilterStatus(""); setFilterType(""); setSelectedIds(new Set()); }}
+              style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "5px 10px" }}>
+              Clear ×
+            </button>
+          )}
+          <span style={{ fontSize: 11, color: "#b0a8a0", marginLeft: "auto" }}>
+            {filteredDrawings.length}{filteredDrawings.length !== drawings.length ? ` of ${drawings.length}` : ""} drawing{filteredDrawings.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+      )}
+
+      {/* Bulk action toolbar */}
+      {someSelected && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "#eef6ff", border: "1px solid #b8d0e8", marginBottom: 8 }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY }}>{selectedIds.size} selected</span>
+          <button className="btn" onClick={downloadSelected} disabled={downloadingSelected}
+            style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, background: "#fff", border: `1px solid ${ARC_NAVY}`, padding: "4px 12px", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
+            {downloadingSelected ? <><Spinner size={10} /> Downloading…</> : "↓ Download Selected"}
+          </button>
+          {isAdmin && (
+            <button className="btn" onClick={deleteSelected} disabled={deletingSelected}
+              style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: ARC_TERRACOTTA, border: `1px solid ${ARC_TERRACOTTA}`, padding: "4px 12px", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
+              {deletingSelected ? <><Spinner size={10} /> Deleting…</> : "× Delete Selected"}
+            </button>
+          )}
+          <button className="btn" onClick={() => setSelectedIds(new Set())}
+            style={{ fontSize: 11, color: "#9a9088", background: "none", border: "none", padding: "4px 8px", marginLeft: "auto" }}>
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {/* Drawing list */}
       {loading ? (
         <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 13 }}><Spinner size={12} /> Loading drawings…</div>
@@ -688,19 +834,29 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
           <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>No drawings uploaded yet</p>
           {isAdmin && <p style={{ fontSize: 12, color: "#9a9088" }}>Click + Upload Drawing to add the first one, or use Archimind Sync.</p>}
         </div>
+      ) : filteredDrawings.length === 0 ? (
+        <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "32px", textAlign: "center" }}>
+          <p style={{ fontSize: 13, color: "#9a9088", fontStyle: "italic" }}>No drawings match the current filters.</p>
+        </div>
       ) : (
         <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
           {/* Column headers */}
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "8px 16px", background: ARC_NAVY }}>
+          <div style={{ display: "grid", gridTemplateColumns: "32px minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "8px 16px", background: ARC_NAVY }}>
+            {/* Select all checkbox */}
+            <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+              <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+                style={{ cursor: "pointer", width: 14, height: 14, accentColor: "#fff" }} />
+            </div>
             {["Drawing No.", "Title", "Rev.", "Status", "Scale", "", "", ""].map((h, i) => (
               <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
             ))}
           </div>
-          {drawings.map((d, i) => (
-            <div key={d.id} style={{ background: i % 2 === 0 ? "#faf8f5" : "#fff" }}>
+          {filteredDrawings.map((d, i) => (
+            <div key={d.id} style={{ background: selectedIds.has(d.id) ? "#eef6ff" : i % 2 === 0 ? "#faf8f5" : "#fff" }}>
               <DrawingRow d={d} projectId={projectId} isAdmin={isAdmin}
                 onUpdate={updateField} onDelete={handleDelete}
-                onView={setViewingDrawing} downloadingId={downloadingId} onDownload={handleDownload} />
+                onView={setViewingDrawing} downloadingId={downloadingId} onDownload={handleDownload}
+                selectable={true} selected={selectedIds.has(d.id)} onSelect={toggleSelect} />
             </div>
           ))}
         </div>
@@ -717,8 +873,8 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
           drawing={viewingDrawing}
           projectId={projectId}
           onClose={() => setViewingDrawing(null)}
-          drawings={drawings}
-          currentIndex={drawings.findIndex(d => d.id === viewingDrawing.id)}
+          drawings={filteredDrawings}
+          currentIndex={filteredDrawings.findIndex(d => d.id === viewingDrawing.id)}
         />
       )}
     </div>
