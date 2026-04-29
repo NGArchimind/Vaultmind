@@ -430,7 +430,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
           const attrLine = (p.attributes && p.attributes.length > 0)
             ? "\n  Attributes: " + p.attributes.map(attr => `${attr.attribute}: ${attr.value}${attr.unit ? " " + attr.unit : ""}`).join(", ")
             : "";
-          return `${p.name}${p.manufacturer ? ` by ${p.manufacturer}` : ""}${p.product_type ? ` [${p.product_type}]` : ""} — Category: ${catName}${attrLine}`;
+          return `ID:${p.id} | ${p.name}${p.manufacturer ? ` by ${p.manufacturer}` : ""}${p.product_type ? ` [${p.product_type}]` : ""} — Category: ${catName}${attrLine}`;
         }).filter(Boolean).join("\n");
 
     const ctx = `PROJECT: ${project.name}
