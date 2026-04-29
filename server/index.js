@@ -1253,6 +1253,203 @@ app.delete("/api/projects/:id/transmittals/:tid", requireAuth, async (req, res) 
   }
 });
 
+// ── Project product categories ────────────────────────────────────────────────
+
+const DEFAULT_CATEGORIES = [
+  "External Walls", "Internal Partitions", "Roofing & Waterproofing",
+  "Fire Stopping & Compartmentation", "Insulation", "Structural Frame",
+  "Floors & Ceilings", "Curtain Walling", "Linings", "Doors & Ironmongery",
+  "Windows & Glazing", "Drainage & Plumbing", "Mechanical & Ventilation",
+  "Electrical", "Finishes & Fixtures", "Uncategorised",
+];
+
+// GET /api/projects/:id/categories — list categories, seeding defaults if none exist
+app.get("/api/projects/:id/categories", requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("project_product_categories")
+      .select("*")
+      .eq("project_id", req.params.id)
+      .order("sort_order", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+
+    if (data.length === 0) {
+      // Seed defaults
+      const rows = DEFAULT_CATEGORIES.map((name, i) => ({
+        project_id: req.params.id,
+        name,
+        sort_order: i,
+      }));
+      const { data: seeded, error: seedError } = await supabase
+        .from("project_product_categories")
+        .insert(rows)
+        .select();
+      if (seedError) throw seedError;
+      return res.json({ categories: seeded });
+    }
+
+    res.json({ categories: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/:id/categories — create a new category
+app.post("/api/projects/:id/categories", requireAuth, async (req, res) => {
+  const { name, sort_order = 0 } = req.body;
+  if (!name) return res.status(400).json({ error: "name required" });
+  try {
+    const { data, error } = await supabase
+      .from("project_product_categories")
+      .insert({ project_id: req.params.id, name, sort_order })
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ category: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/projects/:id/categories/:cid — delete category, reassign its products to Uncategorised
+app.delete("/api/projects/:id/categories/:cid", requireAuth, async (req, res) => {
+  try {
+    // Find or create the Uncategorised category for this project
+    let uncategorisedId = null;
+    const { data: existing } = await supabase
+      .from("project_product_categories")
+      .select("id")
+      .eq("project_id", req.params.id)
+      .eq("name", "Uncategorised")
+      .single();
+
+    if (existing) {
+      uncategorisedId = existing.id;
+    } else {
+      const { data: created, error: createError } = await supabase
+        .from("project_product_categories")
+        .insert({ project_id: req.params.id, name: "Uncategorised", sort_order: 999 })
+        .select()
+        .single();
+      if (createError) throw createError;
+      uncategorisedId = created.id;
+    }
+
+    // Reassign products in this category to Uncategorised (unless they're already being deleted from Uncategorised)
+    if (req.params.cid !== uncategorisedId) {
+      await supabase
+        .from("project_products")
+        .update({ category_id: uncategorisedId })
+        .eq("project_id", req.params.id)
+        .eq("category_id", req.params.cid);
+    }
+
+    // Delete the category
+    const { error } = await supabase
+      .from("project_product_categories")
+      .delete()
+      .eq("id", req.params.cid)
+      .eq("project_id", req.params.id);
+    if (error) throw error;
+
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Project products (assignments) ────────────────────────────────────────────
+
+// GET /api/projects/:id/products — list assigned products, joined with products table
+app.get("/api/projects/:id/products", requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("project_products")
+      .select(`
+        id,
+        project_id,
+        product_id,
+        category_id,
+        notes,
+        created_at,
+        products (
+          id,
+          name,
+          manufacturer,
+          product_type,
+          file_key
+        )
+      `)
+      .eq("project_id", req.params.id)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    res.json({ products: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/:id/products — assign a product to this project
+app.post("/api/projects/:id/products", requireAuth, async (req, res) => {
+  const { product_id, category_id, notes } = req.body;
+  if (!product_id) return res.status(400).json({ error: "product_id required" });
+  try {
+    const { data, error } = await supabase
+      .from("project_products")
+      .insert({ project_id: req.params.id, product_id, category_id: category_id || null, notes: notes || null })
+      .select(`
+        id, project_id, product_id, category_id, notes, created_at,
+        products ( id, name, manufacturer, product_type, file_key )
+      `)
+      .single();
+    if (error) {
+      // Unique constraint violation — already assigned
+      if (error.code === "23505") return res.status(409).json({ error: "Product already assigned to this project" });
+      throw error;
+    }
+    res.json({ product: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/projects/:id/products/:pid — update category or notes on an assignment
+app.patch("/api/projects/:id/products/:pid", requireAuth, async (req, res) => {
+  const { category_id, notes } = req.body;
+  try {
+    const { data, error } = await supabase
+      .from("project_products")
+      .update({ category_id: category_id || null, notes: notes !== undefined ? notes : undefined })
+      .eq("id", req.params.pid)
+      .eq("project_id", req.params.id)
+      .select(`
+        id, project_id, product_id, category_id, notes, created_at,
+        products ( id, name, manufacturer, product_type, file_key )
+      `)
+      .single();
+    if (error) throw error;
+    res.json({ product: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/projects/:id/products/:pid — remove a product assignment
+app.delete("/api/projects/:id/products/:pid", requireAuth, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from("project_products")
+      .delete()
+      .eq("id", req.params.pid)
+      .eq("project_id", req.params.id);
+    if (error) throw error;
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Admin middleware ──────────────────────────────────────────────────────────
 async function requireAdmin(req, res, next) {
   const role = req.user?.user_metadata?.role;
