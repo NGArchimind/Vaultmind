@@ -1,6 +1,5 @@
 const express = require("express");
 const cors = require("cors");
-const jwt = require("jsonwebtoken");
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand } = require("@aws-sdk/client-s3");
 const { createClient } = require("@supabase/supabase-js");
 
@@ -80,23 +79,20 @@ async function deletePrefix(prefix) {
 }
 
 // ── JWT auth middleware ───────────────────────────────────────────────────────
-function requireAuth(req, res, next) {
+async function requireAuth(req, res, next) {
   const authHeader = req.headers["authorization"];
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).json({ error: "Unauthorised — no token provided" });
   }
 
   const token = authHeader.slice(7);
-  const jwtSecret = process.env.SUPABASE_JWT_SECRET;
-
-  if (!jwtSecret) {
-    console.error("SUPABASE_JWT_SECRET is not set");
-    return res.status(500).json({ error: "Server auth configuration error" });
-  }
 
   try {
-    const decoded = jwt.verify(token, jwtSecret, { algorithms: ["HS256"] });
-    req.user = decoded;
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+    if (error || !user) {
+      return res.status(401).json({ error: "Unauthorised — invalid or expired token" });
+    }
+    req.user = user;
     next();
   } catch (err) {
     return res.status(401).json({ error: "Unauthorised — invalid or expired token" });
