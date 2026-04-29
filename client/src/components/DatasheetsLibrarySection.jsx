@@ -13,6 +13,7 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [uploadStatus, setUploadStatus] = useState("");
   const [deleting, setDeleting] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set()); // multi-select for bulk assign
   const [editingType, setEditingType] = useState(null);
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [pendingNewType, setPendingNewType] = useState(null);
@@ -25,7 +26,8 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [downloading, setDownloading] = useState(false);
 
   // ── Assign to project state ───────────────────────────────────────────────
-  const [assigningProduct, setAssigningProduct] = useState(null);
+  const [assigningProduct, setAssigningProduct] = useState(null); // single product, or null for bulk
+  const [assigningBulk, setAssigningBulk] = useState(false); // true when assigning multiple
   const [allProjects, setAllProjects] = useState([]);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [assignStep, setAssignStep] = useState("project"); // "project" | "category"
@@ -90,9 +92,28 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
     }
   }
 
-  // Open assign modal for a product
+  // Open assign modal for a single product
   async function openAssignModal(product) {
     setAssigningProduct(product);
+    setAssigningBulk(false);
+    setAssignStep("project");
+    setAssignProjectId("");
+    setAssignCategoryId("");
+    setAssignCategories([]);
+    setAssignError("");
+    if (!projectsLoaded) {
+      try {
+        const { projects } = await api("/api/projects");
+        setAllProjects(projects || []);
+        setProjectsLoaded(true);
+      } catch (e) { console.error(e); }
+    }
+  }
+
+  // Open assign modal for bulk (multiple selected)
+  async function openBulkAssignModal() {
+    setAssigningProduct(null);
+    setAssigningBulk(true);
     setAssignStep("project");
     setAssignProjectId("");
     setAssignCategoryId("");
@@ -122,36 +143,55 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   }
 
   async function confirmAssign() {
-    if (!assigningProduct || !assignProjectId || !assignCategoryId) return;
+    if (!assignProjectId || !assignCategoryId) return;
+    if (!assigningBulk && !assigningProduct) return;
     setAssigning(true);
     setAssignError("");
-    try {
-      await api(`/api/projects/${assignProjectId}/products`, {
-        method: "POST",
-        body: { product_id: assigningProduct.id, category_id: assignCategoryId },
-      });
-      // Update badge map
-      const proj = allProjects.find(p => p.id === assignProjectId);
-      if (proj) {
-        setAssignmentMap(prev => ({
-          ...prev,
-          [assigningProduct.id]: [...(prev[assigningProduct.id] || []), proj.name],
-        }));
-      }
-      setAssigningProduct(null);
-    } catch (e) {
-      const msg = e.message || "";
-      if (msg.includes("409") || msg.includes("already")) {
-        setAssignError("This product is already assigned to that project.");
-      } else {
-        setAssignError("Failed to assign product. Please try again.");
+
+    const productIds = assigningBulk
+      ? [...selectedIds]
+      : [assigningProduct.id];
+
+    let successCount = 0;
+    let alreadyCount = 0;
+    const proj = allProjects.find(p => p.id === assignProjectId);
+
+    for (const productId of productIds) {
+      try {
+        await api(`/api/projects/${assignProjectId}/products`, {
+          method: "POST",
+          body: { product_id: productId, category_id: assignCategoryId },
+        });
+        successCount++;
+        if (proj) {
+          setAssignmentMap(prev => ({
+            ...prev,
+            [productId]: [...(prev[productId] || []), proj.name],
+          }));
+        }
+      } catch (e) {
+        const msg = e.message || "";
+        if (msg.includes("409") || msg.includes("already")) { alreadyCount++; }
+        else { console.error(e); }
       }
     }
+
     setAssigning(false);
+
+    if (successCount === 0 && alreadyCount > 0) {
+      setAssignError(alreadyCount === 1
+        ? "This product is already assigned to that project."
+        : "All selected products are already assigned to that project.");
+    } else {
+      if (assigningBulk) setSelectedIds(new Set());
+      setAssigningProduct(null);
+      setAssigningBulk(false);
+    }
   }
 
   function closeAssignModal() {
     setAssigningProduct(null);
+    setAssigningBulk(false);
     setAssignStep("project");
     setAssignProjectId("");
     setAssignCategoryId("");
@@ -283,6 +323,7 @@ Extract every relevant technical attribute: dimensions, weights, thermal values,
       setProducts(prev => prev.filter(p => p.id !== product.id));
       if (expanded === product.id) setExpanded(null);
       if (selected === product.id) setSelected(null);
+      setSelectedIds(prev => { const n = new Set(prev); n.delete(product.id); return n; });
       setUploadStatus(`"${product.name}" removed from library.`);
     } catch (e) {
       setUploadStatus("Delete failed: " + e.message);
@@ -774,6 +815,12 @@ Use only the provided document pages. Do not speculate beyond what the documents
               {uploadStatus}
             </span>
           )}
+          {selectedIds.size > 1 && (
+            <button className="btn" onClick={openBulkAssignModal}
+              style={{ background: "#2e7d4f", color: "#fff", border: "none", padding: "6px 14px", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+              + Assign {selectedIds.size} to Project
+            </button>
+          )}
           {selected && (
             <button className="btn" onClick={handleDownload} disabled={downloading}
               style={{ background: "none", color: LIBRARY_BLUE, border: `1px solid ${LIBRARY_BLUE}`, padding: "6px 14px", fontSize: 12, fontWeight: 500, opacity: downloading ? 0.6 : 1 }}>
@@ -811,12 +858,16 @@ Use only the provided document pages. Do not speculate beyond what the documents
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {filteredProducts.map(product => {
-                const isSelected = selected === product.id;
+                const isSelected = selectedIds.has(product.id);
                 const isExpanded = expanded === product.id;
                 return (
                   <div key={product.id} style={{ background: "#ffffff", border: `1px solid ${isSelected ? LIBRARY_BLUE : isExpanded ? "#c0ccd4" : "#e8e0d5"}`, transition: "border-color 0.15s" }}>
                     <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", gap: 12 }}>
                       <input type="checkbox" checked={isSelected} onChange={() => {
+                          const next = new Set(selectedIds);
+                          if (isSelected) { next.delete(product.id); } else { next.add(product.id); }
+                          setSelectedIds(next);
+                          // Also drive compliance panel selection (last checked wins)
                           setSelected(isSelected ? null : product.id);
                           setComplianceAnswer(null);
                           setComplianceStatus("");
@@ -980,14 +1031,22 @@ Use only the provided document pages. Do not speculate beyond what the documents
       </div>
 
       {/* ── Assign to project modal ─────────────────────────────────────────── */}
-      {assigningProduct && (
+      {(assigningProduct || assigningBulk) && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: "#fff", width: 460, borderTop: "3px solid #2e7d4f", fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column" }}>
             {/* Modal header */}
             <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #e8e0d5" }}>
               <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#9a9088", marginBottom: 4 }}>Assign to Project</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: ARC_NAVY }}>{assigningProduct.name}</div>
-              {assigningProduct.manufacturer && <div style={{ fontSize: 12, color: "#9a9088", marginTop: 2 }}>{assigningProduct.manufacturer}</div>}
+              {assigningBulk ? (
+                <div style={{ fontSize: 14, fontWeight: 600, color: ARC_NAVY }}>
+                  {selectedIds.size} product{selectedIds.size !== 1 ? "s" : ""} selected
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: ARC_NAVY }}>{assigningProduct?.name}</div>
+                  {assigningProduct?.manufacturer && <div style={{ fontSize: 12, color: "#9a9088", marginTop: 2 }}>{assigningProduct.manufacturer}</div>}
+                </>
+              )}
             </div>
 
             <div style={{ padding: "20px 24px" }}>
