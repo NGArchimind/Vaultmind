@@ -346,6 +346,11 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
   const [lastQuestion, setLastQuestion] = useState("");
   const [assignedProducts, setAssignedProducts] = useState([]);
   const [productCategories, setProductCategories] = useState([]);
+  const [matchedProducts, setMatchedProducts] = useState([]);
+  const [expandedProductId, setExpandedProductId] = useState(null);
+  const [viewingPdfProduct, setViewingPdfProduct] = useState(null);
+  const [pdfUrl, setPdfUrl] = useState(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
 
   useEffect(() => {
     async function loadProducts() {
@@ -514,11 +519,6 @@ Rules:
     }
     setRunning(false);
   }
-
-  const [expandedProductId, setExpandedProductId] = useState(null);
-  const [viewingPdfProduct, setViewingPdfProduct] = useState(null);
-  const [pdfUrl, setPdfUrl] = useState(null);
-  const [pdfLoading, setPdfLoading] = useState(false);
 
   async function viewProductPdf(product) {
     setViewingPdfProduct(product);
