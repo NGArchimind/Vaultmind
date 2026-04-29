@@ -410,7 +410,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
     if (!question.trim() || running) return;
     const q = question.trim();
     setLastQuestion(q);
-    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpanded(true); setStatus("Thinking…");
+    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setExpanded(true); setStatus("Thinking…");
 
     // Build drawing register context
     const drawingContext = drawings.length === 0
@@ -515,7 +515,7 @@ Rules:
     setRunning(false);
   }
 
-  const [matchedProducts, setMatchedProducts] = useState([]);
+  const [expandedProductId, setExpandedProductId] = useState(null);
   const [viewingPdfProduct, setViewingPdfProduct] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -573,25 +573,60 @@ Rules:
                 const p = a.products;
                 if (!p) return null;
                 const cat = productCategories.find(c => c.id === a.category_id);
+                const isExpanded = expandedProductId === p.id;
+                const hasAttrs = p.attributes && p.attributes.length > 0;
                 return (
-                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: i < matchedProducts.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#faf8f5" : "#fff" }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY }}>{p.name}</div>
-                      <div style={{ fontSize: 11, color: "#9a9088", marginTop: 1 }}>
-                        {p.manufacturer || "—"}
-                        {cat && <span style={{ marginLeft: 10, color: "#b0a8a0" }}>· {cat.name}</span>}
+                  <div key={a.id} style={{ borderBottom: i < matchedProducts.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#faf8f5" : "#fff" }}>
+                    {/* Product row */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px" }}>
+                      <div style={{ flex: 1, minWidth: 0, cursor: hasAttrs ? "pointer" : "default" }}
+                        onClick={() => hasAttrs && setExpandedProductId(isExpanded ? null : p.id)}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY }}>{p.name}</div>
+                        <div style={{ fontSize: 11, color: "#9a9088", marginTop: 1 }}>
+                          {p.manufacturer || "—"}
+                          {cat && <span style={{ marginLeft: 10, color: "#b0a8a0" }}>· {cat.name}</span>}
+                        </div>
                       </div>
+                      {p.product_type && (
+                        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#2a6496", background: "#e8f0f8", padding: "2px 7px", flexShrink: 0 }}>
+                          {p.product_type}
+                        </span>
+                      )}
+                      {p.file_key && (
+                        <button className="btn" onClick={() => viewProductPdf(p)}
+                          style={{ fontSize: 11, color: "#2a6496", background: "none", border: "1px solid #b8d0e8", padding: "3px 10px", flexShrink: 0, fontWeight: 500 }}>
+                          📄 Datasheet
+                        </button>
+                      )}
+                      {hasAttrs && (
+                        <button className="btn" onClick={() => setExpandedProductId(isExpanded ? null : p.id)}
+                          style={{ fontSize: 11, color: "#2a6496", background: "none", border: "none", padding: "2px 6px", flexShrink: 0, fontWeight: 500 }}>
+                          {isExpanded ? "▲" : "▼"}
+                        </button>
+                      )}
                     </div>
-                    {p.product_type && (
-                      <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#2a6496", background: "#e8f0f8", padding: "2px 7px", flexShrink: 0 }}>
-                        {p.product_type}
-                      </span>
-                    )}
-                    {p.file_key && (
-                      <button className="btn" onClick={() => viewProductPdf(p)}
-                        style={{ fontSize: 11, color: "#2a6496", background: "none", border: "1px solid #b8d0e8", padding: "3px 10px", flexShrink: 0, fontWeight: 500 }}>
-                        📄 Datasheet
-                      </button>
+                    {/* Attributes table */}
+                    {isExpanded && hasAttrs && (
+                      <div style={{ borderTop: "1px solid #e8e0d5", padding: "0 16px 12px" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "Inter, Arial, sans-serif" }}>
+                          <thead>
+                            <tr>
+                              <th style={{ background: ARC_NAVY, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "35%" }}>Attribute</th>
+                              <th style={{ background: ARC_NAVY, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase" }}>Value</th>
+                              <th style={{ background: ARC_NAVY, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "15%" }}>Unit</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {p.attributes.map((attr, j) => (
+                              <tr key={j} style={{ background: j % 2 === 0 ? "#f9f7f5" : "#fff" }}>
+                                <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: "#5a5048", fontWeight: 500 }}>{attr.attribute}</td>
+                                <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: ARC_NAVY }}>{attr.value}</td>
+                                <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: "#9a9088" }}>{attr.unit || "—"}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     )}
                   </div>
                 );
@@ -637,7 +672,7 @@ Rules:
           {running ? <Spinner size={12} /> : "Ask"}
         </button>
         {hasResults && (
-          <button className="btn" onClick={() => { setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setStatus(""); setExpanded(false); }}
+          <button className="btn" onClick={() => { setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setStatus(""); setExpanded(false); }}
             style={{ background: "none", color: "#9a9088", padding: "0 10px", fontSize: 11, border: "1px solid #ddd8d0", borderLeft: "none", marginLeft: -1 }}>Clear</button>
         )}
       </div>
