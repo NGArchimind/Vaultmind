@@ -545,7 +545,13 @@ Rules:
   return (
     <div style={{ borderTop: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0 }}>
       {expanded && hasResults && (
-        <div style={{ borderBottom: "1px solid #f0ede8", background: "#faf8f5", maxHeight: 400, overflowY: "auto", animation: "fadeIn 0.3s ease" }}>
+        <div style={{ borderBottom: "1px solid #f0ede8", background: "#faf8f5", maxHeight: 400, overflowY: "auto", animation: "fadeIn 0.3s ease", position: "relative" }}>
+          <button className="btn" onClick={() => { setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setStatus(""); setExpanded(false); }}
+            style={{ position: "sticky", top: 8, float: "right", marginRight: 12, marginTop: 8, background: "none", color: "#b0a8a0", border: "1px solid #e8e0d5", fontSize: 11, padding: "2px 8px", zIndex: 10, fontFamily: "Inter, Arial, sans-serif" }}
+            onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA}
+            onMouseLeave={e => e.target.style.color = "#b0a8a0"}>
+            ✕
+          </button>
           {running && (
             <div style={{ padding: "14px 32px", display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}>
               <Spinner size={11} /> {status}
