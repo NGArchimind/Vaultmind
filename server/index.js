@@ -1253,6 +1253,96 @@ app.delete("/api/projects/:id/transmittals/:tid", requireAuth, async (req, res) 
   }
 });
 
+// ── Admin middleware ──────────────────────────────────────────────────────────
+async function requireAdmin(req, res, next) {
+  const role = req.user?.user_metadata?.role;
+  if (role !== "admin") {
+    return res.status(403).json({ error: "Forbidden — admin only" });
+  }
+  next();
+}
+
+// ── Admin routes ──────────────────────────────────────────────────────────────
+
+// GET /api/admin/users — list all users
+app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase.auth.admin.listUsers();
+    if (error) throw error;
+    const users = data.users.map(u => ({
+      id: u.id,
+      email: u.email,
+      role: u.user_metadata?.role || "user",
+      created_at: u.created_at,
+    }));
+    res.json({ users });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/users — create a new user
+app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
+  const { email, password, role } = req.body;
+  if (!email || !password) return res.status(400).json({ error: "email and password required" });
+  const validRole = role === "admin" ? "admin" : "user";
+  try {
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      user_metadata: { role: validRole },
+      email_confirm: true,
+    });
+    if (error) throw error;
+    res.json({
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+        role: data.user.user_metadata?.role || "user",
+        created_at: data.user.created_at,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH /api/admin/users/:uid — update role
+app.patch("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) => {
+  const { role } = req.body;
+  const validRole = role === "admin" ? "admin" : "user";
+  try {
+    const { data, error } = await supabase.auth.admin.updateUserById(req.params.uid, {
+      user_metadata: { role: validRole },
+    });
+    if (error) throw error;
+    res.json({
+      user: {
+        id: data.user.id,
+        email: data.user.email,
+        role: data.user.user_metadata?.role || "user",
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/admin/users/:uid — delete user
+app.delete("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) => {
+  // Prevent self-deletion
+  if (req.params.uid === req.user.id) {
+    return res.status(400).json({ error: "You cannot delete your own account" });
+  }
+  try {
+    const { error } = await supabase.auth.admin.deleteUser(req.params.uid);
+    if (error) throw error;
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 

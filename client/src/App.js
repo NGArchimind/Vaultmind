@@ -7,6 +7,7 @@ import CompareSection from "./components/CompareSection";
 import LandingPage from "./components/LandingPage";
 import ProjectsSection from "./components/ProjectsSection";
 import DatasheetsLibrarySection from "./components/DatasheetsLibrarySection";
+import AdminSection from "./components/AdminSection";
 import { AD_GREEN, AD_GREEN_LIGHT, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, MAX_PAGES_PER_CHUNK } from "./constants";
 
 const IS_DEMO = false;
@@ -892,6 +893,12 @@ export default function App() {
               {section.charAt(0).toUpperCase() + section.slice(1)}
             </button>
           ))}
+          {isAdmin && (
+            <button className="btn" onClick={() => setAppSection("admin")}
+              style={{ background: appSection === "admin" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "admin" ? "#ffffff" : ARC_TERRACOTTA, padding: "6px 14px", fontSize: 12, fontWeight: appSection === "admin" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none", opacity: 0.85 }}>
+              Admin
+            </button>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <span style={{ color: "#7a9aaa", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase" }}>Document Intelligence</span>
@@ -911,6 +918,7 @@ export default function App() {
         {appSection === "compare" && <CompareSection vaults={vaults} isAdmin={isAdmin} />}
         {appSection === "library" && <DatasheetsLibrarySection vaults={vaults} isAdmin={isAdmin} />}
         {appSection === "projects" && <ProjectsSection isAdmin={isAdmin} />}
+        {appSection === "admin" && isAdmin && <AdminSection />}
 
         {/* ── VAULT ─────────────────────────────────────────────────────── */}
         {appSection === "vault" && <>
