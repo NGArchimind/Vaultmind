@@ -1365,7 +1365,7 @@ app.delete("/api/projects/:id/categories/:cid", requireAuth, async (req, res) =>
 
 // ── Project products (assignments) ────────────────────────────────────────────
 
-// GET /api/projects/:id/products — list assigned products, joined with products table
+// GET /api/projects/:id/products — list assigned products, joined with products table + attributes
 app.get("/api/projects/:id/products", requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -1388,7 +1388,33 @@ app.get("/api/projects/:id/products", requireAuth, async (req, res) => {
       .eq("project_id", req.params.id)
       .order("created_at", { ascending: true });
     if (error) throw error;
-    res.json({ products: data });
+
+    // Fetch attributes for all assigned products in one query
+    const productIds = data.map(r => r.product_id).filter(Boolean);
+    let attributesMap = {};
+    if (productIds.length > 0) {
+      const { data: attrs } = await supabase
+        .from("product_attributes")
+        .select("product_id, attribute, value, unit")
+        .in("product_id", productIds);
+      if (attrs) {
+        for (const a of attrs) {
+          if (!attributesMap[a.product_id]) attributesMap[a.product_id] = [];
+          attributesMap[a.product_id].push({ attribute: a.attribute, value: a.value, unit: a.unit });
+        }
+      }
+    }
+
+    // Stitch attributes into each row
+    const enriched = data.map(r => ({
+      ...r,
+      products: r.products ? {
+        ...r.products,
+        attributes: attributesMap[r.product_id] || [],
+      } : null,
+    }));
+
+    res.json({ products: enriched });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

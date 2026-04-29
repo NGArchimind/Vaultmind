@@ -345,12 +345,17 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
   const [viewingDrawing, setViewingDrawing] = useState(null);
   const [lastQuestion, setLastQuestion] = useState("");
   const [assignedProducts, setAssignedProducts] = useState([]);
+  const [productCategories, setProductCategories] = useState([]);
 
   useEffect(() => {
     async function loadProducts() {
       try {
-        const { products } = await api(`/api/projects/${projectId}/products`);
+        const [{ products }, { categories }] = await Promise.all([
+          api(`/api/projects/${projectId}/products`),
+          api(`/api/projects/${projectId}/categories`),
+        ]);
         setAssignedProducts(products || []);
+        setProductCategories(categories || []);
       } catch (e) { /* non-critical — QA still works without it */ }
     }
     loadProducts();
@@ -414,13 +419,18 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
           `ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} | Rev:${d.revision || "—"} | Status:${d.status || "—"} | Scale:${d.scale || "—"} | Date:${d.issue_date || "—"} | File:${d.file_name || "—"}`
         ).join("\n");
 
-    // Build assigned products context
+    // Build assigned products context — grouped by category with full attributes
     const productsContext = assignedProducts.length === 0
       ? "No products assigned."
       : assignedProducts.map(a => {
           const p = a.products;
           if (!p) return null;
-          return `${p.name}${p.manufacturer ? ` by ${p.manufacturer}` : ""}${p.product_type ? ` [${p.product_type}]` : ""}`;
+          const cat = productCategories.find(c => c.id === a.category_id);
+          const catName = cat ? cat.name : "Uncategorised";
+          const attrLine = (p.attributes && p.attributes.length > 0)
+            ? "\n  Attributes: " + p.attributes.map(attr => `${attr.attribute}: ${attr.value}${attr.unit ? " " + attr.unit : ""}`).join(", ")
+            : "";
+          return `${p.name}${p.manufacturer ? ` by ${p.manufacturer}` : ""}${p.product_type ? ` [${p.product_type}]` : ""} — Category: ${catName}${attrLine}`;
         }).filter(Boolean).join("\n");
 
     const ctx = `PROJECT: ${project.name}
