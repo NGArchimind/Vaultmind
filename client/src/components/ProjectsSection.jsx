@@ -410,7 +410,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
     if (!question.trim() || running) return;
     const q = question.trim();
     setLastQuestion(q);
-    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setExpanded(true); setStatus("Thinking…");
+    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpanded(true); setStatus("Thinking…");
 
     // Build drawing register context
     const drawingContext = drawings.length === 0
@@ -457,32 +457,33 @@ ${productsContext}
 DRAWING REGISTER (${drawings.length} drawings):
 ${drawingContext}`;
 
-    const systemPrompt = `You are a project assistant for an architectural practice. You have full access to the project data provided — including project info, consultants, U-values, notes, specified products, and the drawing register.
+    const systemPrompt = `You are a project assistant for an architectural practice. You have full access to the project data provided — including project info, consultants, U-values, notes, specified products (with full technical attributes), and the drawing register.
 
-Answer questions concisely and directly based on the project data. Do not say you cannot access information — everything you need is in the context provided.
+Answer questions with appropriate detail based on the project data. Do not say you cannot access information — everything you need is in the context provided.
 
 Return a JSON object with this exact structure:
 {
-  "answer": "Your concise response here",
-  "drawing_ids": ["id1", "id2"]
+  "answer": "Your response here — as detailed as the question requires",
+  "drawing_ids": ["id1", "id2"],
+  "product_ids": ["id1", "id2"]
 }
 
 Rules:
-- Always populate "answer" with a helpful, direct response
-- Only populate "drawing_ids" when the question is specifically about finding or listing drawings — use the IDs from the register
-- For all other questions (consultants, products, U-values, project info, etc) return an empty array for drawing_ids
+- Always populate "answer" with a helpful, direct response. For technical questions (fire ratings, U-values, certifications etc) include the specific values from the product attributes.
+- Only populate "drawing_ids" when the question is specifically about finding or listing drawings
+- Only populate "product_ids" when the answer references one or more specific products — use the product IDs from the SPECIFIED PRODUCTS context (the id field in the products join, format: uuid)
 - Never say you don't have access to information — use what is in the context
-- Be concise — one or two sentences where possible
 - Do not include any text outside the JSON object`;
 
     try {
       const { text } = await callClaude(
         [{ role: "user", content: `${ctx}\n\n---\n\nQUESTION: ${q}` }],
-        systemPrompt, 2000, 1, "gemini-2.5-flash"
+        systemPrompt, 3000, 1, "gemini-2.5-flash"
       );
 
       let answerText = text;
-      let matchedIds = [];
+      let matchedDrawingIds = [];
+      let matchedProductIds = [];
       try {
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
@@ -491,16 +492,21 @@ Rules:
             answerText = parsed.answer;
           }
           if (Array.isArray(parsed.drawing_ids) && parsed.drawing_ids.length > 0) {
-            matchedIds = parsed.drawing_ids;
+            matchedDrawingIds = parsed.drawing_ids;
+          }
+          if (Array.isArray(parsed.product_ids) && parsed.product_ids.length > 0) {
+            matchedProductIds = parsed.product_ids;
           }
         }
       } catch (parseErr) {
         // fall through — answerText remains the raw text
       }
       setAnswer(answerText);
-      if (matchedIds.length > 0) {
-        const matched = drawings.filter(d => matchedIds.includes(d.id));
-        setMatchedDrawings(matched);
+      if (matchedDrawingIds.length > 0) {
+        setMatchedDrawings(drawings.filter(d => matchedDrawingIds.includes(d.id)));
+      }
+      if (matchedProductIds.length > 0) {
+        setMatchedProducts(assignedProducts.filter(a => a.products && matchedProductIds.includes(a.products.id)));
       }
       setStatus("");
     } catch (e) {
@@ -509,7 +515,32 @@ Rules:
     setRunning(false);
   }
 
-  const hasResults = answer || running || status || matchedDrawings.length > 0;
+  const [matchedProducts, setMatchedProducts] = useState([]);
+  const [viewingPdfProduct, setViewingPdfProduct] = useState(null);
+  const [pdfUrl, setPdfUrl] = useState(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  async function viewProductPdf(product) {
+    setViewingPdfProduct(product);
+    setPdfLoading(true);
+    setPdfUrl(null);
+    try {
+      const data = await api(`/api/products/${product.id}/pdf`);
+      const bytes = atob(data.base64);
+      const arr = new Uint8Array(bytes.length);
+      for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+      setPdfUrl(URL.createObjectURL(new Blob([arr], { type: "application/pdf" })));
+    } catch (e) { console.error(e); }
+    setPdfLoading(false);
+  }
+
+  function closePdf() {
+    if (pdfUrl) URL.revokeObjectURL(pdfUrl);
+    setPdfUrl(null);
+    setViewingPdfProduct(null);
+  }
+
+  const hasResults = answer || running || status || matchedDrawings.length > 0 || matchedProducts.length > 0;
 
   return (
     <div style={{ borderTop: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0 }}>
@@ -521,13 +552,50 @@ Rules:
             </div>
           )}
           {answer && (
-            <div style={{ padding: "14px 32px", borderBottom: matchedDrawings.length > 0 ? "1px solid #e8e0d5" : "none" }}>
+            <div style={{ padding: "14px 32px", borderBottom: (matchedDrawings.length > 0 || matchedProducts.length > 0) ? "1px solid #e8e0d5" : "none" }}>
               <AnswerRenderer text={answer} />
             </div>
           )}
           {!running && status && (
             <div style={{ padding: "14px 32px" }}>
               <p style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{status}</p>
+            </div>
+          )}
+          {/* Matched products */}
+          {matchedProducts.length > 0 && (
+            <div>
+              <div style={{ padding: "8px 16px", background: "#f0ede8", display: "flex", alignItems: "center" }}>
+                <span style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                  {matchedProducts.length} product{matchedProducts.length !== 1 ? "s" : ""} referenced
+                </span>
+              </div>
+              {matchedProducts.map((a, i) => {
+                const p = a.products;
+                if (!p) return null;
+                const cat = productCategories.find(c => c.id === a.category_id);
+                return (
+                  <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: i < matchedProducts.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#faf8f5" : "#fff" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY }}>{p.name}</div>
+                      <div style={{ fontSize: 11, color: "#9a9088", marginTop: 1 }}>
+                        {p.manufacturer || "—"}
+                        {cat && <span style={{ marginLeft: 10, color: "#b0a8a0" }}>· {cat.name}</span>}
+                      </div>
+                    </div>
+                    {p.product_type && (
+                      <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#2a6496", background: "#e8f0f8", padding: "2px 7px", flexShrink: 0 }}>
+                        {p.product_type}
+                      </span>
+                    )}
+                    {p.file_key && (
+                      <button className="btn" onClick={() => viewProductPdf(p)}
+                        style={{ fontSize: 11, color: "#2a6496", background: "none", border: "1px solid #b8d0e8", padding: "3px 10px", flexShrink: 0, fontWeight: 500 }}>
+                        📄 Datasheet
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
           {matchedDrawings.length > 0 && (
@@ -569,7 +637,7 @@ Rules:
           {running ? <Spinner size={12} /> : "Ask"}
         </button>
         {hasResults && (
-          <button className="btn" onClick={() => { setAnswer(null); setMatchedDrawings([]); setStatus(""); setExpanded(false); }}
+          <button className="btn" onClick={() => { setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setStatus(""); setExpanded(false); }}
             style={{ background: "none", color: "#9a9088", padding: "0 10px", fontSize: 11, border: "1px solid #ddd8d0", borderLeft: "none", marginLeft: -1 }}>Clear</button>
         )}
       </div>
@@ -582,6 +650,26 @@ Rules:
           drawings={matchedDrawings}
           currentIndex={matchedDrawings.findIndex(d => d.id === viewingDrawing.id)}
         />
+      )}
+
+      {/* Product datasheet viewer */}
+      {viewingPdfProduct && (
+        <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 2000, display: "flex", flexDirection: "column" }}>
+          <div style={{ background: ARC_NAVY, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{viewingPdfProduct.name}</div>
+              {viewingPdfProduct.manufacturer && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>{viewingPdfProduct.manufacturer}</div>}
+            </div>
+            <button className="btn" onClick={closePdf}
+              style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}>
+              Close ✕
+            </button>
+          </div>
+          <div style={{ flex: 1, background: "#525659", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {pdfLoading && <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#fff", fontSize: 13 }}><Spinner size={14} /> Loading datasheet…</div>}
+            {pdfUrl && !pdfLoading && <iframe src={pdfUrl} style={{ width: "100%", height: "100%", border: "none" }} title={viewingPdfProduct.name} />}
+          </div>
+        </div>
       )}
     </div>
   );
