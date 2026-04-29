@@ -1438,6 +1438,174 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
   );
 }
 
+// ── Documents tab (Transmittals archive) ──────────────────────────────────────
+function DocumentsTab({ projectId }) {
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(null); // key being downloaded
+
+  useEffect(() => { loadFiles(); }, [projectId]);
+
+  async function loadFiles() {
+    setLoading(true);
+    try {
+      const data = await api(`/api/projects/${projectId}/transmittals/files`);
+      setFiles(data.files || []);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  }
+
+  async function downloadFile(file) {
+    if (downloading) return;
+    setDownloading(file.key);
+    try {
+      const data = await api(
+        `/api/projects/${projectId}/transmittals/download?key=${encodeURIComponent(file.key)}`
+      );
+      const isExcel = file.name.endsWith(".xlsx");
+      const mimeType = isExcel
+        ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        : "text/html";
+      const binary = atob(data.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = data.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) { console.error(e); }
+    setDownloading(null);
+  }
+
+  async function openSnapshot(file) {
+    if (downloading) return;
+    setDownloading(file.key);
+    try {
+      const data = await api(
+        `/api/projects/${projectId}/transmittals/download?key=${encodeURIComponent(file.key)}`
+      );
+      const binary = atob(data.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      // revoke after a short delay to allow the tab to load
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) { console.error(e); }
+    setDownloading(null);
+  }
+
+  const excelFile = files.find(f => f.type === "excel");
+  const snapshots = files.filter(f => f.type === "snapshot");
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 13 }}>
+      <Spinner size={13} /> Loading documents…
+    </div>
+  );
+
+  if (files.length === 0) return (
+    <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
+      <div style={{ fontSize: 36, marginBottom: 12 }}>📁</div>
+      <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>
+        No transmittals yet
+      </p>
+      <p style={{ fontSize: 12, color: "#9a9088" }}>
+        A drawing schedule will be generated automatically the next time drawings are synced via Archimind Sync.
+      </p>
+    </div>
+  );
+
+  const rowStyle = {
+    display: "flex", alignItems: "center", gap: 14,
+    padding: "10px 16px", borderBottom: "1px solid #f0ede8",
+  };
+  const iconStyle = { fontSize: 18, flexShrink: 0, width: 24, textAlign: "center" };
+  const nameStyle = { flex: 1, fontSize: 13, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" };
+  const metaStyle = { fontSize: 11, color: "#9a9088", marginTop: 2 };
+  const btnStyle = (color) => ({
+    fontSize: 11, fontWeight: 600, color, background: "none",
+    border: `1px solid ${color}`, padding: "4px 12px",
+    letterSpacing: "0.04em", cursor: "pointer", flexShrink: 0,
+    fontFamily: "Inter, Arial, sans-serif",
+  });
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+        <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          Transmittals
+        </h3>
+        <button className="btn" onClick={loadFiles}
+          style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 12px" }}>
+          ↻ Refresh
+        </button>
+      </div>
+
+      {/* Master Excel file */}
+      {excelFile && (
+        <div style={{ marginBottom: 20 }}>
+          <p style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
+            Master Schedule
+          </p>
+          <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
+            <div style={rowStyle}>
+              <span style={iconStyle}>📊</span>
+              <div style={{ flex: 1 }}>
+                <div style={nameStyle}>Drawing Schedule (Excel)</div>
+                <div style={metaStyle}>Cumulative — updated on every sync</div>
+              </div>
+              <button className="btn" onClick={() => downloadFile(excelFile)}
+                disabled={downloading === excelFile.key}
+                style={btnStyle(AD_GREEN)}>
+                {downloading === excelFile.key ? <Spinner size={10} /> : "↓ Download"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Issue snapshots */}
+      {snapshots.length > 0 && (
+        <div>
+          <p style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
+            Issue Archive ({snapshots.length})
+          </p>
+          <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
+            {snapshots.map((f, i) => (
+              <div key={f.key} style={{ ...rowStyle, borderBottom: i < snapshots.length - 1 ? "1px solid #f0ede8" : "none" }}>
+                <span style={iconStyle}>📄</span>
+                <div style={{ flex: 1 }}>
+                  <div style={nameStyle}>{f.label}</div>
+                  <div style={metaStyle}>{f.name}</div>
+                </div>
+                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+                  <button className="btn" onClick={() => openSnapshot(f)}
+                    disabled={downloading === f.key}
+                    style={btnStyle(ARC_NAVY)}>
+                    {downloading === f.key ? <Spinner size={10} /> : "View"}
+                  </button>
+                  <button className="btn" onClick={() => downloadFile(f)}
+                    disabled={downloading === f.key}
+                    style={btnStyle("#9a9088")}>
+                    {downloading === f.key ? <Spinner size={10} /> : "↓"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -1793,7 +1961,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
           <DrawingsTab projectId={projectId} isAdmin={isAdmin} onDrawingsLoaded={setDrawings} />
         )}
 
-        {activeTab === "documents" && <PlaceholderTab icon="📁" title="Documents" description="Store and retrieve project documents — reports, specifications, certificates, and other project-specific files." />}
+        {activeTab === "documents" && <DocumentsTab projectId={projectId} />}
         {activeTab === "products" && (
           <ProductsTab projectId={projectId} isAdmin={isAdmin} />
         )}

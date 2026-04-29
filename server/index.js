@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand } = require("@aws-sdk/client-s3");
 const { createClient } = require("@supabase/supabase-js");
+const ExcelJS = require("exceljs");
 
 const app = express();
 app.use(cors());
@@ -817,14 +818,12 @@ app.delete("/api/projects/:id/consultants/:cid", requireAuth, async (req, res) =
 
 // ── U-values ──────────────────────────────────────────────────────────────────
 
-app.patch("/api/projects/:id/uvalues/:uid", requireAuth, async (req, res) => {
-  const { target, achieved, notes } = req.body;
+app.post("/api/projects/:id/uvalues", requireAuth, async (req, res) => {
+  const { element, target, achieved, notes } = req.body;
   try {
     const { data, error } = await supabase
       .from("project_uvalues")
-      .update({ target, achieved, notes })
-      .eq("id", req.params.uid)
-      .eq("project_id", req.params.id)
+      .insert({ project_id: req.params.id, element, target: target || null, achieved: achieved || null, notes: notes || null })
       .select()
       .single();
     if (error) throw error;
@@ -834,13 +833,14 @@ app.patch("/api/projects/:id/uvalues/:uid", requireAuth, async (req, res) => {
   }
 });
 
-app.post("/api/projects/:id/uvalues", requireAuth, async (req, res) => {
+app.patch("/api/projects/:id/uvalues/:uid", requireAuth, async (req, res) => {
   const { element, target, achieved, notes } = req.body;
-  if (!element) return res.status(400).json({ error: "element required" });
   try {
     const { data, error } = await supabase
       .from("project_uvalues")
-      .insert({ project_id: req.params.id, element, target, achieved, notes })
+      .update({ element, target, achieved, notes })
+      .eq("id", req.params.uid)
+      .eq("project_id", req.params.id)
       .select()
       .single();
     if (error) throw error;
@@ -864,14 +864,14 @@ app.delete("/api/projects/:id/uvalues/:uid", requireAuth, async (req, res) => {
   }
 });
 
-// ── Project notes ─────────────────────────────────────────────────────────────
+// ── Notes ─────────────────────────────────────────────────────────────────────
 
 app.post("/api/projects/:id/notes", requireAuth, async (req, res) => {
-  const { label, value, sort_order = 0 } = req.body;
+  const { label, value, sort_order } = req.body;
   try {
     const { data, error } = await supabase
       .from("project_notes")
-      .insert({ project_id: req.params.id, label, value, sort_order })
+      .insert({ project_id: req.params.id, label, value, sort_order: sort_order || 0 })
       .select()
       .single();
     if (error) throw error;
@@ -882,11 +882,11 @@ app.post("/api/projects/:id/notes", requireAuth, async (req, res) => {
 });
 
 app.patch("/api/projects/:id/notes/:nid", requireAuth, async (req, res) => {
-  const { label, value, sort_order } = req.body;
+  const { label, value } = req.body;
   try {
     const { data, error } = await supabase
       .from("project_notes")
-      .update({ label, value, sort_order })
+      .update({ label, value })
       .eq("id", req.params.nid)
       .eq("project_id", req.params.id)
       .select()
@@ -1039,6 +1039,343 @@ app.delete("/api/projects/:id/drawings/:did", requireAuth, async (req, res) => {
   }
 });
 
+// ── Transmittal generation ────────────────────────────────────────────────────
+
+// R2 paths:
+//   Master Excel:  projects/{id}/documents/transmittals/transmittal.xlsx
+//   PDF snapshots: projects/{id}/documents/transmittals/transmittal_YYYY-MM-DD_NNN.pdf
+//                  (NNN suffix avoids same-day collisions)
+
+function transmittalPrefix(projectId) {
+  return `projects/${projectId}/documents/transmittals/`;
+}
+
+function formatDateDMY(date) {
+  const d = String(date.getDate()).padStart(2, "0");
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const y = date.getFullYear();
+  return `${d}/${m}/${y}`;
+}
+
+function formatDateISO(date) {
+  return date.toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
+async function generateTransmittal(projectId, syncResults) {
+  try {
+    // Fetch project info
+    const { data: project } = await supabase
+      .from("projects")
+      .select("name, job_number, location")
+      .eq("id", projectId)
+      .single();
+
+    // Fetch all drawings (current state after sync)
+    const { data: drawings } = await supabase
+      .from("project_drawings")
+      .select("id, title, drawing_number, revision, scale, drawing_type")
+      .eq("project_id", projectId)
+      .order("drawing_number", { ascending: true });
+
+    if (!drawings || drawings.length === 0) return;
+
+    // Build set of drawing_numbers that were updated/created in this sync
+    const changedNumbers = new Set(
+      syncResults
+        .filter(r => r.action === "updated" || r.action === "created")
+        .map(r => r.drawing_number)
+    );
+
+    const now = new Date();
+    const issueDateDMY = formatDateDMY(now);
+    const issueDateISO = formatDateISO(now);
+    const prefix = transmittalPrefix(projectId);
+    const excelKey = `${prefix}transmittal.xlsx`;
+
+    // ── Load or create workbook ───────────────────────────────────────────────
+    const workbook = new ExcelJS.Workbook();
+    let existingIssueColumns = []; // array of { col, date } for existing issue columns
+
+    try {
+      const existing = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: excelKey }));
+      const buf = await streamToBuffer(existing.Body);
+      await workbook.xlsx.load(buf);
+    } catch (_) {
+      // First time — workbook will be blank, we set it up below
+    }
+
+    let ws = workbook.getWorksheet("Drawing Schedule");
+    const isNew = !ws;
+
+    if (isNew) {
+      ws = workbook.addWorksheet("Drawing Schedule");
+    }
+
+    // ── Style helpers ─────────────────────────────────────────────────────────
+    const NAVY   = "FF1a2332";
+    const STONE  = "FFF0EDE8";
+    const TERRA  = "FFc25a45";
+    const WHITE  = "FFFFFFFF";
+    const LGREY  = "FFF5F3F0";
+    const MID    = "FFD0C8C0";
+
+    function headerFont(bold = true, color = WHITE) {
+      return { name: "Arial", size: 9, bold, color: { argb: color } };
+    }
+    function bodyFont(bold = false, color = "FF1a2332") {
+      return { name: "Arial", size: 9, bold, color: { argb: color } };
+    }
+    function navyFill() {
+      return { type: "pattern", pattern: "solid", fgColor: { argb: NAVY } };
+    }
+    function stoneFill() {
+      return { type: "pattern", pattern: "solid", fgColor: { argb: STONE } };
+    }
+    function greyFill() {
+      return { type: "pattern", pattern: "solid", fgColor: { argb: LGREY } };
+    }
+    function thinBorder(sides = ["top","left","bottom","right"]) {
+      const b = {};
+      sides.forEach(s => { b[s] = { style: "thin", color: { argb: MID } }; });
+      return b;
+    }
+
+    // ── Fixed column layout ───────────────────────────────────────────────────
+    // Col 1: Drawing No  (width 18)
+    // Col 2: Title       (width 40)
+    // Col 3: Scale       (width 10)
+    // Col 4+: Issue date columns (width 12 each)
+    const FIXED_COLS = 3;
+
+    if (isNew) {
+      // ── Header block rows 1-5 ────────────────────────────────────────────
+      // Row 1: Practice name banner
+      ws.mergeCells("A1:C1");
+      const bannerCell = ws.getCell("A1");
+      bannerCell.value = "Archimind Practice";
+      bannerCell.font = { name: "Arial", size: 14, bold: true, color: { argb: WHITE } };
+      bannerCell.fill = navyFill();
+      bannerCell.alignment = { horizontal: "left", vertical: "middle" };
+      ws.getRow(1).height = 28;
+
+      // Row 2: Project name
+      ws.mergeCells("A2:C2");
+      const projCell = ws.getCell("A2");
+      projCell.value = project?.name || "";
+      projCell.font = { name: "Arial", size: 10, bold: true, color: { argb: NAVY } };
+      projCell.fill = stoneFill();
+      projCell.alignment = { horizontal: "left", vertical: "middle" };
+      ws.getRow(2).height = 18;
+
+      // Row 3: Job number + location
+      ws.getCell("A3").value = project?.job_number ? `Job No: ${project.job_number}` : "";
+      ws.getCell("A3").font = bodyFont(false);
+      ws.getCell("A3").fill = stoneFill();
+      ws.getCell("B3").value = project?.location || "";
+      ws.getCell("B3").font = bodyFont(false);
+      ws.getCell("B3").fill = stoneFill();
+      ws.mergeCells("B3:C3");
+      ws.getRow(3).height = 15;
+
+      // Row 4: blank spacer
+      ws.getRow(4).height = 6;
+
+      // Row 5: column headers
+      ws.getRow(5).height = 20;
+      const headers = ["Drawing No.", "Title", "Scale"];
+      headers.forEach((h, i) => {
+        const cell = ws.getCell(5, i + 1);
+        cell.value = h;
+        cell.font = headerFont();
+        cell.fill = navyFill();
+        cell.alignment = { horizontal: "center", vertical: "middle" };
+        cell.border = thinBorder();
+      });
+
+      // Column widths
+      ws.getColumn(1).width = 18;
+      ws.getColumn(2).width = 40;
+      ws.getColumn(3).width = 10;
+
+      // Seed drawing rows starting at row 6
+      drawings.forEach((d, idx) => {
+        const row = ws.getRow(6 + idx);
+        row.height = 14;
+        const fill = idx % 2 === 0 ? { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFFFF" } }
+                                   : greyFill();
+        [1, 2, 3].forEach(c => {
+          row.getCell(c).fill = fill;
+          row.getCell(c).border = thinBorder();
+          row.getCell(c).font = bodyFont();
+        });
+        row.getCell(1).value = d.drawing_number || "";
+        row.getCell(2).value = d.title || "";
+        row.getCell(3).value = d.scale || "";
+      });
+
+    } else {
+      // Existing workbook — discover existing issue columns from row 5 headers
+      const headerRow = ws.getRow(5);
+      headerRow.eachCell((cell, colNum) => {
+        if (colNum > FIXED_COLS && cell.value) {
+          existingIssueColumns.push({ col: colNum, date: cell.value });
+        }
+      });
+    }
+
+    // ── Add new issue column ──────────────────────────────────────────────────
+    const newIssueCol = FIXED_COLS + existingIssueColumns.length + 1;
+
+    // Header cell for new date column
+    ws.getColumn(newIssueCol).width = 12;
+    const dateHeaderCell = ws.getCell(5, newIssueCol);
+    dateHeaderCell.value = issueDateDMY;
+    dateHeaderCell.font = headerFont();
+    dateHeaderCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: TERRA } };
+    dateHeaderCell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    dateHeaderCell.border = thinBorder();
+
+    // Also extend the banner merge to cover new column on first issue
+    // (subsequent issues: banner was already merged, just extend col widths)
+
+    // ── Populate drawing rows with revision for this issue ────────────────────
+    // Build a map: drawing_number → current revision
+    const revMap = {};
+    drawings.forEach(d => { if (d.drawing_number) revMap[d.drawing_number] = d.revision || ""; });
+
+    // Find which row each drawing_number is on by reading column 1 from row 6
+    const rowCount = ws.rowCount;
+    for (let r = 6; r <= rowCount; r++) {
+      const cell1 = ws.getCell(r, 1);
+      const drawingNo = cell1.value ? String(cell1.value).trim() : null;
+      if (!drawingNo) continue;
+
+      const issueCell = ws.getCell(r, newIssueCol);
+      const isChanged = changedNumbers.has(drawingNo);
+      const revision = revMap[drawingNo] || "";
+
+      // Only populate revision in this column if the drawing changed in this sync
+      issueCell.value = isChanged ? revision : "";
+      issueCell.font = bodyFont(isChanged);
+      issueCell.alignment = { horizontal: "center", vertical: "middle" };
+      issueCell.border = thinBorder();
+
+      // Alternate row fill
+      const idx = r - 6;
+      issueCell.fill = idx % 2 === 0
+        ? { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFFFF" } }
+        : greyFill();
+    }
+
+    // ── Save Excel to R2 ─────────────────────────────────────────────────────
+    const xlsxBuffer = await workbook.xlsx.writeBuffer();
+    await r2.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: excelKey,
+      Body: Buffer.from(xlsxBuffer),
+      ContentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }));
+
+    // ── Generate PDF snapshot using a simple HTML→text approach ──────────────
+    // We build a clean HTML table and save it as an HTML file so it can be
+    // opened in browser. True PDF generation requires headless Chrome or
+    // Puppeteer which is not available in this environment.
+    // Instead we save an HTML snapshot that renders identically.
+    const allIssueCols = [...existingIssueColumns.map(c => c.date), issueDateDMY];
+
+    const tableRows = [];
+    for (let r = 6; r <= rowCount; r++) {
+      const drawingNo = ws.getCell(r, 1).value || "";
+      const title     = ws.getCell(r, 2).value || "";
+      const scale     = ws.getCell(r, 3).value || "";
+      const revisions = [];
+      for (let c = FIXED_COLS + 1; c <= newIssueCol; c++) {
+        revisions.push(ws.getCell(r, c).value || "");
+      }
+      if (drawingNo || title) {
+        tableRows.push({ drawingNo, title, scale, revisions });
+      }
+    }
+
+    const issueCols = allIssueCols;
+
+    const htmlSnapshot = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Drawing Schedule — ${project?.name || ""}</title>
+<style>
+  body { font-family: Arial, sans-serif; font-size: 9pt; color: #1a2332; margin: 20px; }
+  .banner { background: #1a2332; color: #fff; padding: 10px 14px; font-size: 14pt; font-weight: bold; margin-bottom: 0; }
+  .subheader { background: #f0ede8; padding: 6px 14px; margin-bottom: 12px; }
+  .subheader .proj { font-size: 10pt; font-weight: bold; }
+  .subheader .meta { font-size: 8pt; color: #666; }
+  table { border-collapse: collapse; width: 100%; }
+  th { background: #1a2332; color: #fff; padding: 5px 8px; font-size: 8pt; font-weight: 600; text-align: center; border: 1px solid #d0c8c0; }
+  th.left { text-align: left; }
+  td { padding: 4px 8px; font-size: 8pt; border: 1px solid #d0c8c0; }
+  tr:nth-child(odd) td { background: #fff; }
+  tr:nth-child(even) td { background: #f5f3f0; }
+  .issue-th { background: #c25a45; }
+  .rev-changed { font-weight: bold; }
+  .generated { font-size: 7pt; color: #999; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="banner">Archimind Practice</div>
+<div class="subheader">
+  <div class="proj">${project?.name || "Untitled Project"}</div>
+  <div class="meta">${project?.job_number ? `Job No: ${project.job_number}` : ""}${project?.location ? ` &nbsp;·&nbsp; ${project.location}` : ""}</div>
+</div>
+<table>
+  <thead>
+    <tr>
+      <th class="left" style="width:120px">Drawing No.</th>
+      <th class="left">Title</th>
+      <th style="width:60px">Scale</th>
+      ${issueCols.map(d => `<th class="issue-th" style="width:70px">${d}</th>`).join("")}
+    </tr>
+  </thead>
+  <tbody>
+    ${tableRows.map(row => `
+    <tr>
+      <td>${row.drawingNo}</td>
+      <td>${row.title}</td>
+      <td style="text-align:center">${row.scale}</td>
+      ${row.revisions.map((rev, i) => `<td style="text-align:center" class="${i === row.revisions.length - 1 && rev ? "rev-changed" : ""}">${rev}</td>`).join("")}
+    </tr>`).join("")}
+  </tbody>
+</table>
+<div class="generated">Generated by Archimind · ${issueDateDMY}</div>
+</body>
+</html>`;
+
+    // Find a unique filename for this snapshot (avoid same-day collision)
+    const snapshotKeyBase = `${prefix}transmittal_${issueDateISO}`;
+    let snapshotKey = `${snapshotKeyBase}.html`;
+    // Check if key already exists and suffix if needed
+    const existingKeys = await listAllKeys(prefix);
+    if (existingKeys.includes(snapshotKey)) {
+      let n = 2;
+      while (existingKeys.includes(`${snapshotKeyBase}_${n}.html`)) n++;
+      snapshotKey = `${snapshotKeyBase}_${n}.html`;
+    }
+
+    await r2.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: snapshotKey,
+      Body: Buffer.from(htmlSnapshot, "utf-8"),
+      ContentType: "text/html",
+    }));
+
+    console.log(`Transmittal generated for project ${projectId}: ${snapshotKey}`);
+
+  } catch (err) {
+    // Non-fatal — sync has already succeeded, log and continue
+    console.error("Transmittal generation error (non-fatal):", err.message);
+  }
+}
+
 // ── Drawing sync (bulk upsert from desktop sync tool) ────────────────────────
 app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
   const { drawings: incoming } = req.body;
@@ -1137,7 +1474,11 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
     }
   }
 
+  // Respond to client immediately, then generate transmittal in background
   res.json({ results });
+
+  // Fire and forget — errors are logged but do not affect the sync response
+  generateTransmittal(req.params.id, results);
 });
 
 // ── Todos ─────────────────────────────────────────────────────────────────────
@@ -1203,7 +1544,70 @@ app.delete("/api/projects/:id/todos/:tid", requireAuth, async (req, res) => {
   }
 });
 
-// ── Transmittals ──────────────────────────────────────────────────────────────
+// ── Transmittals — R2 file listing ────────────────────────────────────────────
+
+// GET /api/projects/:id/transmittals/files — list all transmittal files in R2
+app.get("/api/projects/:id/transmittals/files", requireAuth, async (req, res) => {
+  try {
+    const prefix = transmittalPrefix(req.params.id);
+    const keys = await listAllKeys(prefix);
+
+    const files = keys
+      .map(key => {
+        const name = key.replace(prefix, "");
+        const isExcel = name.endsWith(".xlsx");
+        const isSnapshot = name.endsWith(".html");
+        if (!isExcel && !isSnapshot) return null;
+        return {
+          key,
+          name,
+          type: isExcel ? "excel" : "snapshot",
+          label: isExcel ? "Drawing Schedule (Excel)" : name.replace("transmittal_", "Issue — ").replace(".html", ""),
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => {
+        // Excel first, then snapshots newest-first
+        if (a.type === "excel") return -1;
+        if (b.type === "excel") return 1;
+        return b.name.localeCompare(a.name);
+      });
+
+    res.json({ files });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/projects/:id/transmittals/download?key=... — download a transmittal file
+app.get("/api/projects/:id/transmittals/download", requireAuth, async (req, res) => {
+  const { key } = req.query;
+  if (!key) return res.status(400).json({ error: "key required" });
+
+  // Security: ensure the key belongs to this project
+  const expectedPrefix = transmittalPrefix(req.params.id);
+  if (!key.startsWith(expectedPrefix)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  try {
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    const buffer = await streamToBuffer(result.Body);
+    const name = key.split("/").pop();
+    const isExcel = name.endsWith(".xlsx");
+    res.json({
+      base64: buffer.toString("base64"),
+      name,
+      contentType: isExcel
+        ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        : "text/html",
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Legacy transmittals routes (Supabase-based, kept for compatibility) ───────
 
 app.get("/api/projects/:id/transmittals", requireAuth, async (req, res) => {
   try {
@@ -1299,14 +1703,14 @@ app.get("/api/projects/:id/categories", requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/projects/:id/categories — create a new category
+// POST /api/projects/:id/categories
 app.post("/api/projects/:id/categories", requireAuth, async (req, res) => {
-  const { name, sort_order = 0 } = req.body;
+  const { name, sort_order } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
   try {
     const { data, error } = await supabase
       .from("project_product_categories")
-      .insert({ project_id: req.params.id, name, sort_order })
+      .insert({ project_id: req.params.id, name, sort_order: sort_order || 0 })
       .select()
       .single();
     if (error) throw error;
@@ -1316,35 +1720,27 @@ app.post("/api/projects/:id/categories", requireAuth, async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id/categories/:cid — delete category, reassign its products to Uncategorised
+// DELETE /api/projects/:id/categories/:cid
 app.delete("/api/projects/:id/categories/:cid", requireAuth, async (req, res) => {
   try {
-    // Find or create the Uncategorised category for this project
-    let uncategorisedId = null;
-    const { data: existing } = await supabase
+    // Move products in this category to Uncategorised
+    const { data: uncategorised } = await supabase
       .from("project_product_categories")
       .select("id")
       .eq("project_id", req.params.id)
       .eq("name", "Uncategorised")
       .single();
 
-    if (existing) {
-      uncategorisedId = existing.id;
-    } else {
-      const { data: created, error: createError } = await supabase
-        .from("project_product_categories")
-        .insert({ project_id: req.params.id, name: "Uncategorised", sort_order: 999 })
-        .select()
-        .single();
-      if (createError) throw createError;
-      uncategorisedId = created.id;
-    }
-
-    // Reassign products in this category to Uncategorised (unless they're already being deleted from Uncategorised)
-    if (req.params.cid !== uncategorisedId) {
+    if (uncategorised) {
       await supabase
         .from("project_products")
-        .update({ category_id: uncategorisedId })
+        .update({ category_id: uncategorised.id })
+        .eq("project_id", req.params.id)
+        .eq("category_id", req.params.cid);
+    } else {
+      await supabase
+        .from("project_products")
+        .update({ category_id: null })
         .eq("project_id", req.params.id)
         .eq("category_id", req.params.cid);
     }
