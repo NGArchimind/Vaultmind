@@ -344,6 +344,17 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
   const [downloadingId, setDownloadingId] = useState(null);
   const [viewingDrawing, setViewingDrawing] = useState(null);
   const [lastQuestion, setLastQuestion] = useState("");
+  const [assignedProducts, setAssignedProducts] = useState([]);
+
+  useEffect(() => {
+    async function loadProducts() {
+      try {
+        const { products } = await api(`/api/projects/${projectId}/products`);
+        setAssignedProducts(products || []);
+      } catch (e) { /* non-critical — QA still works without it */ }
+    }
+    loadProducts();
+  }, [projectId]);
 
   async function handleDownload(drawing) {
     setDownloadingId(drawing.id);
@@ -403,6 +414,15 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
           `ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} | Rev:${d.revision || "—"} | Status:${d.status || "—"} | Scale:${d.scale || "—"} | Date:${d.issue_date || "—"} | File:${d.file_name || "—"}`
         ).join("\n");
 
+    // Build assigned products context
+    const productsContext = assignedProducts.length === 0
+      ? "No products assigned."
+      : assignedProducts.map(a => {
+          const p = a.products;
+          if (!p) return null;
+          return `${p.name}${p.manufacturer ? ` by ${p.manufacturer}` : ""}${p.product_type ? ` [${p.product_type}]` : ""}`;
+        }).filter(Boolean).join("\n");
+
     const ctx = `PROJECT: ${project.name}
 Job Number: ${project.job_number || "—"}
 Client: ${project.client || "—"}
@@ -421,24 +441,28 @@ ${uvalues.length === 0 ? "None recorded." : uvalues.map(u => `${u.element}: Targ
 ADDITIONAL NOTES:
 ${notes.length === 0 ? "None recorded." : notes.map(n => `${n.label}: ${n.value}`).join("\n")}
 
+SPECIFIED PRODUCTS:
+${productsContext}
+
 DRAWING REGISTER (${drawings.length} drawings):
 ${drawingContext}`;
 
-    const systemPrompt = `You are an intelligent assistant for an architectural practice. You have full access to project data including the drawing register.
+    const systemPrompt = `You are a project assistant for an architectural practice. You have full access to the project data provided — including project info, consultants, U-values, notes, specified products, and the drawing register.
 
-When answering, return a JSON object with this exact structure:
+Answer questions concisely and directly based on the project data. Do not say you cannot access information — everything you need is in the context provided.
+
+Return a JSON object with this exact structure:
 {
-  "answer": "Your text response here — concise and practical",
+  "answer": "Your concise response here",
   "drawing_ids": ["id1", "id2"]
 }
 
 Rules:
-- "answer" is always a helpful text response to the question
-- "drawing_ids" is an array of drawing IDs from the register that are relevant to the question
-- Only include drawing_ids if the question is about drawings or the user wants to see/find drawings
-- For drawing searches, use the latest revision of each drawing number where multiple exist
-- If the question is general (about consultants, U-values, project info etc), return an empty array for drawing_ids
-- Drawing IDs are in the format shown in the register data (e.g. "31955e86-352c-4a35-...")
+- Always populate "answer" with a helpful, direct response
+- Only populate "drawing_ids" when the question is specifically about finding or listing drawings — use the IDs from the register
+- For all other questions (consultants, products, U-values, project info, etc) return an empty array for drawing_ids
+- Never say you don't have access to information — use what is in the context
+- Be concise — one or two sentences where possible
 - Do not include any text outside the JSON object`;
 
     try {
@@ -447,7 +471,6 @@ Rules:
         systemPrompt, 2000, 1, "gemini-2.5-flash"
       );
 
-      // Parse JSON response
       let answerText = text;
       let matchedIds = [];
       try {
