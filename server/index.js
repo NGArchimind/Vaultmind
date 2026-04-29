@@ -194,10 +194,14 @@ app.get("/api/vaults", requireAuth, async (req, res) => {
     const topResult = await r2.send(topCmd);
     const topPrefixes = (topResult.CommonPrefixes || []).map(p => p.Prefix); // e.g. "British Standards/"
 
+    const SYSTEM_PREFIXES = new Set(["products", "projects"]);
     const vaults = [];
 
     for (const prefix of topPrefixes) {
       const name = prefix.slice(0, -1); // strip trailing /
+
+      // Skip system folders used by product library and projects
+      if (SYSTEM_PREFIXES.has(name)) continue;
 
       // Check if this folder has a .vault metadata file to determine type
       let meta = {};
