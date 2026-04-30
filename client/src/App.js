@@ -479,18 +479,7 @@ export default function App() {
         }];
         const priorContext = conversationHistory.slice(-5);
         const contextBlock = priorContext.length > 0
-          ? `CONVERSATION SO FAR:
-
-${priorContext.map((h, i) => `Question ${i+1}: ${h.question}
-Answer ${i+1}: ${h.answer.slice(0, 1000)}`).join("
-
----
-
-")}
-
----
-
-`
+          ? `CONVERSATION SO FAR:\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
           : "";
         const tempPrompt = `You are an expert building regulations consultant. Use ONLY the provided document to answer.
 
