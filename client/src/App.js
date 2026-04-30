@@ -475,7 +475,6 @@ export default function App() {
         const docBlocks = [{
           type: "document",
           source: { type: "base64", media_type: "application/pdf", data: tempDoc.base64 },
-          title: `TEMPORARY DOCUMENT: ${tempDoc.name}`,
         }];
         const priorContext = conversationHistory.slice(-5);
         const contextBlock = priorContext.length > 0
@@ -1079,6 +1078,10 @@ Any conflicts or caveats within the document. If none: "No contradictions identi
                     {isRunning ? (
                       <div style={{ width: "100%", maxWidth: 680 }}>
                         <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 16 }}>{statusMsg}</p>
+                      </div>
+                    ) : statusMsg && statusMsg.startsWith("Error") ? (
+                      <div style={{ width: "100%", maxWidth: 680 }}>
+                        <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 16 }}>{statusMsg}</p>
                       </div>
                     ) : answer ? (
                       <div style={{ width: "100%", maxWidth: 680 }}>
