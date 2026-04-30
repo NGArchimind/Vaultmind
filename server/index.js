@@ -190,41 +190,32 @@ app.post("/api/claude", requireAuth, async (req, res) => {
 // GET /api/vaults — returns flat vaults and master vaults with their sub-vaults
 app.get("/api/vaults", requireAuth, async (req, res) => {
   try {
-    // List top-level "folders" (depth-1 prefixes)
     const topCmd = new ListObjectsV2Command({ Bucket: BUCKET, Delimiter: "/" });
     const topResult = await r2.send(topCmd);
-    const topPrefixes = (topResult.CommonPrefixes || []).map(p => p.Prefix); // e.g. "British Standards/"
+    const topPrefixes = (topResult.CommonPrefixes || []).map(p => p.Prefix);
 
     const SYSTEM_PREFIXES = new Set(["products", "projects"]);
     const vaults = [];
 
     for (const prefix of topPrefixes) {
-      const name = prefix.slice(0, -1); // strip trailing /
-
-      // Skip system folders used by product library and projects
+      const name = prefix.slice(0, -1);
       if (SYSTEM_PREFIXES.has(name)) continue;
 
-      // Check if this folder has a .vault metadata file to determine type
       let meta = {};
       try {
         const metaResult = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${prefix}.vault` }));
         const buf = await streamToBuffer(metaResult.Body);
         meta = JSON.parse(buf.toString());
-      } catch (_) {
-        // No .vault file — treat as regular flat vault
-      }
+      } catch (_) {}
 
       if (meta.type === "master") {
-        // List sub-vaults (depth-2 prefixes)
         const subCmd = new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix, Delimiter: "/" });
         const subResult = await r2.send(subCmd);
         const subPrefixes = (subResult.CommonPrefixes || []).map(p => p.Prefix);
-
         const subVaults = subPrefixes.map(sp => {
-          const subName = sp.slice(prefix.length, -1); // strip parent prefix + trailing /
+          const subName = sp.slice(prefix.length, -1);
           return { id: sp.slice(0, -1), name: subName, path: sp.slice(0, -1) };
         });
-
         vaults.push({ id: name, name, type: "master", subVaults });
       } else {
         vaults.push({ id: name, name, type: "vault" });
@@ -336,7 +327,7 @@ app.post("/api/vaults/*/adopt", requireAuth, async (req, res) => {
         Body: JSON.stringify(meta),
         ContentType: "application/json",
       }));
-    } catch (_) { /* metadata update best-effort */ }
+    } catch (_) {}
 
     res.json({ id: `${masterPath}/${sourceVault}`, name: sourceVault });
   } catch (err) {
@@ -650,7 +641,7 @@ app.delete("/api/products/:id", requireAuth, async (req, res) => {
     if (product.file_key && product.file_key.startsWith("products/")) {
       try {
         await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: product.file_key }));
-      } catch (_) { /* best effort */ }
+      } catch (_) {}
     }
 
     res.json({ deleted: true });
@@ -1031,7 +1022,7 @@ app.delete("/api/projects/:id/drawings/:did", requireAuth, async (req, res) => {
     if (drawing.file_key) {
       try {
         await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: drawing.file_key }));
-      } catch (_) { /* best effort */ }
+      } catch (_) {}
     }
 
     res.json({ deleted: true });
@@ -1140,8 +1131,10 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
 
   res.json({ results });
 
-  // Fire and forget — transmittal generation does not affect sync response
-  generateTransmittal(req.params.id, results);
+  // Fire and forget — record transmittal issue from sync results
+  recordTransmittalIssue(req.params.id, results).catch(err =>
+    console.error("Transmittal issue recording error (non-fatal):", err.message)
+  );
 });
 
 // ── Todos ─────────────────────────────────────────────────────────────────────
@@ -1207,177 +1200,291 @@ app.delete("/api/projects/:id/todos/:tid", requireAuth, async (req, res) => {
   }
 });
 
-// ── Transmittal generation ────────────────────────────────────────────────────
+// ── Transmittal system ────────────────────────────────────────────────────────
+//
+// Data model:
+//   project_transmittal_issues   — one row per issue event (project_id, issue_date)
+//   project_transmittal_revisions — one row per drawing per issue (issue_id, drawing_number, revision)
+//   project_transmittal_settings — one row per project (notes, bforward_overrides as jsonb)
+//
+// B' Forward is auto-calculated as the highest revision across all issue columns
+// for each drawing. It can be manually overridden (stored in bforward_overrides)
+// and is flagged visually in the frontend when overridden.
+//
+// Revision sequence: P01, P02... → T01, T02... → C01, C02...
+// Out-of-sequence detection is handled in ArchiSync before upload.
 
-const TEMPLATE_KEY = "templates/transmittal_template.xlsx";
+// ── Revision sequence helpers ─────────────────────────────────────────────────
 
-function transmittalPrefix(projectId) {
-  return `projects/${projectId}/documents/transmittals/`;
+// Default stage order — can be extended via admin settings in future
+const DEFAULT_STAGE_ORDER = ["P", "T", "C"];
+
+// Parse a revision string into { stage, num } e.g. "P03" → { stage: "P", num: 3 }
+function parseRevision(rev) {
+  if (!rev) return null;
+  const match = String(rev).trim().match(/^([A-Za-z]+)(\d+)$/);
+  if (!match) return null;
+  return { stage: match[1].toUpperCase(), num: parseInt(match[2], 10) };
 }
 
-function formatDateDMY(date) {
-  const d = String(date.getDate()).padStart(2, "0");
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const y = date.getFullYear();
-  return `${d}/${m}/${y}`;
+// Compare two revisions using DEFAULT_STAGE_ORDER.
+// Returns negative if a < b, 0 if equal, positive if a > b.
+// Returns null if either cannot be parsed.
+function compareRevisions(a, b, stageOrder = DEFAULT_STAGE_ORDER) {
+  const pa = parseRevision(a);
+  const pb = parseRevision(b);
+  if (!pa || !pb) return null;
+  const ia = stageOrder.indexOf(pa.stage);
+  const ib = stageOrder.indexOf(pb.stage);
+  // Unknown stages go to end
+  const sa = ia === -1 ? 999 : ia;
+  const sb = ib === -1 ? 999 : ib;
+  if (sa !== sb) return sa - sb;
+  return pa.num - pb.num;
 }
 
-function formatDateISO(date) {
-  return date.toISOString().slice(0, 10);
+// Check if newRev is the expected next revision after currentRev.
+// Returns { ok: true } or { ok: false, reason: string }
+function checkRevisionSequence(currentRev, newRev, stageOrder = DEFAULT_STAGE_ORDER) {
+  if (!currentRev) return { ok: true }; // first revision, anything goes
+  const pc = parseRevision(currentRev);
+  const pn = parseRevision(newRev);
+  if (!pc || !pn) return { ok: true }; // unparseable — don't block
+
+  const ic = stageOrder.indexOf(pc.stage);
+  const in_ = stageOrder.indexOf(pn.stage);
+
+  if (pc.stage === pn.stage) {
+    // Same stage — next number must be exactly +1
+    if (pn.num === pc.num + 1) return { ok: true };
+    if (pn.num <= pc.num) return { ok: false, reason: `Revision ${newRev} is behind current revision ${currentRev}` };
+    return { ok: false, reason: `Revision ${newRev} skips from ${currentRev} — expected ${pc.stage}${String(pc.num + 1).padStart(2, "0")}` };
+  }
+
+  // Stage change — must move to next stage at 01
+  const expectedNextStageIdx = ic + 1;
+  if (in_ === expectedNextStageIdx && pn.num === 1) return { ok: true };
+
+  const expectedStage = stageOrder[expectedNextStageIdx];
+  if (expectedStage) {
+    return { ok: false, reason: `Revision ${newRev} is out of sequence — expected ${expectedStage}01 after ${currentRev}` };
+  }
+
+  return { ok: false, reason: `Revision ${newRev} is beyond the known stage sequence` };
 }
 
-// ── Build starter template workbook ──────────────────────────────────────────
-// Named ranges used by generateTransmittal:
-//   job_number      → A2  (job number value)
-//   project_name    → A6  (project name value)
-//   site_location   → A4  (site/location value)
-//   date_day_start  → C5  (first Day cell — issue columns start here)
-//   drawings_start  → A10 (first drawing title cell — drawing rows start here)
-async function buildStarterTemplate() {
-  const wb = new ExcelJS.Workbook();
-  wb.creator = "Archimind";
+// GET /api/revision-sequence — return current stage order (practice-wide)
+// For now returns the default. In future this can be stored in a settings table.
+app.get("/api/revision-sequence", requireAuth, async (req, res) => {
+  res.json({ stages: DEFAULT_STAGE_ORDER });
+});
 
-  const ws = wb.addWorksheet("Drawing Schedule");
-  ws.pageSetup = {
-    paperSize: 9, orientation: "portrait", fitToPage: true,
-    fitToWidth: 1, fitToHeight: 0,
-    margins: { left: 0.5, right: 0.5, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 },
-  };
-
-  const TEAL    = "FF2d6a4f";
-  const NAVY    = "FF1a2332";
-  const SALMON  = "FFFFC0CB";
-  const LGREY   = "FFF5F5F5";
-  const HDRFILL = "FFE8E8E8";
-  const WHITE   = "FFFFFFFF";
-  const BORDCLR = "FFB0B0B0";
-
-  function sf(argb) { return { type: "pattern", pattern: "solid", fgColor: { argb } }; }
-  function bdr() { const s = { style: "thin", color: { argb: BORDCLR } }; return { top: s, left: s, bottom: s, right: s }; }
-  function f(bold = false, size = 8, color = NAVY) { return { name: "Arial", size, bold, color: { argb: color } }; }
-
-  ws.getColumn(1).width = 52;
-  ws.getColumn(2).width = 12;
-  ws.getColumn(3).width = 8;
-
-  // Row 1: Banner
-  ws.getRow(1).height = 22;
-  ws.mergeCells("A1:C1");
-  Object.assign(ws.getCell("A1"), {
-    value: "Architectural Design and Technology",
-    font: { name: "Arial", size: 11, bold: false, italic: true, color: { argb: WHITE } },
-    fill: sf(TEAL),
-    alignment: { horizontal: "center", vertical: "middle" },
-  });
-
-  // Row 2: Job number (named: job_number → A2)
-  ws.getRow(2).height = 13;
-  Object.assign(ws.getCell("A2"), { value: "Job Number -", font: f(true, 8) });
-  ws.mergeCells("B2:C2");
-  Object.assign(ws.getCell("B2"), { value: "Drawings - Working Drawings", font: f(false, 8) });
-
-  // Row 3: Spacer
-  ws.getRow(3).height = 4;
-
-  // Row 4: Site (named: site_location → A4)
-  ws.getRow(4).height = 12;
-  Object.assign(ws.getCell("A4"), { value: "Site -", font: f(false, 8) });
-  Object.assign(ws.getCell("B4"), { value: "Date of Issue", font: f(false, 8) });
-
-  // Row 5: Day header — date_day_start named range → C5
-  ws.getRow(5).height = 12;
-  Object.assign(ws.getCell("B5"), { value: "Day", font: f(false, 8) });
-  Object.assign(ws.getCell("C5"), {
-    value: "", font: f(false, 8),
-    alignment: { horizontal: "center" }, fill: sf(SALMON),
-  });
-
-  // Row 6: Project name (named: project_name → A6) + Month header
-  ws.getRow(6).height = 14;
-  Object.assign(ws.getCell("A6"), {
-    value: "Project Name",
-    font: { name: "Arial", size: 11, bold: true, color: { argb: NAVY } },
-  });
-  Object.assign(ws.getCell("B6"), { value: "Month", font: f(false, 8) });
-  Object.assign(ws.getCell("C6"), {
-    value: "", font: f(false, 8),
-    alignment: { horizontal: "center" }, fill: sf(SALMON),
-  });
-
-  // Row 7: Year header
-  ws.getRow(7).height = 12;
-  Object.assign(ws.getCell("B7"), { value: "Year", font: f(false, 8) });
-  Object.assign(ws.getCell("C7"), {
-    value: "", font: f(false, 8),
-    alignment: { horizontal: "center" }, fill: sf(SALMON),
-  });
-
-  // Row 8: Column headers
-  ws.getRow(8).height = 14;
-  Object.assign(ws.getCell("A8"), {
-    value: "Drawing Title", font: f(true, 8), fill: sf(HDRFILL),
-    border: bdr(), alignment: { vertical: "middle" },
-  });
-  Object.assign(ws.getCell("B8"), {
-    value: "Drawing", font: f(true, 8), fill: sf(HDRFILL),
-    border: bdr(), alignment: { horizontal: "center", vertical: "middle" },
-  });
-  Object.assign(ws.getCell("C8"), {
-    value: "Amendments", font: f(true, 8), fill: sf(HDRFILL),
-    border: bdr(), alignment: { horizontal: "left", vertical: "middle" },
-  });
-
-  // Row 9: Example group header
-  ws.getRow(9).height = 13;
-  ws.mergeCells("A9:C9");
-  Object.assign(ws.getCell("A9"), {
-    value: "Drawing Group (e.g. GA Plans)",
-    font: f(true, 8), fill: sf(HDRFILL),
-    border: bdr(), alignment: { vertical: "middle" },
-  });
-
-  // Row 10: Example drawing row — drawings_start named range → A10
-  ws.getRow(10).height = 12;
-  Object.assign(ws.getCell("A10"), {
-    value: "Example Drawing Title", font: f(false, 8),
-    fill: sf(WHITE), border: bdr(), alignment: { vertical: "middle" },
-  });
-  Object.assign(ws.getCell("B10"), {
-    value: "XXXX-00-001", font: f(false, 8),
-    fill: sf(WHITE), border: bdr(), alignment: { horizontal: "center", vertical: "middle" },
-  });
-  Object.assign(ws.getCell("C10"), {
-    value: "P01", font: f(true, 8),
-    fill: sf(SALMON), border: bdr(), alignment: { horizontal: "center", vertical: "middle" },
-  });
-
-  // Row 11: Alternating example row
-  ws.getRow(11).height = 12;
-  Object.assign(ws.getCell("A11"), {
-    value: "Example Drawing Title 2", font: f(false, 8),
-    fill: sf(LGREY), border: bdr(), alignment: { vertical: "middle" },
-  });
-  Object.assign(ws.getCell("B11"), {
-    value: "XXXX-00-002", font: f(false, 8),
-    fill: sf(LGREY), border: bdr(), alignment: { horizontal: "center", vertical: "middle" },
-  });
-  Object.assign(ws.getCell("C11"), {
-    value: "", font: f(false, 8),
-    fill: sf(SALMON), border: bdr(), alignment: { horizontal: "center", vertical: "middle" },
-  });
-
-  // ── Named ranges ───────────────────────────────────────────────────────────
-  wb.definedNames.add("'Drawing Schedule'!$A$2", "job_number");
-  wb.definedNames.add("'Drawing Schedule'!$A$6", "project_name");
-  wb.definedNames.add("'Drawing Schedule'!$A$4", "site_location");
-  wb.definedNames.add("'Drawing Schedule'!$C$5", "date_day_start");
-  wb.definedNames.add("'Drawing Schedule'!$A$10", "drawings_start");
-
-  return wb;
-}
-
-async function generateTransmittal(projectId, syncResults) {
+// POST /api/revision-check — check if a revision is in sequence
+// Body: { drawing_number, project_id, new_revision }
+app.post("/api/revision-check", requireAuth, async (req, res) => {
+  const { drawing_number, project_id, new_revision } = req.body;
+  if (!drawing_number || !project_id || !new_revision) {
+    return res.status(400).json({ error: "drawing_number, project_id and new_revision required" });
+  }
   try {
+    const { data: drawing } = await supabase
+      .from("project_drawings")
+      .select("revision")
+      .eq("project_id", project_id)
+      .eq("drawing_number", drawing_number)
+      .single();
+
+    const currentRev = drawing?.revision || null;
+    const result = checkRevisionSequence(currentRev, new_revision);
+    res.json({ current_revision: currentRev, new_revision, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── recordTransmittalIssue — called after sync or manual trigger ──────────────
+// Only creates a new issue record if there are actual changes (created/updated drawings).
+async function recordTransmittalIssue(projectId, syncResults) {
+  const changedNumbers = (syncResults || [])
+    .filter(r => r.action === "updated" || r.action === "created")
+    .map(r => r.drawing_number)
+    .filter(Boolean);
+
+  if (changedNumbers.length === 0) return;
+
+  const issueDate = new Date().toISOString().slice(0, 10);
+
+  // Create the issue record
+  const { data: issue, error: issueError } = await supabase
+    .from("project_transmittal_issues")
+    .insert({ project_id: projectId, issue_date: issueDate })
+    .select()
+    .single();
+  if (issueError) throw issueError;
+
+  // Fetch current revisions for all changed drawings
+  const { data: drawings, error: drawingsError } = await supabase
+    .from("project_drawings")
+    .select("drawing_number, revision")
+    .eq("project_id", projectId)
+    .in("drawing_number", changedNumbers);
+  if (drawingsError) throw drawingsError;
+
+  // Insert a revision row for each changed drawing
+  const revRows = drawings.map(d => ({
+    issue_id: issue.id,
+    drawing_number: d.drawing_number,
+    revision: d.revision || "",
+  }));
+
+  if (revRows.length > 0) {
+    const { error: revError } = await supabase
+      .from("project_transmittal_revisions")
+      .insert(revRows);
+    if (revError) throw revError;
+  }
+
+  console.log(`Transmittal issue recorded for project ${projectId}: ${issueDate}, ${changedNumbers.length} drawings`);
+}
+
+// ── GET /api/projects/:id/transmittal — full transmittal data for frontend render
+app.get("/api/projects/:id/transmittal", requireAuth, async (req, res) => {
+  try {
+    const projectId = req.params.id;
+
+    // Project info
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("name, job_number, location")
+      .eq("id", projectId)
+      .single();
+    if (projectError) throw projectError;
+
+    // All drawings
+    const { data: drawings, error: drawingsError } = await supabase
+      .from("project_drawings")
+      .select("id, title, drawing_number, revision, drawing_type")
+      .eq("project_id", projectId)
+      .order("drawing_number", { ascending: true });
+    if (drawingsError) throw drawingsError;
+
+    // All issues in date order
+    const { data: issues, error: issuesError } = await supabase
+      .from("project_transmittal_issues")
+      .select("id, issue_date")
+      .eq("project_id", projectId)
+      .order("issue_date", { ascending: true });
+    if (issuesError) throw issuesError;
+
+    // All revisions for those issues
+    let revisions = [];
+    if (issues.length > 0) {
+      const issueIds = issues.map(i => i.id);
+      const { data: revData, error: revError } = await supabase
+        .from("project_transmittal_revisions")
+        .select("issue_id, drawing_number, revision")
+        .in("issue_id", issueIds);
+      if (revError) throw revError;
+      revisions = revData;
+    }
+
+    // Build revision lookup: revMap[issueId][drawingNumber] = revision
+    const revMap = {};
+    for (const r of revisions) {
+      if (!revMap[r.issue_id]) revMap[r.issue_id] = {};
+      revMap[r.issue_id][r.drawing_number] = r.revision;
+    }
+
+    // Transmittal settings (notes + B' Forward overrides)
+    const { data: settings } = await supabase
+      .from("project_transmittal_settings")
+      .select("notes, bforward_overrides")
+      .eq("project_id", projectId)
+      .single();
+
+    const bforwardOverrides = settings?.bforward_overrides || {};
+
+    // Calculate auto B' Forward for each drawing:
+    // highest revision seen across all issues for that drawing
+    const autoBforward = {};
+    for (const drawing of drawings) {
+      const dn = drawing.drawing_number;
+      if (!dn) continue;
+      let highest = null;
+      for (const issue of issues) {
+        const rev = revMap[issue.id]?.[dn];
+        if (rev) {
+          if (!highest || compareRevisions(rev, highest) > 0) {
+            highest = rev;
+          }
+        }
+      }
+      autoBforward[dn] = highest || "";
+    }
+
+    res.json({
+      project,
+      drawings,
+      issues,
+      revMap,
+      autoBforward,
+      bforwardOverrides,
+      notes: settings?.notes || "",
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/projects/:id/transmittal/issue — manually record a new issue
+app.post("/api/projects/:id/transmittal/issue", requireAuth, async (req, res) => {
+  try {
+    const { data: drawings } = await supabase
+      .from("project_drawings")
+      .select("drawing_number")
+      .eq("project_id", req.params.id);
+
+    const allAsChanged = (drawings || []).map(d => ({
+      drawing_number: d.drawing_number,
+      action: "updated",
+    }));
+
+    await recordTransmittalIssue(req.params.id, allAsChanged);
+    res.json({ recorded: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PATCH /api/projects/:id/transmittal/settings — save notes and/or B' Forward overrides
+app.patch("/api/projects/:id/transmittal/settings", requireAuth, async (req, res) => {
+  const { notes, bforward_overrides } = req.body;
+  try {
+    const upsertData = {
+      project_id: req.params.id,
+      updated_at: new Date().toISOString(),
+    };
+    if (notes !== undefined) upsertData.notes = notes;
+    if (bforward_overrides !== undefined) upsertData.bforward_overrides = bforward_overrides;
+
+    const { data, error } = await supabase
+      .from("project_transmittal_settings")
+      .upsert(upsertData, { onConflict: "project_id" })
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ settings: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/projects/:id/transmittal/export/excel — generate Excel on demand
+app.get("/api/projects/:id/transmittal/export/excel", requireAuth, async (req, res) => {
+  try {
+    const projectId = req.params.id;
+
+    // Fetch all the same data as the GET /transmittal route
     const { data: project } = await supabase
       .from("projects")
       .select("name, job_number, location")
@@ -1390,189 +1497,193 @@ async function generateTransmittal(projectId, syncResults) {
       .eq("project_id", projectId)
       .order("drawing_number", { ascending: true });
 
-    if (!drawings || drawings.length === 0) return;
+    const { data: issues } = await supabase
+      .from("project_transmittal_issues")
+      .select("id, issue_date")
+      .eq("project_id", projectId)
+      .order("issue_date", { ascending: true });
 
-    const changedNumbers = new Set(
-      syncResults
-        .filter(r => r.action === "updated" || r.action === "created")
-        .map(r => r.drawing_number)
-    );
-
-    const now = new Date();
-    const issueDay   = String(now.getDate()).padStart(2, "0");
-    const issueMonth = String(now.getMonth() + 1).padStart(2, "0");
-    const issueYear  = String(now.getFullYear()).slice(2);
-    const issueDateISO = formatDateISO(now);
-    const prefix = transmittalPrefix(projectId);
-    const excelKey = `${prefix}transmittal.xlsx`;
-
-    // ── Load template (custom from R2 or build starter) ─────────────────────
-    const workbook = new ExcelJS.Workbook();
-    try {
-      const tmpl = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: TEMPLATE_KEY }));
-      const buf  = await streamToBuffer(tmpl.Body);
-      await workbook.xlsx.load(buf);
-    } catch (_) {
-      // No custom template uploaded yet — build the starter
-      const starterWb = await buildStarterTemplate();
-      const starterBuf = await starterWb.xlsx.writeBuffer();
-      await workbook.xlsx.load(starterBuf);
+    let revisions = [];
+    if (issues && issues.length > 0) {
+      const issueIds = issues.map(i => i.id);
+      const { data: revData } = await supabase
+        .from("project_transmittal_revisions")
+        .select("issue_id, drawing_number, revision")
+        .in("issue_id", issueIds);
+      revisions = revData || [];
     }
 
-    const ws = workbook.getWorksheet("Drawing Schedule");
-    if (!ws) throw new Error("Worksheet 'Drawing Schedule' not found in template");
-
-    // ── Read named ranges to find anchor cells ───────────────────────────────
-    function resolveNamedRange(name) {
-      try {
-        const ref = workbook.definedNames.getRanges(name);
-        if (!ref || !ref.ranges || ref.ranges.length === 0) return null;
-        // ref.ranges[0] is like "'Drawing Schedule'!$A$2"
-        const match = ref.ranges[0].match(/\$([A-Z]+)\$(\d+)/);
-        if (!match) return null;
-        const col = match[1].split("").reduce((acc, ch) => acc * 26 + ch.charCodeAt(0) - 64, 0);
-        const row = parseInt(match[2], 10);
-        return { row, col };
-      } catch (_) { return null; }
+    const revMap = {};
+    for (const r of revisions) {
+      if (!revMap[r.issue_id]) revMap[r.issue_id] = {};
+      revMap[r.issue_id][r.drawing_number] = r.revision;
     }
 
-    const anchorJobNumber     = resolveNamedRange("job_number")     || { row: 2, col: 1 };
-    const anchorProjectName   = resolveNamedRange("project_name")   || { row: 6, col: 1 };
-    const anchorSiteLocation  = resolveNamedRange("site_location")  || { row: 4, col: 1 };
-    const anchorDateDayStart  = resolveNamedRange("date_day_start") || { row: 5, col: 3 };
-    const anchorDrawingsStart = resolveNamedRange("drawings_start") || { row: 10, col: 1 };
+    const { data: settings } = await supabase
+      .from("project_transmittal_settings")
+      .select("notes, bforward_overrides")
+      .eq("project_id", projectId)
+      .single();
 
-    // ── Fill project info ────────────────────────────────────────────────────
-    ws.getCell(anchorJobNumber.row, anchorJobNumber.col).value =
-      project?.job_number ? `Job Number - ${project.job_number}` : "Job Number -";
+    const bforwardOverrides = settings?.bforward_overrides || {};
 
-    ws.getCell(anchorProjectName.row, anchorProjectName.col).value = project?.name || "";
-
-    ws.getCell(anchorSiteLocation.row, anchorSiteLocation.col).value =
-      project?.location ? `Site - ${project.location}` : "Site -";
-
-    // ── Issue history: stored in hidden _meta sheet ──────────────────────────
-    let metaWs = workbook.getWorksheet("_meta");
-    if (!metaWs) {
-      metaWs = workbook.addWorksheet("_meta");
-      metaWs.state = "hidden";
+    // Calculate B' Forward
+    const autoBforward = {};
+    for (const drawing of (drawings || [])) {
+      const dn = drawing.drawing_number;
+      if (!dn) continue;
+      let highest = null;
+      for (const issue of (issues || [])) {
+        const rev = revMap[issue.id]?.[dn];
+        if (rev && (!highest || compareRevisions(rev, highest) > 0)) highest = rev;
+      }
+      autoBforward[dn] = highest || "";
     }
 
-    // Read existing issue dates from meta
-    const existingIssueDates = [];
-    let mc = 1;
-    while (metaWs.getRow(1).getCell(mc).value) {
-      existingIssueDates.push({
-        day:   String(metaWs.getRow(1).getCell(mc).value),
-        month: String(metaWs.getRow(2).getCell(mc).value),
-        year:  String(metaWs.getRow(3).getCell(mc).value),
-      });
-      mc++;
-    }
+    // Build Excel workbook
+    const wb = new ExcelJS.Workbook();
+    wb.creator = "Archimind";
 
-    // Append this new issue to meta
-    const newMetaCol = existingIssueDates.length + 1;
-    metaWs.getRow(1).getCell(newMetaCol).value = issueDay;
-    metaWs.getRow(2).getCell(newMetaCol).value = issueMonth;
-    metaWs.getRow(3).getCell(newMetaCol).value = issueYear;
-
-    const allIssueDates = [...existingIssueDates, { day: issueDay, month: issueMonth, year: issueYear }];
-    const totalIssueCols = allIssueDates.length;
-
-    // ── Colours / style helpers ──────────────────────────────────────────────
+    const NAVY    = "FF1a2332";
+    const TEAL    = "FF2d6a4f";
     const SALMON  = "FFFFC0CB";
     const LGREY   = "FFF5F5F5";
     const HDRFILL = "FFE8E8E8";
     const WHITE   = "FFFFFFFF";
     const BORDCLR = "FFB0B0B0";
-    const NAVY    = "FF1a2332";
 
     function sf(argb) { return { type: "pattern", pattern: "solid", fgColor: { argb } }; }
     function bdr() { const s = { style: "thin", color: { argb: BORDCLR } }; return { top: s, left: s, bottom: s, right: s }; }
     function f(bold = false, size = 8, color = NAVY) { return { name: "Arial", size, bold, color: { argb: color } }; }
 
-    // ── Write issue date columns into header rows ────────────────────────────
-    const dayRow   = anchorDateDayStart.row;
-    const monthRow = dayRow + 1;
-    const yearRow  = dayRow + 2;
-    const issueStartCol = anchorDateDayStart.col;
+    const ws = wb.addWorksheet("Drawing Schedule");
+    ws.pageSetup = {
+      paperSize: 9, orientation: "landscape", fitToPage: true,
+      fitToWidth: 1, fitToHeight: 0,
+      margins: { left: 0.4, right: 0.4, top: 0.6, bottom: 0.6, header: 0.3, footer: 0.3 },
+    };
 
-    // Set column widths for issue columns
-    for (let i = 0; i < totalIssueCols; i++) {
+    // Fixed columns: Title (A), Drawing No (B), B'Forward (C), then issue date columns
+    ws.getColumn(1).width = 48;
+    ws.getColumn(2).width = 18;
+    ws.getColumn(3).width = 10;
+    const issueStartCol = 4;
+    const totalIssues = (issues || []).length;
+    for (let i = 0; i < totalIssues; i++) {
       ws.getColumn(issueStartCol + i).width = 8;
     }
 
-    allIssueDates.forEach((issue, i) => {
-      const colNum = issueStartCol + i;
-      const isLatest = i === totalIssueDates - 1;
-      const fill = sf(isLatest ? SALMON : "FFE8E8E8");
-
-      [dayRow, monthRow, yearRow].forEach((r, ri) => {
-        const cell = ws.getCell(r, colNum);
-        cell.value = [issue.day, issue.month, issue.year][ri];
-        cell.font  = f(false, 8);
-        cell.fill  = fill;
-        cell.alignment = { horizontal: "center" };
-        cell.border = bdr();
-      });
+    // Row 1: Banner
+    ws.getRow(1).height = 20;
+    const bannerEndCol = Math.max(issueStartCol + totalIssues - 1, 4);
+    ws.mergeCells(1, 1, 1, bannerEndCol);
+    Object.assign(ws.getCell(1, 1), {
+      value: "Architectural Design and Technology",
+      font: { name: "Arial", size: 11, bold: false, italic: true, color: { argb: "FFFFFFFF" } },
+      fill: sf(TEAL),
+      alignment: { horizontal: "center", vertical: "middle" },
     });
 
-    // Also update the Amendments header to span all issue columns
-    const amendRow = anchorDateDayStart.row + 3; // row 8 in default template
-    const amendCell = ws.getCell(amendRow, issueStartCol);
-    if (amendCell.isMerged) {
-      // can't easily unmerge — just set value
-    } else {
-      try {
-        ws.mergeCells(amendRow, issueStartCol, amendRow, issueStartCol + totalIssueCols - 1);
-      } catch (_) { /* already merged or overlapping */ }
-    }
-    amendCell.value = "Amendments";
-    amendCell.font  = f(true, 8);
-    amendCell.fill  = sf(HDRFILL);
-    amendCell.border = bdr();
+    // Row 2: Job number | Project description
+    ws.getRow(2).height = 13;
+    ws.getCell(2, 1).value = project?.job_number ? `Job Number - ${project.job_number}` : "Job Number -";
+    ws.getCell(2, 1).font = f(true, 8);
 
-    // ── Clear existing drawing rows (from drawings_start downwards) ──────────
-    const drawStartRow = anchorDrawingsStart.row;
-    const drawStartCol = anchorDrawingsStart.col; // always col 1 (title)
-    const drawNoCol    = drawStartCol + 1;        // col 2 (drawing number)
-    const lastRow = ws.rowCount;
-    for (let r = drawStartRow; r <= lastRow + 5; r++) {
-      ws.getRow(r).height = undefined;
-      for (let c = 1; c <= issueStartCol + totalIssueCols; c++) {
-        const cell = ws.getCell(r, c);
-        cell.value     = null;
-        cell.font      = f(false, 8);
-        cell.fill      = sf(WHITE);
-        cell.border    = undefined;
-        cell.alignment = {};
-      }
-    }
+    // Row 3: Site
+    ws.getRow(3).height = 12;
+    ws.getCell(3, 1).value = project?.location ? `Site - ${project.location}` : "";
+    ws.getCell(3, 1).font = f(false, 8);
 
-    // ── Write drawing rows grouped by drawing_type ───────────────────────────
-    const revMap = {};
-    drawings.forEach(d => { if (d.drawing_number) revMap[d.drawing_number] = d.revision || ""; });
+    // Row 4: Project name
+    ws.getRow(4).height = 16;
+    ws.getCell(4, 1).value = project?.name || "";
+    ws.getCell(4, 1).font = { name: "Arial", size: 12, bold: true, color: { argb: NAVY } };
 
+    // Row 5: Date of Issue label + Day values
+    ws.getRow(5).height = 12;
+    ws.getCell(5, 3).value = "Date of Issue";
+    ws.getCell(5, 3).font = f(true, 8);
+    (issues || []).forEach((issue, i) => {
+      const d = new Date(issue.issue_date);
+      const cell = ws.getCell(5, issueStartCol + i);
+      cell.value = String(d.getUTCDate()).padStart(2, "0");
+      cell.font = f(false, 8);
+      cell.fill = sf(HDRFILL);
+      cell.alignment = { horizontal: "center" };
+      cell.border = bdr();
+    });
+
+    // Row 6: Month
+    ws.getRow(6).height = 12;
+    ws.getCell(6, 3).value = "Month";
+    ws.getCell(6, 3).font = f(false, 8);
+    (issues || []).forEach((issue, i) => {
+      const d = new Date(issue.issue_date);
+      const cell = ws.getCell(6, issueStartCol + i);
+      cell.value = String(d.getUTCMonth() + 1).padStart(2, "0");
+      cell.font = f(false, 8);
+      cell.fill = sf(HDRFILL);
+      cell.alignment = { horizontal: "center" };
+      cell.border = bdr();
+    });
+
+    // Row 7: Year
+    ws.getRow(7).height = 12;
+    ws.getCell(7, 3).value = "Year";
+    ws.getCell(7, 3).font = f(false, 8);
+    (issues || []).forEach((issue, i) => {
+      const d = new Date(issue.issue_date);
+      const cell = ws.getCell(7, issueStartCol + i);
+      cell.value = String(d.getUTCFullYear()).slice(2);
+      cell.font = f(false, 8);
+      cell.fill = sf(HDRFILL);
+      cell.alignment = { horizontal: "center" };
+      cell.border = bdr();
+    });
+
+    // Row 8: Column headers
+    ws.getRow(8).height = 14;
+    const headers = [
+      { val: "Drawing Title", align: "left" },
+      { val: "Drawing No", align: "center" },
+      { val: "B' Forward", align: "center" },
+    ];
+    headers.forEach((h, i) => {
+      const cell = ws.getCell(8, i + 1);
+      cell.value = h.val;
+      cell.font = f(true, 8);
+      cell.fill = sf(HDRFILL);
+      cell.border = bdr();
+      cell.alignment = { horizontal: h.align, vertical: "middle" };
+    });
+    (issues || []).forEach((_, i) => {
+      const cell = ws.getCell(8, issueStartCol + i);
+      cell.value = "Amdts";
+      cell.font = f(true, 8);
+      cell.fill = sf(HDRFILL);
+      cell.border = bdr();
+      cell.alignment = { horizontal: "center", vertical: "middle" };
+    });
+
+    // Drawing rows grouped by drawing_type
     const groups = {};
-    for (const d of drawings) {
+    for (const d of (drawings || [])) {
       const grp = (d.drawing_type || "Other").trim();
       if (!groups[grp]) groups[grp] = [];
       groups[grp].push(d);
     }
 
-    let currentRow = drawStartRow;
+    let currentRow = 9;
     let drawIdx = 0;
 
     for (const [groupName, groupDrawings] of Object.entries(groups)) {
-      // Group header row
       ws.getRow(currentRow).height = 13;
-      try {
-        ws.mergeCells(currentRow, drawStartCol, currentRow, issueStartCol + totalIssueCols - 1);
-      } catch (_) {}
-      const gh = ws.getCell(currentRow, drawStartCol);
+      const grpEndCol = Math.max(issueStartCol + totalIssues - 1, issueStartCol);
+      try { ws.mergeCells(currentRow, 1, currentRow, grpEndCol); } catch (_) {}
+      const gh = ws.getCell(currentRow, 1);
       gh.value = groupName;
-      gh.font  = f(true, 8);
-      gh.fill  = sf(HDRFILL);
+      gh.font = f(true, 8);
+      gh.fill = sf(HDRFILL);
       gh.border = bdr();
       gh.alignment = { vertical: "middle" };
       currentRow++;
@@ -1580,188 +1691,68 @@ async function generateTransmittal(projectId, syncResults) {
       for (const d of groupDrawings) {
         ws.getRow(currentRow).height = 12;
         const rowFill = drawIdx % 2 === 0 ? WHITE : LGREY;
-        const isChanged = changedNumbers.has(d.drawing_number);
+        const dn = d.drawing_number;
 
-        // Title
-        const tc = ws.getCell(currentRow, drawStartCol);
-        tc.value = d.title || "";
-        tc.font  = f(false, 8); tc.fill = sf(rowFill);
-        tc.border = bdr(); tc.alignment = { vertical: "middle" };
+        const bfOverride = bforwardOverrides[dn];
+        const bfValue = bfOverride?.manual ? bfOverride.value : (autoBforward[dn] || "");
 
-        // Drawing number
-        const nc = ws.getCell(currentRow, drawNoCol);
-        nc.value = d.drawing_number || "";
-        nc.font  = f(false, 8); nc.fill = sf(rowFill);
-        nc.border = bdr(); nc.alignment = { horizontal: "center", vertical: "middle" };
+        const titleCell = ws.getCell(currentRow, 1);
+        titleCell.value = d.title || "";
+        titleCell.font = f(false, 8);
+        titleCell.fill = sf(rowFill);
+        titleCell.border = bdr();
+        titleCell.alignment = { vertical: "middle" };
 
-        // Issue columns
-        for (let i = 0; i < totalIssueCols; i++) {
-          const colNum = issueStartCol + i;
-          const isLatest = i === totalIssueDates - 1;
-          const cell = ws.getCell(currentRow, colNum);
-          cell.value = isLatest ? (isChanged ? (revMap[d.drawing_number] || "") : "") : "";
-          cell.font  = f(isLatest && isChanged, 8);
-          cell.fill  = sf(isLatest ? SALMON : rowFill);
+        const numCell = ws.getCell(currentRow, 2);
+        numCell.value = dn || "";
+        numCell.font = f(false, 8);
+        numCell.fill = sf(rowFill);
+        numCell.border = bdr();
+        numCell.alignment = { horizontal: "center", vertical: "middle" };
+
+        const bfCell = ws.getCell(currentRow, 3);
+        bfCell.value = bfValue;
+        bfCell.font = f(true, 8);
+        bfCell.fill = sf(bfOverride?.manual ? SALMON : rowFill);
+        bfCell.border = bdr();
+        bfCell.alignment = { horizontal: "center", vertical: "middle" };
+
+        (issues || []).forEach((issue, i) => {
+          const rev = revMap[issue.id]?.[dn] || "";
+          const isLatest = i === (issues.length - 1);
+          const cell = ws.getCell(currentRow, issueStartCol + i);
+          cell.value = rev;
+          cell.font = f(!!rev && isLatest, 8);
+          cell.fill = sf(isLatest ? SALMON : rowFill);
           cell.border = bdr();
           cell.alignment = { horizontal: "center", vertical: "middle" };
-        }
+        });
 
         currentRow++;
         drawIdx++;
       }
 
-      // Spacer row
+      // Spacer row between groups
       ws.getRow(currentRow).height = 5;
       currentRow++;
     }
 
-    // ── Save Excel to R2 ─────────────────────────────────────────────────────
-    const xlsxBuffer = await workbook.xlsx.writeBuffer();
-    await r2.send(new PutObjectCommand({
-      Bucket: BUCKET, Key: excelKey,
-      Body: Buffer.from(xlsxBuffer),
-      ContentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }));
-
-    // ── HTML snapshot ─────────────────────────────────────────────────────────
-    const issueCellsHtml = allIssueDates.map((issue, i) => {
-      const isLatest = i === allIssueDates.length - 1;
-      return `<th style="width:28px;text-align:center;background:${isLatest ? "#ffc0cb" : "#e8e8e8"}">${issue.day}<br>${issue.month}<br>${issue.year}</th>`;
-    }).join("");
-
-    const htmlBodyRows = Object.entries(groups).map(([grpName, grpDrawings]) => {
-      const grpRow = `<tr><td colspan="${2 + allIssueDates.length}" style="font-weight:bold;background:#e8e8e8;padding:4px 6px;border:1px solid #b0b0b0;font-size:8pt">${grpName}</td></tr>`;
-      const dRows = grpDrawings.map((d, idx) => {
-        const bg = idx % 2 === 0 ? "#ffffff" : "#f5f5f5";
-        const isChanged = changedNumbers.has(d.drawing_number);
-        const issueCells = allIssueDates.map((issue, i) => {
-          const isLatest = i === allIssueDates.length - 1;
-          const val = isLatest ? (isChanged ? (revMap[d.drawing_number] || "") : "") : "";
-          return `<td style="text-align:center;background:${isLatest ? "#ffc0cb" : bg};border:1px solid #b0b0b0;font-size:8pt;${isLatest && isChanged ? "font-weight:bold;" : ""}">${val}</td>`;
-        }).join("");
-        return `<tr><td style="padding:2px 6px;border:1px solid #b0b0b0;font-size:8pt;background:${bg}">${d.title || ""}</td><td style="text-align:center;padding:2px 4px;border:1px solid #b0b0b0;font-size:8pt;background:${bg}">${d.drawing_number || ""}</td>${issueCells}</tr>`;
-      }).join("");
-      return grpRow + dRows + `<tr style="height:5px"><td colspan="${2 + allIssueDates.length}"></td></tr>`;
-    }).join("");
-
-    const htmlSnapshot = `<!DOCTYPE html>
-<html><head><meta charset="utf-8">
-<title>Drawing Schedule — ${(project?.name || "").replace(/</g, "&lt;")}</title>
-<style>
-  @page{size:A4 portrait;margin:15mm}
-  body{font-family:Arial,sans-serif;font-size:8pt;color:#1a2332;margin:0;padding:16px}
-  .banner{background:#2d6a4f;color:#fff;padding:8px 12px;font-size:11pt;font-style:italic;text-align:center}
-  .meta{display:flex;justify-content:space-between;padding:3px 0;font-size:8pt;border-bottom:1px solid #ccc}
-  .project-name{font-size:12pt;font-weight:bold;padding:4px 0 8px 0}
-  table{border-collapse:collapse;width:100%;margin-top:4px}
-  th{background:#e8e8e8;padding:3px 4px;font-size:8pt;border:1px solid #b0b0b0;vertical-align:bottom}
-  td{padding:2px 6px;font-size:8pt;border:1px solid #b0b0b0}
-  .generated{font-size:7pt;color:#999;margin-top:10px;text-align:right}
-</style></head><body>
-<div class="banner">Architectural Design and Technology</div>
-<div class="meta">
-  <span><b>${project?.job_number ? `Job Number - ${project.job_number}` : "Job Number -"}</b></span>
-  <span>Drawings - Working Drawings</span>
-</div>
-<div style="font-size:8pt;padding:2px 0">${project?.location ? `Site - ${project.location}` : ""}</div>
-<div class="project-name">${(project?.name || "").replace(/</g, "&lt;")}</div>
-<table><thead><tr>
-  <th style="text-align:left">Drawing Title</th>
-  <th style="width:90px">Drawing</th>
-  ${issueCellsHtml}
-</tr></thead><tbody>${htmlBodyRows}</tbody></table>
-<div class="generated">Generated by Archimind · ${issueDay}/${issueMonth}/${issueYear}</div>
-</body></html>`;
-
-    const snapshotKeyBase = `${prefix}transmittal_${issueDateISO}`;
-    let snapshotKey = `${snapshotKeyBase}.html`;
-    const existingKeys = await listAllKeys(prefix);
-    if (existingKeys.includes(snapshotKey)) {
-      let n = 2;
-      while (existingKeys.includes(`${snapshotKeyBase}_${n}.html`)) n++;
-      snapshotKey = `${snapshotKeyBase}_${n}.html`;
+    // Notes row if present
+    if (settings?.notes) {
+      currentRow++;
+      ws.getRow(currentRow).height = 12;
+      ws.getCell(currentRow, 1).value = settings.notes;
+      ws.getCell(currentRow, 1).font = f(false, 8);
     }
-    await r2.send(new PutObjectCommand({
-      Bucket: BUCKET, Key: snapshotKey,
-      Body: Buffer.from(htmlSnapshot, "utf-8"),
-      ContentType: "text/html",
-    }));
 
-    console.log(`Transmittal generated for project ${projectId}: ${snapshotKey}`);
-  } catch (err) {
-    console.error("Transmittal generation error (non-fatal):", err.message);
-  }
-}
-
-// ── Transmittal R2 file routes ────────────────────────────────────────────────
-
-// GET /api/projects/:id/transmittals/files — list all transmittal files
-app.get("/api/projects/:id/transmittals/files", requireAuth, async (req, res) => {
-  try {
-    const prefix = transmittalPrefix(req.params.id);
-    const keys = await listAllKeys(prefix);
-    const files = keys
-      .map(key => {
-        const name = key.replace(prefix, "");
-        const isExcel = name.endsWith(".xlsx");
-        const isSnapshot = name.endsWith(".html");
-        if (!isExcel && !isSnapshot) return null;
-        return {
-          key, name,
-          type: isExcel ? "excel" : "snapshot",
-          label: isExcel ? "Drawing Schedule (Excel)" : name.replace("transmittal_", "Issue — ").replace(".html", ""),
-        };
-      })
-      .filter(Boolean)
-      .sort((a, b) => {
-        if (a.type === "excel") return -1;
-        if (b.type === "excel") return 1;
-        return b.name.localeCompare(a.name);
-      });
-    res.json({ files });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// GET /api/projects/:id/transmittals/download?key=... — download a file
-app.get("/api/projects/:id/transmittals/download", requireAuth, async (req, res) => {
-  const { key } = req.query;
-  if (!key) return res.status(400).json({ error: "key required" });
-  const expectedPrefix = transmittalPrefix(req.params.id);
-  if (!key.startsWith(expectedPrefix)) return res.status(403).json({ error: "Forbidden" });
-  try {
-    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
-    const buffer = await streamToBuffer(result.Body);
-    const name = key.split("/").pop();
-    const isExcel = name.endsWith(".xlsx");
+    const xlsxBuffer = await wb.xlsx.writeBuffer();
+    const projectName = (project?.name || "drawing-schedule").replace(/[^a-zA-Z0-9-_]/g, "_");
     res.json({
-      base64: buffer.toString("base64"),
-      name,
-      contentType: isExcel
-        ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        : "text/html",
+      base64: Buffer.from(xlsxBuffer).toString("base64"),
+      name: `${projectName}_drawing_schedule.xlsx`,
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
-// POST /api/projects/:id/transmittals/generate — manually trigger transmittal
-app.post("/api/projects/:id/transmittals/generate", requireAuth, async (req, res) => {
-  try {
-    const { data: drawings } = await supabase
-      .from("project_drawings")
-      .select("drawing_number")
-      .eq("project_id", req.params.id);
-
-    const allAsChanged = (drawings || []).map(d => ({
-      drawing_number: d.drawing_number,
-      action: "updated",
-    }));
-
-    await generateTransmittal(req.params.id, allAsChanged);
-    res.json({ generated: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1831,7 +1822,6 @@ const DEFAULT_CATEGORIES = [
   "Electrical", "Finishes & Fixtures", "Uncategorised",
 ];
 
-// GET /api/projects/:id/categories — list categories, seeding defaults if none exist
 app.get("/api/projects/:id/categories", requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -1843,7 +1833,6 @@ app.get("/api/projects/:id/categories", requireAuth, async (req, res) => {
     if (error) throw error;
 
     if (data.length === 0) {
-      // Seed defaults
       const rows = DEFAULT_CATEGORIES.map((name, i) => ({
         project_id: req.params.id,
         name,
@@ -1863,7 +1852,6 @@ app.get("/api/projects/:id/categories", requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/projects/:id/categories — create a new category
 app.post("/api/projects/:id/categories", requireAuth, async (req, res) => {
   const { name, sort_order = 0 } = req.body;
   if (!name) return res.status(400).json({ error: "name required" });
@@ -1880,10 +1868,8 @@ app.post("/api/projects/:id/categories", requireAuth, async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id/categories/:cid — delete category, reassign its products to Uncategorised
 app.delete("/api/projects/:id/categories/:cid", requireAuth, async (req, res) => {
   try {
-    // Find or create the Uncategorised category for this project
     let uncategorisedId = null;
     const { data: existing } = await supabase
       .from("project_product_categories")
@@ -1904,7 +1890,6 @@ app.delete("/api/projects/:id/categories/:cid", requireAuth, async (req, res) =>
       uncategorisedId = created.id;
     }
 
-    // Reassign products in this category to Uncategorised (unless they're already being deleted from Uncategorised)
     if (req.params.cid !== uncategorisedId) {
       await supabase
         .from("project_products")
@@ -1913,7 +1898,6 @@ app.delete("/api/projects/:id/categories/:cid", requireAuth, async (req, res) =>
         .eq("category_id", req.params.cid);
     }
 
-    // Delete the category
     const { error } = await supabase
       .from("project_product_categories")
       .delete()
@@ -1929,7 +1913,6 @@ app.delete("/api/projects/:id/categories/:cid", requireAuth, async (req, res) =>
 
 // ── Project products (assignments) ────────────────────────────────────────────
 
-// GET /api/projects/:id/products — list assigned products, joined with products table + attributes
 app.get("/api/projects/:id/products", requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
@@ -1953,7 +1936,6 @@ app.get("/api/projects/:id/products", requireAuth, async (req, res) => {
       .order("created_at", { ascending: true });
     if (error) throw error;
 
-    // Fetch attributes for all assigned products in one query
     const productIds = data.map(r => r.product_id).filter(Boolean);
     let attributesMap = {};
     if (productIds.length > 0) {
@@ -1969,7 +1951,6 @@ app.get("/api/projects/:id/products", requireAuth, async (req, res) => {
       }
     }
 
-    // Stitch attributes into each row
     const enriched = data.map(r => ({
       ...r,
       products: r.products ? {
@@ -1984,7 +1965,6 @@ app.get("/api/projects/:id/products", requireAuth, async (req, res) => {
   }
 });
 
-// POST /api/projects/:id/products — assign a product to this project
 app.post("/api/projects/:id/products", requireAuth, async (req, res) => {
   const { product_id, category_id, notes } = req.body;
   if (!product_id) return res.status(400).json({ error: "product_id required" });
@@ -1998,7 +1978,6 @@ app.post("/api/projects/:id/products", requireAuth, async (req, res) => {
       `)
       .single();
     if (error) {
-      // Unique constraint violation — already assigned
       if (error.code === "23505") return res.status(409).json({ error: "Product already assigned to this project" });
       throw error;
     }
@@ -2008,7 +1987,6 @@ app.post("/api/projects/:id/products", requireAuth, async (req, res) => {
   }
 });
 
-// PATCH /api/projects/:id/products/:pid — update category or notes on an assignment
 app.patch("/api/projects/:id/products/:pid", requireAuth, async (req, res) => {
   const { category_id, notes } = req.body;
   try {
@@ -2029,7 +2007,6 @@ app.patch("/api/projects/:id/products/:pid", requireAuth, async (req, res) => {
   }
 });
 
-// DELETE /api/projects/:id/products/:pid — remove a product assignment
 app.delete("/api/projects/:id/products/:pid", requireAuth, async (req, res) => {
   try {
     const { error } = await supabase
@@ -2055,7 +2032,6 @@ async function requireAdmin(req, res, next) {
 
 // ── Admin routes ──────────────────────────────────────────────────────────────
 
-// GET /api/admin/users — list all users
 app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
   try {
     const { data, error } = await supabase.auth.admin.listUsers();
@@ -2072,7 +2048,6 @@ app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// POST /api/admin/users — create a new user
 app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
   const { email, password, role } = req.body;
   if (!email || !password) return res.status(400).json({ error: "email and password required" });
@@ -2098,7 +2073,6 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
-// PATCH /api/admin/users/:uid — update role
 app.patch("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) => {
   const { role } = req.body;
   const validRole = role === "admin" ? "admin" : "user";
@@ -2119,9 +2093,7 @@ app.patch("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) =
   }
 });
 
-// DELETE /api/admin/users/:uid — delete user
 app.delete("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) => {
-  // Prevent self-deletion
   if (req.params.uid === req.user.id) {
     return res.status(400).json({ error: "You cannot delete your own account" });
   }
@@ -2134,55 +2106,57 @@ app.delete("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) 
   }
 });
 
-// GET /api/admin/transmittal-template — download starter template (or existing custom one)
-app.get("/api/admin/transmittal-template", requireAuth, requireAdmin, async (req, res) => {
+// ── Admin: practice logo ──────────────────────────────────────────────────────
+// Logo is stored in R2 at: settings/practice_logo (no extension — base64 + mime stored as JSON)
+
+app.get("/api/admin/logo", requireAuth, requireAdmin, async (req, res) => {
   try {
-    let buffer;
-    try {
-      // Try to serve the custom uploaded template
-      const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: TEMPLATE_KEY }));
-      buffer = await streamToBuffer(result.Body);
-    } catch (_) {
-      // No custom template yet — generate the starter
-      const wb = await buildStarterTemplate();
-      const buf = await wb.xlsx.writeBuffer();
-      buffer = Buffer.from(buf);
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: "settings/practice_logo.json" }));
+    const buf = await streamToBuffer(result.Body);
+    res.json(JSON.parse(buf.toString()));
+  } catch (err) {
+    if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
+      return res.json({ logo: null });
     }
-    res.json({ base64: buffer.toString("base64"), name: "transmittal_template.xlsx" });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/admin/logo", requireAuth, requireAdmin, async (req, res) => {
+  const { base64, mimeType } = req.body;
+  if (!base64 || !mimeType) return res.status(400).json({ error: "base64 and mimeType required" });
+  try {
+    await r2.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: "settings/practice_logo.json",
+      Body: JSON.stringify({ base64, mimeType }),
+      ContentType: "application/json",
+    }));
+    res.json({ saved: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/admin/transmittal-template — upload a custom template
-app.post("/api/admin/transmittal-template", requireAuth, requireAdmin, async (req, res) => {
-  const { base64 } = req.body;
-  if (!base64) return res.status(400).json({ error: "base64 required" });
+app.delete("/api/admin/logo", requireAuth, requireAdmin, async (req, res) => {
   try {
-    // Validate it has the required named ranges before saving
-    const wb = new ExcelJS.Workbook();
-    const buf = Buffer.from(base64, "base64");
-    await wb.xlsx.load(buf);
-
-    const required = ["job_number", "project_name", "site_location", "date_day_start", "drawings_start"];
-    const missing = required.filter(name => {
-      try { const r = wb.definedNames.getRanges(name); return !r || !r.ranges || r.ranges.length === 0; }
-      catch (_) { return true; }
-    });
-    if (missing.length > 0) {
-      return res.status(400).json({
-        error: `Template is missing required named ranges: ${missing.join(", ")}. Please define these in Excel using Formulas → Name Manager.`,
-      });
-    }
-
-    await r2.send(new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: TEMPLATE_KEY,
-      Body: buf,
-      ContentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    }));
-    res.json({ saved: true });
+    await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: "settings/practice_logo.json" }));
+    res.json({ deleted: true });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/logo — public (authenticated) route for frontend to fetch logo for transmittal display
+app.get("/api/logo", requireAuth, async (req, res) => {
+  try {
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: "settings/practice_logo.json" }));
+    const buf = await streamToBuffer(result.Body);
+    res.json(JSON.parse(buf.toString()));
+  } catch (err) {
+    if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
+      return res.json({ logo: null });
+    }
     res.status(500).json({ error: err.message });
   }
 });
