@@ -471,6 +471,27 @@ export default function App() {
     return combinedDocs.length > 0 ? { documents: combinedDocs } : vaultIndex;
   };
 
+  // ── Retry wrapper for transient Gemini errors ────────────────────────────────
+  const withRetry = async (fn, retries = 3, delayMs = 4000, label = "") => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        const isTransient = err.message?.includes("503") ||
+          err.message?.includes("UNAVAILABLE") ||
+          err.message?.includes("timed out") ||
+          err.message?.includes("overloaded");
+        if (isTransient && attempt < retries) {
+          const wait = delayMs * attempt;
+          setStatusMsg(`${label} — Gemini busy, retrying in ${wait / 1000}s… (attempt ${attempt}/${retries})`);
+          await new Promise(r => setTimeout(r, wait));
+        } else {
+          throw err;
+        }
+      }
+    }
+  };
+
   // ── 3-pass Q&A pipeline ───────────────────────────────────────────────────────
   const askQuestion = async () => {
     if ((!vault && !tempDoc) || !question.trim()) return;
@@ -554,10 +575,12 @@ export default function App() {
 
       const scoringPrompt = `You are an expert technical document analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain the answer to the question.\n\nDOCUMENT INDEX (headings, sections and page numbers extracted from vault documents):\n${indexSummary}\n${conversationContext}\n\nQUESTION: ${q}\n${recentHistory.length > 0 ? "NOTE: This may be a follow-up question. Use the conversation history above to understand the full context before scoring." : ""}\n\nAnalyse the index carefully. For every section that could possibly be relevant — even tangentially — assign a probability score. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections. Be CONSERVATIVE — it is better to include a borderline section than to miss critical information.\n\nNOTE: Select ALL sections that are relevant to the question — do not limit to just one section if multiple sections are relevant.\n\nTABLES AND FIGURES: If the question relates to a requirement that is likely defined or quantified in a table or figure (e.g. fire resistance ratings, dimensions, classifications), you MUST also select any table or figure entries in the index that are likely to contain that data. For example, if the index contains "Table 3 — Fire resistance of cavity barriers" or "Table 5 — Minimum fire resistance", select those entries with high probability. Never rely solely on clause text pages when the actual values are in a table.\n\nRespond ONLY as compact JSON — no other text, no explanations, no reasons:\n{\n  "selectedDocs": [\n    {\n      "docName": "exact filename from index",\n      "sections": [\n        {"heading": "exact heading from index", "pageHint": 42, "probability": 0.95}\n      ]\n    }\n  ]\n}\n\nRules:\n- Include sections with probability > 0.5\n- pageHint MUST be a plain integer. Never use "p.12" or "page 12". Use 1 if unknown.\n- Omit "styleNotes", "reason" and "crossRefs" fields entirely — keep JSON compact`;
 
-      const { text: scoringText, usage: scoringUsage } = await callClaude(
-        [{ role: "user", content: scoringPrompt }],
-        "You are a technical document analyst. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
-        65000, 2, "gemini-2.5-flash"
+      const { text: scoringText, usage: scoringUsage } = await withRetry(
+        () => callClaude(
+          [{ role: "user", content: scoringPrompt }],
+          "You are a technical document analyst. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
+          65000, 2, "gemini-2.5-flash"
+        ), 3, 4000, "Pass 1/3 · Scoring index"
       );
 
       setProgress(p => ({ ...p, select: 100 }));
@@ -788,10 +811,12 @@ export default function App() {
 
       const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `\n\nNOTE: A temporary document has been included for reference: "${tempDoc.name}". This is not part of the permanent vault — treat it as an additional reference document when answering.` : ""}\n\n${contextBlock}CURRENT QUESTION: ${q}\n\nPRIORITY SECTIONS: ${focusSections || "all sections"}\n\n---\n\nTABLES — GLOBAL RULE (applies to every section):\nWhen multiple documents contain tables that are near-identical in structure and content (e.g. minimum fire resistance performance tables across different versions of the same standard), do NOT reproduce each one separately. Instead:\n1. Reproduce the single most complete and relevant version in full\n2. After the citation, add a plain italic note: *Note: [Other Document] [Table X] contains equivalent/near-identical data. [Note any meaningful differences, e.g. if one table lacks a cavity barrier row.]*\n\nFor the one table you reproduce:\n1. Output the table title on its own line in bold: **Table X — Title of table**\n2. Reproduce the COMPLETE table — EVERY row, EVERY column, NO exceptions. Do not extract only the relevant row. Do not summarise. If the table has 30 rows, output all 30 rows. Every row starts and ends with | pipe characters.\n3. After the header row output a separator row: | --- | --- | --- |\n4. For the specific row(s) that directly answer the question, prefix that ENTIRE ROW with >> ONCE at the very start, before the first pipe: >> | cell | cell | cell |\n   CRITICAL: The >> prefix appears ONCE at the start of the row only. Do NOT put >> before each cell.\n5. Do NOT wrap tables in > block quote syntax\n6. Place the citation immediately below the table, then the equivalence note\n7. If the table spans multiple pages, combine ALL parts into one complete table — do not stop at the first page\n\nIf only one table is referenced, reproduce it in full without any equivalence note.\n\nRESPONSE FORMAT — output in this exact order every time:\n\n## Summary\n\nWRITE THIS FIRST. A confident, definitive answer in 2–4 sentences. Must:\n- Open with a direct answer in plain English\n- Cite ALL relevant documents provided — not just one\n- Build on any prior conversation context where relevant\n- Reproduce any table directly relevant to the answer\n- After any table include footnotes/qualifications as plain italic text\n\nFor each key fact, include the exact supporting phrase and citation as a consecutive pair:\n\n> "Exact short phrase from document."\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nCITATION FORMAT: *Document | Clause number and title (Parent section title)*\nCRITICAL: Citation MUST start AND end with * asterisk.\n\nCITATION PLACEMENT — strictly follow these rules:\n- Every citation goes on its OWN LINE, never embedded within a sentence\n- Never write: "Quote." *Citation* and more text continues here.\n- Never chain citations with "and": *Citation A* and *Citation B* — WRONG\n- If multiple documents support the same fact, each citation goes on its own separate line:\n  > "Quote."\n  *Document A | Clause*\n  *Document B | Clause*\n- A citation always ends a paragraph, never appears mid-sentence\n\n---\n\n## Detailed Analysis\n\nWRITE THIS SECOND. Only content that adds value beyond the summary.\n\nCheck ALL of the following — if ANY apply, write Case 2:\n- Location/scenario-specific requirements beyond the general rule?\n- Exceptions or conditions where the rule does NOT apply?\n- Construction/specification requirements beyond the fire rating?\n- Cross-references to other clauses, standards, or ADs?\n- Do the multiple documents differ or add to each other?\n- Inspection, testing, or certification requirements?\n\nCASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."\n\nCASE 2 — Concise bullet points. One sentence each. Reproduce any referenced table in full below the bullet. Citation after each bullet or table:\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nRULES:\n- No repetition of summary content\n- Citations: opening AND closing * required\n- Cite ALL documents where relevant — never rely on just one\n- Maximum 6 bullets\n\n---\n\n## Regulatory Context\n\nWRITE THIS THIRD. Broader background tightly scoped to the question. 2–4 bullets maximum.\nCitation after each bullet: *Document Name | X.X.X Clause Title (Parent Section Title)*\nIf nothing to add: "No additional context required."\n\n---\n\n## Contradictions & Conflicts\n\nWRITE THIS LAST. Conflicts: state conflict, quote both sides with citations, give practical conclusion.\nNo conflicts: "No contradictions identified."\n\n---\n\nRULES:\n- Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions\n- Use ONLY the provided document pages — no external knowledge\n- Every factual statement needs a citation with opening AND closing asterisks\n- Draw from ALL provided documents — never rely on just one`;
 
-      const { text: finalAnswer, usage: answerUsage } = await callClaude(
-        [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-        `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. Draw from ALL provided documents.`,
-        65536
+      const { text: finalAnswer, usage: answerUsage } = await withRetry(
+        () => callClaude(
+          [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
+          `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. Draw from ALL provided documents.`,
+          65536
+        ), 3, 5000, "Pass 3/3 · Synthesising answer"
       );
 
       setProgress(p => ({ ...p, answer: 100 }));
