@@ -151,19 +151,12 @@ function PdfViewerModal({ drawing: initialDrawing, projectId, onClose, drawings:
     return () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); };
   }, [drawing.id]);
 
-  // Keyboard arrow navigation
   useEffect(() => {
     if (drawingsList.length <= 1) return;
     function handleKey(e) {
-      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-        e.preventDefault();
-        setCurrentIdx(i => Math.max(0, i - 1));
-      } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-        e.preventDefault();
-        setCurrentIdx(i => Math.min(drawingsList.length - 1, i + 1));
-      } else if (e.key === "Escape") {
-        onClose();
-      }
+      if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); setCurrentIdx(i => Math.max(0, i - 1)); }
+      else if (e.key === "ArrowRight" || e.key === "ArrowDown") { e.preventDefault(); setCurrentIdx(i => Math.min(drawingsList.length - 1, i + 1)); }
+      else if (e.key === "Escape") { onClose(); }
     }
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
@@ -180,10 +173,8 @@ function PdfViewerModal({ drawing: initialDrawing, projectId, onClose, drawings:
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 2000, display: "flex", flexDirection: "column" }}>
-      {/* Header bar */}
       <div style={{ background: ARC_NAVY, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
-          {/* Prev button */}
           {drawingsList.length > 1 && (
             <button className="btn" onClick={() => hasPrev && setCurrentIdx(i => i - 1)} style={navBtnStyle(hasPrev)} title="Previous drawing (←)">‹</button>
           )}
@@ -197,7 +188,6 @@ function PdfViewerModal({ drawing: initialDrawing, projectId, onClose, drawings:
               {drawingsList.length > 1 && <span style={{ color: "rgba(255,255,255,0.4)" }}>{currentIdx + 1} / {drawingsList.length}</span>}
             </div>
           </div>
-          {/* Next button */}
           {drawingsList.length > 1 && (
             <button className="btn" onClick={() => hasNext && setCurrentIdx(i => i + 1)} style={navBtnStyle(hasNext)} title="Next drawing (→)">›</button>
           )}
@@ -207,7 +197,6 @@ function PdfViewerModal({ drawing: initialDrawing, projectId, onClose, drawings:
           Close ✕
         </button>
       </div>
-      {/* Full screen PDF */}
       <div style={{ flex: 1, background: "#525659", display: "flex", alignItems: "center", justifyContent: "center" }}>
         {loading && <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#fff", fontSize: 13 }}><Spinner size={14} /> Loading drawing…</div>}
         {error && <p style={{ fontSize: 13, color: ARC_TERRACOTTA }}>{error}</p>}
@@ -238,7 +227,7 @@ function StatusBadge({ status }) {
   );
 }
 
-// ── Drawing row (used in register and in QA results) ──────────────────────────
+// ── Drawing row ───────────────────────────────────────────────────────────────
 function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, highlight = false, selectable = false, selected = false, onSelect }) {
   const COLS = selectable
     ? "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px"
@@ -256,30 +245,24 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
             style={{ cursor: "pointer", width: 14, height: 14, accentColor: ARC_NAVY }} />
         </div>
       )}
-      {/* Drawing number */}
       <div style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
         {isAdmin && onUpdate
           ? <EditableField value={d.drawing_number} onSave={v => onUpdate(d.id, "drawing_number", v)} placeholder="—" style={{ fontSize: 11 }} />
           : <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.drawing_number || "—"}</span>}
         <FileTypeBadge fileName={d.file_name} />
       </div>
-      {/* Title */}
       <div style={{ fontSize: 13, color: ARC_NAVY, minWidth: 0, overflow: "hidden" }}>
         {isAdmin && onUpdate
           ? <EditableField value={d.title} onSave={v => onUpdate(d.id, "title", v)} placeholder="Untitled" />
           : <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.title}</span>}
       </div>
-      {/* Revision */}
       <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, textAlign: "center" }}>
         {isAdmin && onUpdate
           ? <EditableField value={d.revision} onSave={v => onUpdate(d.id, "revision", v)} placeholder="—" style={{ fontSize: 12, textAlign: "center" }} />
           : <span>{d.revision || "—"}</span>}
       </div>
-      {/* Status */}
       <div><StatusBadge status={d.status} /></div>
-      {/* Scale */}
       <div style={{ fontSize: 11, color: "#9a9088", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.scale || "—"}</div>
-      {/* Type */}
       <div style={{ minWidth: 0 }}>
         {isAdmin && onUpdate ? (
           <select value={d.drawing_type || ""} onChange={e => onUpdate(d.id, "drawing_type", e.target.value)}
@@ -293,19 +276,16 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
           </span>
         )}
       </div>
-      {/* Volume */}
       <div style={{ fontSize: 11, color: "#9a9088", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {isAdmin && onUpdate
           ? <EditableField value={d.volume} onSave={v => onUpdate(d.id, "volume", v)} placeholder="—" style={{ fontSize: 11 }} />
           : <span>{d.volume || "—"}</span>}
       </div>
-      {/* Level */}
       <div style={{ fontSize: 11, color: "#9a9088", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {isAdmin && onUpdate
           ? <EditableField value={d.level} onSave={v => onUpdate(d.id, "level", v)} placeholder="—" style={{ fontSize: 11 }} />
           : <span>{d.level || "—"}</span>}
       </div>
-      {/* Download */}
       <div style={{ display: "flex", justifyContent: "center" }}>
         <button className="btn" onClick={() => onDownload(d)} disabled={downloadingId === d.id} title="Download"
           style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 8px", fontSize: 13, lineHeight: 1 }}
@@ -313,7 +293,6 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
           {downloadingId === d.id ? <Spinner size={11} /> : "↓"}
         </button>
       </div>
-      {/* Quick view */}
       <div style={{ display: "flex", justifyContent: "center" }}>
         {!(d.file_name || "").endsWith(".dwg") && (
           <button className="btn" onClick={() => onView(d)} title="Full screen view"
@@ -321,7 +300,6 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
             onMouseEnter={e => e.currentTarget.style.color = ARC_NAVY} onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>👁</button>
         )}
       </div>
-      {/* Delete */}
       <div style={{ display: "flex", justifyContent: "center" }}>
         {isAdmin && onDelete && (
           <button className="btn" onClick={() => onDelete(d.id)} title="Delete"
@@ -331,6 +309,412 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
       </div>
     </div>
   );
+}
+
+// ── Transmittal tab ───────────────────────────────────────────────────────────
+function TransmittalTab({ projectId, isAdmin }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [logo, setLogo] = useState(null);
+  const [notes, setNotes] = useState("");
+  const [notesDraft, setNotesDraft] = useState("");
+  const [editingNotes, setEditingNotes] = useState(false);
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [recordingIssue, setRecordingIssue] = useState(false);
+  const [issueMsg, setIssueMsg] = useState(null);
+  const [exportingExcel, setExportingExcel] = useState(false);
+  // bforward overrides: { [drawing_number]: { value, manual } }
+  const [bfOverrides, setBfOverrides] = useState({});
+  const [editingBf, setEditingBf] = useState(null); // drawing_number being edited
+  const [bfDraft, setBfDraft] = useState("");
+
+  useEffect(() => { load(); loadLogo(); }, [projectId]);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const d = await api(`/api/projects/${projectId}/transmittal`);
+      setData(d);
+      setNotes(d.notes || "");
+      setNotesDraft(d.notes || "");
+      setBfOverrides(d.bforwardOverrides || {});
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  }
+
+  async function loadLogo() {
+    try {
+      const d = await api("/api/logo");
+      if (d.logo) setLogo(d);
+    } catch (e) { /* no logo set */ }
+  }
+
+  async function saveNotes() {
+    setSavingNotes(true);
+    try {
+      await api(`/api/projects/${projectId}/transmittal/settings`, {
+        method: "PATCH",
+        body: { notes: notesDraft },
+      });
+      setNotes(notesDraft);
+      setEditingNotes(false);
+    } catch (e) { console.error(e); }
+    setSavingNotes(false);
+  }
+
+  async function saveBfOverride(drawingNumber, value) {
+    const isAuto = data?.autoBforward?.[drawingNumber] === value;
+    const newOverrides = {
+      ...bfOverrides,
+      [drawingNumber]: { value, manual: !isAuto },
+    };
+    setBfOverrides(newOverrides);
+    setEditingBf(null);
+    try {
+      await api(`/api/projects/${projectId}/transmittal/settings`, {
+        method: "PATCH",
+        body: { bforward_overrides: newOverrides },
+      });
+    } catch (e) { console.error(e); }
+  }
+
+  async function recordIssue() {
+    if (recordingIssue) return;
+    setRecordingIssue(true);
+    setIssueMsg(null);
+    try {
+      await api(`/api/projects/${projectId}/transmittal/issue`, { method: "POST" });
+      setIssueMsg({ type: "ok", text: "Issue recorded — drawing schedule updated." });
+      await load();
+    } catch (e) {
+      setIssueMsg({ type: "err", text: "Failed to record issue: " + e.message });
+    }
+    setRecordingIssue(false);
+    setTimeout(() => setIssueMsg(null), 6000);
+  }
+
+  async function exportExcel() {
+    if (exportingExcel) return;
+    setExportingExcel(true);
+    try {
+      const result = await api(`/api/projects/${projectId}/transmittal/export/excel`);
+      const binary = atob(result.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: result.contentType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = result.name;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (e) { console.error(e); }
+    setExportingExcel(false);
+  }
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 13 }}>
+      <Spinner size={13} /> Loading drawing schedule…
+    </div>
+  );
+
+  if (!data) return null;
+
+  const { project, drawings, issues, revMap, autoBforward } = data;
+
+  if (drawings.length === 0) return (
+    <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
+      <div style={{ fontSize: 36, marginBottom: 12 }}>📐</div>
+      <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif" }}>
+        No drawings in the register yet.
+      </p>
+      <p style={{ fontSize: 12, color: "#9a9088", marginTop: 6 }}>
+        Upload drawings or sync via Archimind Sync to populate the schedule.
+      </p>
+    </div>
+  );
+
+  // Group drawings by drawing_type
+  const groups = {};
+  for (const d of drawings) {
+    const grp = (d.drawing_type || "Other").trim();
+    if (!groups[grp]) groups[grp] = [];
+    groups[grp].push(d);
+  }
+
+  const btnSm = (color, bg = "none") => ({
+    fontSize: 11, fontWeight: 600, color, background: bg,
+    border: `1px solid ${color}`, padding: "4px 12px",
+    letterSpacing: "0.04em", cursor: "pointer", flexShrink: 0,
+    fontFamily: "Inter, Arial, sans-serif",
+  });
+
+  // Column widths for the schedule table
+  const COL_TITLE = 280;
+  const COL_NUMBER = 120;
+  const COL_BF = 64;
+  const COL_ISSUE = 52;
+  const totalWidth = COL_TITLE + COL_NUMBER + COL_BF + (issues.length * COL_ISSUE) + 40;
+
+  const cellBase = {
+    padding: "5px 8px", borderRight: "1px solid #e8e0d5", borderBottom: "1px solid #e8e0d5",
+    fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY,
+    boxSizing: "border-box",
+  };
+
+  const hdrCell = {
+    ...cellBase,
+    background: ARC_NAVY, color: "#fff", fontWeight: 600, fontSize: 10,
+    letterSpacing: "0.05em", textTransform: "uppercase",
+  };
+
+  function getBfValue(dn) {
+    const override = bfOverrides[dn];
+    return override ? override.value : (autoBforward[dn] || "");
+  }
+
+  function isBfManual(dn) {
+    return bfOverrides[dn]?.manual === true;
+  }
+
+  return (
+    <div>
+      {/* Header bar */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 10, flexWrap: "wrap" }}>
+        <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          Drawing Schedule
+        </h3>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {issueMsg && (
+            <span style={{
+              fontSize: 12, padding: "4px 10px",
+              background: issueMsg.type === "ok" ? "#eef6ee" : "#fdf0f0",
+              border: `1px solid ${issueMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`,
+              color: issueMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA,
+            }}>
+              {issueMsg.text}
+            </span>
+          )}
+          {isAdmin && (
+            <button className="btn" onClick={recordIssue} disabled={recordingIssue}
+              style={btnSm(ARC_TERRACOTTA)}>
+              {recordingIssue ? <><Spinner size={10} /> Recording…</> : "+ Record Issue"}
+            </button>
+          )}
+          <button className="btn" onClick={exportExcel} disabled={exportingExcel}
+            style={btnSm(AD_GREEN)}>
+            {exportingExcel ? <><Spinner size={10} /> Exporting…</> : "↓ Export Excel"}
+          </button>
+          <button className="btn" onClick={load}
+            style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 10px" }}>
+            ↻
+          </button>
+        </div>
+      </div>
+
+      {/* Schedule table */}
+      <div style={{ overflowX: "auto", background: "#fff", border: "1px solid #e8e0d5" }}>
+        <div style={{ minWidth: totalWidth }}>
+
+          {/* Practice header block */}
+          <div style={{ borderBottom: "2px solid #e8e0d5", padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: 20, background: "#faf8f5" }}>
+            {logo?.base64 && (
+              <img
+                src={`data:${logo.mimeType};base64,${logo.base64}`}
+                alt="Practice logo"
+                style={{ maxHeight: 48, maxWidth: 120, objectFit: "contain", flexShrink: 0 }}
+              />
+            )}
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY }}>
+                {project?.job_number ? `Job No. ${project.job_number}` : ""}
+                {project?.job_number && project?.name ? " — " : ""}
+                {project?.name || ""}
+              </div>
+              {project?.location && (
+                <div style={{ fontSize: 11, color: "#9a9088", marginTop: 3 }}>
+                  {project.location}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Column headers */}
+          <div style={{ display: "flex", borderBottom: "2px solid #e8e0d5" }}>
+            <div style={{ ...hdrCell, width: COL_TITLE, flexShrink: 0 }}>Drawing Title</div>
+            <div style={{ ...hdrCell, width: COL_NUMBER, flexShrink: 0, textAlign: "center" }}>Drawing No.</div>
+            <div style={{ ...hdrCell, width: COL_BF, flexShrink: 0, textAlign: "center", background: "#2e5e8e", borderLeft: "2px solid #fff" }}>
+              B' Fwd
+            </div>
+            {issues.map((issue, i) => {
+              const d = new Date(issue.issue_date);
+              const day = String(d.getUTCDate()).padStart(2, "0");
+              const month = String(d.getUTCMonth() + 1).padStart(2, "0");
+              const year = String(d.getUTCFullYear()).slice(2);
+              const isLatest = i === issues.length - 1;
+              return (
+                <div key={issue.id} style={{
+                  ...hdrCell, width: COL_ISSUE, flexShrink: 0, textAlign: "center", lineHeight: 1.4,
+                  background: isLatest ? ARC_TERRACOTTA : "#3a4a5a",
+                  borderLeft: "1px solid rgba(255,255,255,0.2)",
+                }}>
+                  <div>{day}</div>
+                  <div>{month}</div>
+                  <div>{year}</div>
+                </div>
+              );
+            })}
+            {issues.length === 0 && (
+              <div style={{ ...hdrCell, flex: 1, color: "rgba(255,255,255,0.5)", fontStyle: "italic", fontWeight: 400 }}>
+                No issues recorded yet
+              </div>
+            )}
+          </div>
+
+          {/* Drawing rows */}
+          {Object.entries(groups).map(([groupName, groupDrawings]) => (
+            <div key={groupName}>
+              {/* Group header */}
+              <div style={{ display: "flex", background: "#f0ede8", borderBottom: "1px solid #e8e0d5" }}>
+                <div style={{ ...cellBase, flex: 1, fontWeight: 700, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6a5a50", background: "#f0ede8", borderRight: "none" }}>
+                  {groupName}
+                </div>
+              </div>
+              {/* Drawing rows */}
+              {groupDrawings.map((d, idx) => {
+                const rowBg = idx % 2 === 0 ? "#fff" : "#faf8f5";
+                const bfVal = getBfValue(d.drawing_number);
+                const bfManual = isBfManual(d.drawing_number);
+                const isEditingThis = editingBf === d.drawing_number;
+                return (
+                  <div key={d.id} style={{ display: "flex", background: rowBg }}>
+                    {/* Title */}
+                    <div style={{ ...cellBase, width: COL_TITLE, flexShrink: 0, background: rowBg }}>
+                      {d.title}
+                    </div>
+                    {/* Drawing number */}
+                    <div style={{ ...cellBase, width: COL_NUMBER, flexShrink: 0, textAlign: "center", fontWeight: 600, fontSize: 11, background: rowBg }}>
+                      {d.drawing_number || "—"}
+                    </div>
+                    {/* B' Forward */}
+                    <div style={{
+                      ...cellBase, width: COL_BF, flexShrink: 0, textAlign: "center", fontWeight: 700,
+                      background: bfManual ? "#fff8e6" : rowBg,
+                      borderLeft: "2px solid #e0d8d0",
+                      position: "relative",
+                    }}>
+                      {isEditingThis ? (
+                        <input
+                          autoFocus
+                          value={bfDraft}
+                          onChange={e => setBfDraft(e.target.value)}
+                          onBlur={() => { if (bfDraft !== bfVal) saveBfOverride(d.drawing_number, bfDraft); else setEditingBf(null); }}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") saveBfOverride(d.drawing_number, bfDraft);
+                            if (e.key === "Escape") setEditingBf(null);
+                          }}
+                          style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "2px 4px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", textAlign: "center", outline: "none" }}
+                        />
+                      ) : (
+                        <span
+                          onClick={() => isAdmin ? (setEditingBf(d.drawing_number), setBfDraft(bfVal)) : null}
+                          title={isAdmin ? (bfManual ? "Manually overridden — click to edit" : "Auto-calculated — click to override") : bfVal}
+                          style={{ cursor: isAdmin ? "text" : "default", display: "block" }}
+                        >
+                          {bfVal || "—"}
+                          {bfManual && <span style={{ color: ARC_TERRACOTTA, marginLeft: 2, fontSize: 9 }}>✎</span>}
+                        </span>
+                      )}
+                    </div>
+                    {/* Issue columns */}
+                    {issues.map((issue, i) => {
+                      const rev = revMap[issue.id]?.[d.drawing_number] || "";
+                      const isLatest = i === issues.length - 1;
+                      return (
+                        <div key={issue.id} style={{
+                          ...cellBase, width: COL_ISSUE, flexShrink: 0, textAlign: "center", fontWeight: rev ? 700 : 400,
+                          background: isLatest ? "#fff0f0" : rowBg,
+                          color: rev ? ARC_NAVY : "#c8c0b8",
+                          borderLeft: "1px solid #e8e0d5",
+                        }}>
+                          {rev || ""}
+                        </div>
+                      );
+                    })}
+                    {issues.length === 0 && <div style={{ ...cellBase, flex: 1, background: rowBg }} />}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+
+          {/* Notes row */}
+          {(notes || isAdmin) && (
+            <div style={{ borderTop: "2px solid #e8e0d5", padding: "12px 16px", background: "#faf8f5" }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
+                Notes
+                {isAdmin && !editingNotes && (
+                  <button className="btn" onClick={() => { setNotesDraft(notes); setEditingNotes(true); }}
+                    style={{ marginLeft: 10, fontSize: 10, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "1px 8px", fontWeight: 600 }}>
+                    Edit
+                  </button>
+                )}
+              </div>
+              {editingNotes ? (
+                <div>
+                  <textarea
+                    value={notesDraft}
+                    onChange={e => setNotesDraft(e.target.value)}
+                    rows={3}
+                    style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "8px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", resize: "vertical", boxSizing: "border-box" }}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    <button className="btn" onClick={saveNotes} disabled={savingNotes}
+                      style={{ background: AD_GREEN, color: "#fff", padding: "5px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}>
+                      {savingNotes ? <Spinner size={11} /> : "Save"}
+                    </button>
+                    <button className="btn" onClick={() => setEditingNotes(false)}
+                      style={{ background: "none", color: "#9a9088", padding: "5px 12px", fontSize: 11, border: "1px solid #ddd8d0" }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p style={{ fontSize: 12, color: notes ? ARC_NAVY : "#b0a8a0", fontStyle: notes ? "normal" : "italic", margin: 0, lineHeight: 1.6 }}>
+                  {notes || (isAdmin ? "Click Edit to add notes…" : "")}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Legend */}
+      {isAdmin && (
+        <p style={{ fontSize: 11, color: "#b0a8a0", marginTop: 8, fontStyle: "italic" }}>
+          B' Forward column is auto-calculated. Click a value to override it manually.
+          <span style={{ color: ARC_TERRACOTTA }}> ✎</span> indicates a manual override.
+          Use "+ Record Issue" to snapshot the current register as a new dated issue column.
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────────
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(",")[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function base64ToBlob(base64, mimeType) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new Blob([bytes], { type: mimeType });
 }
 
 // ── QA Bar ────────────────────────────────────────────────────────────────────
@@ -361,7 +745,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
         ]);
         setAssignedProducts(products || []);
         setProductCategories(categories || []);
-      } catch (e) { /* non-critical — QA still works without it */ }
+      } catch (e) {}
     }
     loadProducts();
   }, [projectId]);
@@ -399,7 +783,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
         try {
           const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
           zip.file(file_name || drawing.file_name || `${drawing.drawing_number || drawing.id}.pdf`, base64, { base64: true });
-        } catch (e) { console.error("Failed to fetch drawing:", drawing.id, e); }
+        } catch (e) { console.error("Failed:", drawing.id, e); }
       }
       const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
@@ -417,14 +801,12 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
     setLastQuestion(q);
     setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setExpanded(true); setStatus("Thinking…");
 
-    // Build drawing register context
     const drawingContext = drawings.length === 0
       ? "No drawings in register."
       : drawings.map(d =>
           `ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} | Rev:${d.revision || "—"} | Status:${d.status || "—"} | Scale:${d.scale || "—"} | Date:${d.issue_date || "—"} | File:${d.file_name || "—"}`
         ).join("\n");
 
-    // Build assigned products context — grouped by category with full attributes
     const productsContext = assignedProducts.length === 0
       ? "No products assigned."
       : assignedProducts.map(a => {
@@ -493,26 +875,14 @@ Rules:
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const parsed = JSON.parse(jsonMatch[0]);
-          if (typeof parsed.answer === "string" && parsed.answer.trim()) {
-            answerText = parsed.answer;
-          }
-          if (Array.isArray(parsed.drawing_ids) && parsed.drawing_ids.length > 0) {
-            matchedDrawingIds = parsed.drawing_ids;
-          }
-          if (Array.isArray(parsed.product_ids) && parsed.product_ids.length > 0) {
-            matchedProductIds = parsed.product_ids;
-          }
+          if (typeof parsed.answer === "string" && parsed.answer.trim()) answerText = parsed.answer;
+          if (Array.isArray(parsed.drawing_ids) && parsed.drawing_ids.length > 0) matchedDrawingIds = parsed.drawing_ids;
+          if (Array.isArray(parsed.product_ids) && parsed.product_ids.length > 0) matchedProductIds = parsed.product_ids;
         }
-      } catch (parseErr) {
-        // fall through — answerText remains the raw text
-      }
+      } catch (parseErr) {}
       setAnswer(answerText);
-      if (matchedDrawingIds.length > 0) {
-        setMatchedDrawings(drawings.filter(d => matchedDrawingIds.includes(d.id)));
-      }
-      if (matchedProductIds.length > 0) {
-        setMatchedProducts(assignedProducts.filter(a => a.products && matchedProductIds.includes(a.products.id)));
-      }
+      if (matchedDrawingIds.length > 0) setMatchedDrawings(drawings.filter(d => matchedDrawingIds.includes(d.id)));
+      if (matchedProductIds.length > 0) setMatchedProducts(assignedProducts.filter(a => a.products && matchedProductIds.includes(a.products.id)));
       setStatus("");
     } catch (e) {
       setStatus("Error: " + e.message);
@@ -536,8 +906,7 @@ Rules:
 
   function closePdf() {
     if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    setPdfUrl(null);
-    setViewingPdfProduct(null);
+    setPdfUrl(null); setViewingPdfProduct(null);
   }
 
   const hasResults = answer || running || status || matchedDrawings.length > 0 || matchedProducts.length > 0;
@@ -567,7 +936,6 @@ Rules:
               <p style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{status}</p>
             </div>
           )}
-          {/* Matched products */}
           {matchedProducts.length > 0 && (
             <div>
               <div style={{ padding: "8px 16px", background: "#f0ede8", display: "flex", alignItems: "center" }}>
@@ -583,7 +951,6 @@ Rules:
                 const hasAttrs = p.attributes && p.attributes.length > 0;
                 return (
                   <div key={a.id} style={{ borderBottom: i < matchedProducts.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#faf8f5" : "#fff" }}>
-                    {/* Product row */}
                     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px" }}>
                       <div style={{ flex: 1, minWidth: 0, cursor: hasAttrs ? "pointer" : "default" }}
                         onClick={() => hasAttrs && setExpandedProductId(isExpanded ? null : p.id)}>
@@ -611,7 +978,6 @@ Rules:
                         </button>
                       )}
                     </div>
-                    {/* Attributes table */}
                     {isExpanded && hasAttrs && (
                       <div style={{ borderTop: "1px solid #e8e0d5", padding: "0 16px 12px" }}>
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "Inter, Arial, sans-serif" }}>
@@ -641,7 +1007,6 @@ Rules:
           )}
           {matchedDrawings.length > 0 && (
             <div>
-              {/* Results header */}
               <div style={{ padding: "8px 16px", background: "#f0ede8", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase" }}>
                   {matchedDrawings.length} drawing{matchedDrawings.length !== 1 ? "s" : ""} found
@@ -651,7 +1016,6 @@ Rules:
                   {downloadingAll ? <><Spinner size={10} /> Downloading…</> : "↓ Download All"}
                 </button>
               </div>
-              {/* Column headers */}
               <div style={{ display: "grid", gridTemplateColumns: "minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "6px 16px", background: ARC_NAVY }}>
                 {["Drawing No.", "Title", "Rev.", "Status", "Scale", "", "", ""].map((h, i) => (
                   <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
@@ -693,7 +1057,6 @@ Rules:
         />
       )}
 
-      {/* Product datasheet viewer */}
       {viewingPdfProduct && (
         <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 2000, display: "flex", flexDirection: "column" }}>
           <div style={{ background: ARC_NAVY, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
@@ -719,24 +1082,16 @@ Rules:
 // ── Products tab ──────────────────────────────────────────────────────────────
 function ProductsTab({ projectId, isAdmin }) {
   const [categories, setCategories] = useState([]);
-  const [assignments, setAssignments] = useState([]); // project_products rows with joined product
-  const [allProducts, setAllProducts] = useState([]);  // full library for picker
+  const [assignments, setAssignments] = useState([]);
+  const [allProducts, setAllProducts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [collapsed, setCollapsed] = useState({});      // categoryId → bool
-
-  // Add-product picker modal
+  const [collapsed, setCollapsed] = useState({});
   const [pickerCategoryId, setPickerCategoryId] = useState(null);
   const [pickerSearch, setPickerSearch] = useState("");
-
-  // Add-category form
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [savingCategory, setSavingCategory] = useState(false);
-
-  // Move-to-category dropdown state
-  const [movingId, setMovingId] = useState(null); // assignment id being moved
-
-  // PDF quick-view
+  const [movingId, setMovingId] = useState(null);
   const [viewingProduct, setViewingProduct] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -758,7 +1113,6 @@ function ProductsTab({ projectId, isAdmin }) {
     setLoading(false);
   }
 
-  // ── Category actions ────────────────────────────────────────────────────────
   async function addCategory() {
     if (!newCategoryName.trim()) return;
     setSavingCategory(true);
@@ -778,12 +1132,10 @@ function ProductsTab({ projectId, isAdmin }) {
     if (!window.confirm(`Delete category "${cat?.name}"? Products in it will be moved to Uncategorised.`)) return;
     try {
       await api(`/api/projects/${projectId}/categories/${catId}`, { method: "DELETE" });
-      // Reload to get reassigned products reflected correctly
       await load();
     } catch (e) { console.error(e); }
   }
 
-  // ── Product assignment actions ──────────────────────────────────────────────
   async function assignProduct(productId, categoryId) {
     try {
       const { product } = await api(`/api/projects/${projectId}/products`, {
@@ -792,11 +1144,10 @@ function ProductsTab({ projectId, isAdmin }) {
       });
       setAssignments(prev => [...prev, product]);
     } catch (e) {
-      if (e.message?.includes("409") || e.message?.includes("already")) return; // silently skip duplicate
+      if (e.message?.includes("409") || e.message?.includes("already")) return;
       console.error(e);
     }
-    setPickerCategoryId(null);
-    setPickerSearch("");
+    setPickerCategoryId(null); setPickerSearch("");
   }
 
   async function removeAssignment(assignmentId) {
@@ -817,36 +1168,25 @@ function ProductsTab({ projectId, isAdmin }) {
     setMovingId(null);
   }
 
-  // ── PDF viewer ──────────────────────────────────────────────────────────────
   async function viewDatasheet(product) {
-    setViewingProduct(product);
-    setPdfLoading(true);
-    setPdfUrl(null);
+    setViewingProduct(product); setPdfLoading(true); setPdfUrl(null);
     try {
       const data = await api(`/api/products/${product.id}/pdf`);
       const bytes = atob(data.base64);
       const arr = new Uint8Array(bytes.length);
       for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
-      const blob = new Blob([arr], { type: "application/pdf" });
-      setPdfUrl(URL.createObjectURL(blob));
+      setPdfUrl(URL.createObjectURL(new Blob([arr], { type: "application/pdf" })));
     } catch (e) { console.error(e); }
     setPdfLoading(false);
   }
 
   function closePdf() {
     if (pdfUrl) URL.revokeObjectURL(pdfUrl);
-    setPdfUrl(null);
-    setViewingProduct(null);
+    setPdfUrl(null); setViewingProduct(null);
   }
 
-  // ── Derived ─────────────────────────────────────────────────────────────────
   const assignedProductIds = new Set(assignments.map(a => a.product_id));
-
-  function assignmentsForCategory(catId) {
-    return assignments.filter(a => a.category_id === catId);
-  }
-
-  // Products available for a given category picker (not yet assigned to this project)
+  function assignmentsForCategory(catId) { return assignments.filter(a => a.category_id === catId); }
   const pickerProducts = allProducts
     .filter(p => !assignedProductIds.has(p.id))
     .filter(p => {
@@ -854,11 +1194,7 @@ function ProductsTab({ projectId, isAdmin }) {
       const q = pickerSearch.toLowerCase();
       return (p.name || "").toLowerCase().includes(q) || (p.manufacturer || "").toLowerCase().includes(q);
     });
-
   const totalAssigned = assignments.length;
-
-  // ── Shared styles ───────────────────────────────────────────────────────────
-  const smallLabel = { fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase" };
 
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 13 }}>
@@ -868,7 +1204,6 @@ function ProductsTab({ projectId, isAdmin }) {
 
   return (
     <div>
-      {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
         <div>
           <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Specified Products</h3>
@@ -876,21 +1211,15 @@ function ProductsTab({ projectId, isAdmin }) {
         </div>
       </div>
 
-      {/* Category sections */}
       {categories.map(cat => {
         const catAssignments = assignmentsForCategory(cat.id);
         const isCollapsed = collapsed[cat.id];
         return (
           <div key={cat.id} style={{ marginBottom: 12 }}>
-            {/* Category header */}
             <div style={{ display: "flex", alignItems: "center", gap: 10, background: ARC_NAVY, padding: "8px 14px", cursor: "pointer" }}
               onClick={() => setCollapsed(prev => ({ ...prev, [cat.id]: !prev[cat.id] }))}>
-              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#fff", flex: 1 }}>
-                {cat.name}
-              </span>
-              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginRight: 4 }}>
-                {catAssignments.length > 0 ? `${catAssignments.length}` : ""}
-              </span>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#fff", flex: 1 }}>{cat.name}</span>
+              <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginRight: 4 }}>{catAssignments.length > 0 ? `${catAssignments.length}` : ""}</span>
               {isAdmin && (
                 <button className="btn" onClick={e => { e.stopPropagation(); setPickerCategoryId(cat.id); setPickerSearch(""); }}
                   style={{ fontSize: 10, color: "#fff", background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", padding: "2px 10px", fontWeight: 600, letterSpacing: "0.04em" }}>
@@ -905,8 +1234,6 @@ function ProductsTab({ projectId, isAdmin }) {
               )}
               <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginLeft: 2 }}>{isCollapsed ? "▶" : "▼"}</span>
             </div>
-
-            {/* Product rows */}
             {!isCollapsed && (
               <div style={{ background: "#fff", border: "1px solid #e8e0d5", borderTop: "none" }}>
                 {catAssignments.length === 0 ? (
@@ -919,25 +1246,21 @@ function ProductsTab({ projectId, isAdmin }) {
                     if (!prod) return null;
                     return (
                       <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: i < catAssignments.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#faf8f5" : "#fff" }}>
-                        {/* Product info */}
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 1 }}>{prod.name}</div>
                           <div style={{ fontSize: 11, color: "#9a9088" }}>{prod.manufacturer || "—"}</div>
                         </div>
-                        {/* Type badge */}
                         {prod.product_type && (
                           <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#2a6496", background: "#e8f0f8", padding: "2px 7px", flexShrink: 0 }}>
                             {prod.product_type}
                           </span>
                         )}
-                        {/* Datasheet button */}
                         {prod.file_key && (
                           <button className="btn" onClick={() => viewDatasheet(prod)}
                             style={{ fontSize: 11, color: "#2a6496", background: "none", border: "1px solid #b8d0e8", padding: "3px 10px", flexShrink: 0, fontWeight: 500 }}>
                             📄 Datasheet
                           </button>
                         )}
-                        {/* Move to category */}
                         {isAdmin && (
                           movingId === a.id ? (
                             <select autoFocus defaultValue={a.category_id || ""}
@@ -957,7 +1280,6 @@ function ProductsTab({ projectId, isAdmin }) {
                             </button>
                           )
                         )}
-                        {/* Remove */}
                         {isAdmin && (
                           <button className="btn" onClick={() => removeAssignment(a.id)}
                             style={{ fontSize: 14, color: "#c8c0b8", background: "none", border: "none", padding: "0 4px", flexShrink: 0 }}
@@ -974,7 +1296,6 @@ function ProductsTab({ projectId, isAdmin }) {
         );
       })}
 
-      {/* Add category */}
       {isAdmin && (
         <div style={{ marginTop: 16 }}>
           {addingCategory ? (
@@ -999,7 +1320,6 @@ function ProductsTab({ projectId, isAdmin }) {
         </div>
       )}
 
-      {/* Product picker modal */}
       {pickerCategoryId !== null && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: "#fff", width: 520, maxHeight: "80vh", display: "flex", flexDirection: "column", borderTop: `3px solid ${AD_GREEN}`, fontFamily: "Inter, Arial, sans-serif" }}>
@@ -1047,7 +1367,6 @@ function ProductsTab({ projectId, isAdmin }) {
         </div>
       )}
 
-      {/* PDF viewer modal */}
       {viewingProduct && (
         <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 2000, display: "flex", flexDirection: "column" }}>
           <div style={{ background: ARC_NAVY, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
@@ -1082,8 +1401,9 @@ function PlaceholderTab({ icon, title, description }) {
   );
 }
 
-// ── Drawings tab ──────────────────────────────────────────────────────────────
+// ── Drawings tab (with Register / Transmittal sub-tabs) ───────────────────────
 function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
+  const [drawingSubTab, setDrawingSubTab] = useState("register");
   const [drawings, setDrawings] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -1093,30 +1413,10 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
   const [viewingDrawing, setViewingDrawing] = useState(null);
   const fileInputRef = useRef(null);
 
-  // Multi-select
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [deletingSelected, setDeletingSelected] = useState(false);
   const [downloadingSelected, setDownloadingSelected] = useState(false);
 
-  // Transmittal generation
-  const [generatingTransmittal, setGeneratingTransmittal] = useState(false);
-  const [transmittalMsg, setTransmittalMsg] = useState(null); // { type: "ok"|"err", text }
-
-  async function handleGenerateTransmittal() {
-    if (generatingTransmittal || drawings.length === 0) return;
-    setGeneratingTransmittal(true);
-    setTransmittalMsg(null);
-    try {
-      await api(`/api/projects/${projectId}/transmittals/generate`, { method: "POST" });
-      setTransmittalMsg({ type: "ok", text: "Transmittal generated — check the Documents tab." });
-    } catch (e) {
-      setTransmittalMsg({ type: "err", text: "Failed to generate transmittal: " + e.message });
-    }
-    setGeneratingTransmittal(false);
-    setTimeout(() => setTransmittalMsg(null), 6000);
-  }
-
-  // Filters
   const [filterText, setFilterText] = useState("");
   const [filterType, setFilterType] = useState("");
   const [filterVolume, setFilterVolume] = useState("");
@@ -1210,7 +1510,6 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
 
-  // Filtered list
   const filteredDrawings = drawings.filter(d => {
     if (filterText) {
       const q = filterText.toLowerCase();
@@ -1227,7 +1526,6 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
     return true;
   });
 
-  // Unique values for filter dropdowns (from actual data)
   const drawingTypeOptions = [...new Set(drawings.map(d => d.drawing_type).filter(Boolean))].sort();
   const volumeOptions = [...new Set(drawings.map(d => d.volume).filter(Boolean))].sort();
   const levelOptions = [...new Set(drawings.map(d => d.level).filter(Boolean))].sort();
@@ -1238,7 +1536,6 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
     setSelectedIds(new Set());
   }
 
-  // Select / deselect
   function toggleSelect(id) {
     setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   }
@@ -1297,368 +1594,193 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
   const filterSelectStyle = { border: "1px solid #ddd8d0", padding: "6px 8px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", outline: "none", background: "#fff", color: "#9a9088" };
   const COLS = "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px";
 
-  return (
-    <div>
-      {/* Section header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-        <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Drawing Register</h3>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {isAdmin && drawings.length > 0 && !showUpload && (
-            <button className="btn" onClick={handleGenerateTransmittal} disabled={generatingTransmittal}
-              style={{ fontSize: 11, color: ARC_TERRACOTTA, background: "none", border: `1px solid ${ARC_TERRACOTTA}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
-              {generatingTransmittal ? <><Spinner size={10} /> Generating…</> : "↓ Generate Transmittal"}
-            </button>
-          )}
-          {isAdmin && !showUpload && (
-            <button className="btn" onClick={() => setShowUpload(true)}
-              style={{ fontSize: 11, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
-              + Upload Drawing
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Transmittal status message */}
-      {transmittalMsg && (
-        <div style={{
-          padding: "8px 14px", marginBottom: 14, fontSize: 12,
-          background: transmittalMsg.type === "ok" ? "#eef6ee" : "#fdf0f0",
-          border: `1px solid ${transmittalMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`,
-          color: transmittalMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA,
-        }}>
-          {transmittalMsg.text}
-        </div>
-      )}
-
-      {/* Upload panel */}
-      {showUpload && (
-        <div style={{ background: "#fff", border: `1px solid ${AD_GREEN}`, padding: "20px 24px", marginBottom: 20 }}>
-          <h4 style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 16, letterSpacing: "0.04em", textTransform: "uppercase" }}>Upload Drawing</h4>
-          <div style={{ marginBottom: 16 }}>
-            <label style={labelStyle}>File (PDF or DWG)</label>
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <input ref={fileInputRef} type="file" accept=".pdf,.dwg" onChange={handleFileChange}
-                style={{ fontSize: 12, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif", flex: 1 }} />
-              {selectedFile && <span style={{ fontSize: 11, color: "#9a9088", whiteSpace: "nowrap" }}>{(selectedFile.size / 1024 / 1024).toFixed(1)} MB</span>}
-            </div>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: "0 16px" }}>
-            <div style={{ marginBottom: 14 }}><label style={labelStyle}>Title *</label><input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Ground Floor Plan" style={inputStyle} /></div>
-            <div style={{ marginBottom: 14 }}><label style={labelStyle}>Drawing No.</label><input value={form.drawing_number} onChange={e => setForm(f => ({ ...f, drawing_number: e.target.value }))} placeholder="e.g. A-001" style={inputStyle} /></div>
-            <div style={{ marginBottom: 14 }}><label style={labelStyle}>Revision</label><input value={form.revision} onChange={e => setForm(f => ({ ...f, revision: e.target.value }))} placeholder="e.g. P1" style={inputStyle} /></div>
-            <div style={{ marginBottom: 14 }}><label style={labelStyle}>Status</label><input value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} placeholder="e.g. Preliminary" style={inputStyle} /></div>
-          </div>
-          {uploadError && <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 12 }}>{uploadError}</p>}
-          <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn" onClick={handleUpload} disabled={!selectedFile || !form.title.trim() || uploading}
-              style={{ background: selectedFile && form.title.trim() && !uploading ? AD_GREEN : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-              {uploading ? <><Spinner size={12} /> &nbsp;Uploading…</> : "Upload"}
-            </button>
-            <button className="btn" onClick={cancelUpload} disabled={uploading} style={{ background: "none", color: "#9a9088", padding: "8px 14px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {/* Filter bar */}
-      {drawings.length > 0 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
-          <input value={filterText} onChange={e => { setFilterText(e.target.value); setSelectedIds(new Set()); }}
-            placeholder="Search no. or title…"
-            style={{ flex: "1 1 180px", minWidth: 140, border: "1px solid #ddd8d0", padding: "6px 10px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" }} />
-          {drawingTypeOptions.length > 0 && (
-            <select value={filterDrawingType} onChange={e => { setFilterDrawingType(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
-              <option value="">All types</option>
-              {drawingTypeOptions.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          )}
-          {volumeOptions.length > 0 && (
-            <select value={filterVolume} onChange={e => { setFilterVolume(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
-              <option value="">All volumes</option>
-              {volumeOptions.map(v => <option key={v} value={v}>{v}</option>)}
-            </select>
-          )}
-          {levelOptions.length > 0 && (
-            <select value={filterLevel} onChange={e => { setFilterLevel(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
-              <option value="">All levels</option>
-              {levelOptions.map(l => <option key={l} value={l}>{l}</option>)}
-            </select>
-          )}
-          <select value={filterFileType} onChange={e => { setFilterFileType(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
-            <option value="">PDF + DWG</option>
-            <option value="pdf">PDF only</option>
-            <option value="dwg">DWG only</option>
-          </select>
-          {hasFilters && (
-            <button className="btn" onClick={clearFilters}
-              style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "5px 10px" }}>
-              Clear ×
-            </button>
-          )}
-          <span style={{ fontSize: 11, color: "#b0a8a0", marginLeft: "auto" }}>
-            {filteredDrawings.length}{filteredDrawings.length !== drawings.length ? ` of ${drawings.length}` : ""} drawing{filteredDrawings.length !== 1 ? "s" : ""}
-          </span>
-        </div>
-      )}
-
-      {/* Bulk action toolbar */}
-      {someSelected && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "#eef6ff", border: "1px solid #b8d0e8", marginBottom: 8 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY }}>{selectedIds.size} selected</span>
-          <button className="btn" onClick={downloadSelected} disabled={downloadingSelected}
-            style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, background: "#fff", border: `1px solid ${ARC_NAVY}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
-            {downloadingSelected ? <><Spinner size={10} /> Downloading…</> : "↓ Download Selected"}
-          </button>
-          {isAdmin && (
-            <button className="btn" onClick={deleteSelected} disabled={deletingSelected}
-              style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: ARC_TERRACOTTA, border: `1px solid ${ARC_TERRACOTTA}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
-              {deletingSelected ? <><Spinner size={10} /> Deleting…</> : "× Delete Selected"}
-            </button>
-          )}
-          <button className="btn" onClick={() => setSelectedIds(new Set())}
-            style={{ fontSize: 11, color: "#9a9088", background: "none", border: "none", padding: "4px 8px", marginLeft: "auto" }}>
-            Clear selection
-          </button>
-        </div>
-      )}
-
-      {/* Drawing list */}
-      {loading ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 13 }}><Spinner size={12} /> Loading drawings…</div>
-      ) : drawings.length === 0 ? (
-        <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
-          <div style={{ fontSize: 36, marginBottom: 12 }}>📐</div>
-          <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>No drawings uploaded yet</p>
-          {isAdmin && <p style={{ fontSize: 12, color: "#9a9088" }}>Click + Upload Drawing to add the first one, or use Archimind Sync.</p>}
-        </div>
-      ) : filteredDrawings.length === 0 ? (
-        <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "32px", textAlign: "center" }}>
-          <p style={{ fontSize: 13, color: "#9a9088", fontStyle: "italic" }}>No drawings match the current filters.</p>
-        </div>
-      ) : (
-        <div style={{ background: "#fff", border: "1px solid #e8e0d5", overflowX: "auto" }}>
-          {/* Column headers */}
-          <div style={{ display: "grid", gridTemplateColumns: COLS, gap: "0 10px", padding: "8px 16px", background: ARC_NAVY, minWidth: 900 }}>
-            <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
-              <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
-                style={{ cursor: "pointer", width: 14, height: 14, accentColor: "#fff" }} />
-            </div>
-            {["Drawing No.", "Title", "Rev.", "Status", "Scale", "Type", "Volume", "Level", "", "", ""].map((h, i) => (
-              <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
-            ))}
-          </div>
-          {filteredDrawings.map((d, i) => (
-            <div key={d.id} style={{ background: selectedIds.has(d.id) ? "#eef6ff" : i % 2 === 0 ? "#faf8f5" : "#fff", minWidth: 900 }}>
-              <DrawingRow d={d} projectId={projectId} isAdmin={isAdmin}
-                onUpdate={updateField} onDelete={handleDelete}
-                onView={setViewingDrawing} downloadingId={downloadingId} onDownload={handleDownload}
-                selectable={true} selected={selectedIds.has(d.id)} onSelect={toggleSelect} />
-            </div>
-          ))}
-        </div>
-      )}
-
-      {drawings.length > 0 && (
-        <p style={{ fontSize: 11, color: "#b0a8a0", marginTop: 8, fontStyle: "italic" }}>
-          {drawings.length} drawing{drawings.length !== 1 ? "s" : ""}{isAdmin ? " · Click title, drawing number, or revision to edit inline. Type, volume and level are also editable." : ""}
-        </p>
-      )}
-
-      {viewingDrawing && (
-        <PdfViewerModal
-          drawing={viewingDrawing}
-          projectId={projectId}
-          onClose={() => setViewingDrawing(null)}
-          drawings={filteredDrawings}
-          currentIndex={filteredDrawings.findIndex(d => d.id === viewingDrawing.id)}
-        />
-      )}
-    </div>
-  );
-}
-
-// ── Documents tab (Transmittals archive) ──────────────────────────────────────
-function DocumentsTab({ projectId }) {
-  const [files, setFiles] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [downloading, setDownloading] = useState(null); // key being downloaded
-
-  useEffect(() => { loadFiles(); }, [projectId]);
-
-  async function loadFiles() {
-    setLoading(true);
-    try {
-      const data = await api(`/api/projects/${projectId}/transmittals/files`);
-      setFiles(data.files || []);
-    } catch (e) { console.error(e); }
-    setLoading(false);
-  }
-
-  async function downloadFile(file) {
-    if (downloading) return;
-    setDownloading(file.key);
-    try {
-      const data = await api(
-        `/api/projects/${projectId}/transmittals/download?key=${encodeURIComponent(file.key)}`
-      );
-      const isExcel = file.name.endsWith(".xlsx");
-      const mimeType = isExcel
-        ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        : "text/html";
-      const binary = atob(data.base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = data.name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (e) { console.error(e); }
-    setDownloading(null);
-  }
-
-  async function openSnapshot(file) {
-    if (downloading) return;
-    setDownloading(file.key);
-    try {
-      const data = await api(
-        `/api/projects/${projectId}/transmittals/download?key=${encodeURIComponent(file.key)}`
-      );
-      const binary = atob(data.base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-      const blob = new Blob([bytes], { type: "text/html" });
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
-      // revoke after a short delay to allow the tab to load
-      setTimeout(() => URL.revokeObjectURL(url), 10000);
-    } catch (e) { console.error(e); }
-    setDownloading(null);
-  }
-
-  const excelFile = files.find(f => f.type === "excel");
-  const snapshots = files.filter(f => f.type === "snapshot");
-
-  if (loading) return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 13 }}>
-      <Spinner size={13} /> Loading documents…
-    </div>
-  );
-
-  if (files.length === 0) return (
-    <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
-      <div style={{ fontSize: 36, marginBottom: 12 }}>📁</div>
-      <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>
-        No transmittals yet
-      </p>
-      <p style={{ fontSize: 12, color: "#9a9088" }}>
-        A drawing schedule will be generated automatically the next time drawings are synced via Archimind Sync.
-      </p>
-    </div>
-  );
-
-  const rowStyle = {
-    display: "flex", alignItems: "center", gap: 14,
-    padding: "10px 16px", borderBottom: "1px solid #f0ede8",
-  };
-  const iconStyle = { fontSize: 18, flexShrink: 0, width: 24, textAlign: "center" };
-  const nameStyle = { flex: 1, fontSize: 13, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" };
-  const metaStyle = { fontSize: 11, color: "#9a9088", marginTop: 2 };
-  const btnStyle = (color) => ({
-    fontSize: 11, fontWeight: 600, color, background: "none",
-    border: `1px solid ${color}`, padding: "4px 12px",
-    letterSpacing: "0.04em", cursor: "pointer", flexShrink: 0,
-    fontFamily: "Inter, Arial, sans-serif",
+  const subTabStyle = (id) => ({
+    padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase",
+    background: drawingSubTab === id ? ARC_NAVY : "transparent",
+    color: drawingSubTab === id ? "#fff" : "#9a9088",
+    border: `1px solid ${drawingSubTab === id ? ARC_NAVY : "#ddd8d0"}`,
+    cursor: "pointer", fontFamily: "Inter, Arial, sans-serif",
+    borderRadius: 2,
   });
 
   return (
     <div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-        <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-          Transmittals
-        </h3>
-        <button className="btn" onClick={loadFiles}
-          style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 12px" }}>
-          ↻ Refresh
+      {/* Sub-tab switcher */}
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 20 }}>
+        <button className="btn" style={subTabStyle("register")} onClick={() => setDrawingSubTab("register")}>
+          Register
+        </button>
+        <button className="btn" style={subTabStyle("transmittal")} onClick={() => setDrawingSubTab("transmittal")}>
+          Drawing Schedule
         </button>
       </div>
 
-      {/* Master Excel file */}
-      {excelFile && (
-        <div style={{ marginBottom: 20 }}>
-          <p style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
-            Master Schedule
-          </p>
-          <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
-            <div style={rowStyle}>
-              <span style={iconStyle}>📊</span>
-              <div style={{ flex: 1 }}>
-                <div style={nameStyle}>Drawing Schedule (Excel)</div>
-                <div style={metaStyle}>Cumulative — updated on every sync</div>
-              </div>
-              <button className="btn" onClick={() => downloadFile(excelFile)}
-                disabled={downloading === excelFile.key}
-                style={btnStyle(AD_GREEN)}>
-                {downloading === excelFile.key ? <Spinner size={10} /> : "↓ Download"}
-              </button>
+      {/* Register sub-tab */}
+      {drawingSubTab === "register" && (
+        <div>
+          {/* Section header */}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+            <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Drawing Register</h3>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {isAdmin && !showUpload && (
+                <button className="btn" onClick={() => setShowUpload(true)}
+                  style={{ fontSize: 11, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+                  + Upload Drawing
+                </button>
+              )}
             </div>
           </div>
+
+          {/* Upload panel */}
+          {showUpload && (
+            <div style={{ background: "#fff", border: `1px solid ${AD_GREEN}`, padding: "20px 24px", marginBottom: 20 }}>
+              <h4 style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 16, letterSpacing: "0.04em", textTransform: "uppercase" }}>Upload Drawing</h4>
+              <div style={{ marginBottom: 16 }}>
+                <label style={labelStyle}>File (PDF or DWG)</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <input ref={fileInputRef} type="file" accept=".pdf,.dwg" onChange={handleFileChange}
+                    style={{ fontSize: 12, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif", flex: 1 }} />
+                  {selectedFile && <span style={{ fontSize: 11, color: "#9a9088", whiteSpace: "nowrap" }}>{(selectedFile.size / 1024 / 1024).toFixed(1)} MB</span>}
+                </div>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr", gap: "0 16px" }}>
+                <div style={{ marginBottom: 14 }}><label style={labelStyle}>Title *</label><input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="e.g. Ground Floor Plan" style={inputStyle} /></div>
+                <div style={{ marginBottom: 14 }}><label style={labelStyle}>Drawing No.</label><input value={form.drawing_number} onChange={e => setForm(f => ({ ...f, drawing_number: e.target.value }))} placeholder="e.g. A-001" style={inputStyle} /></div>
+                <div style={{ marginBottom: 14 }}><label style={labelStyle}>Revision</label><input value={form.revision} onChange={e => setForm(f => ({ ...f, revision: e.target.value }))} placeholder="e.g. P1" style={inputStyle} /></div>
+                <div style={{ marginBottom: 14 }}><label style={labelStyle}>Status</label><input value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} placeholder="e.g. Preliminary" style={inputStyle} /></div>
+              </div>
+              {uploadError && <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 12 }}>{uploadError}</p>}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn" onClick={handleUpload} disabled={!selectedFile || !form.title.trim() || uploading}
+                  style={{ background: selectedFile && form.title.trim() && !uploading ? AD_GREEN : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  {uploading ? <><Spinner size={12} /> &nbsp;Uploading…</> : "Upload"}
+                </button>
+                <button className="btn" onClick={cancelUpload} disabled={uploading} style={{ background: "none", color: "#9a9088", padding: "8px 14px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+              </div>
+            </div>
+          )}
+
+          {/* Filter bar */}
+          {drawings.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
+              <input value={filterText} onChange={e => { setFilterText(e.target.value); setSelectedIds(new Set()); }}
+                placeholder="Search no. or title…"
+                style={{ flex: "1 1 180px", minWidth: 140, border: "1px solid #ddd8d0", padding: "6px 10px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" }} />
+              {drawingTypeOptions.length > 0 && (
+                <select value={filterDrawingType} onChange={e => { setFilterDrawingType(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
+                  <option value="">All types</option>
+                  {drawingTypeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              )}
+              {volumeOptions.length > 0 && (
+                <select value={filterVolume} onChange={e => { setFilterVolume(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
+                  <option value="">All volumes</option>
+                  {volumeOptions.map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              )}
+              {levelOptions.length > 0 && (
+                <select value={filterLevel} onChange={e => { setFilterLevel(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
+                  <option value="">All levels</option>
+                  {levelOptions.map(l => <option key={l} value={l}>{l}</option>)}
+                </select>
+              )}
+              <select value={filterFileType} onChange={e => { setFilterFileType(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
+                <option value="">PDF + DWG</option>
+                <option value="pdf">PDF only</option>
+                <option value="dwg">DWG only</option>
+              </select>
+              {hasFilters && (
+                <button className="btn" onClick={clearFilters}
+                  style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "5px 10px" }}>
+                  Clear ×
+                </button>
+              )}
+              <span style={{ fontSize: 11, color: "#b0a8a0", marginLeft: "auto" }}>
+                {filteredDrawings.length}{filteredDrawings.length !== drawings.length ? ` of ${drawings.length}` : ""} drawing{filteredDrawings.length !== 1 ? "s" : ""}
+              </span>
+            </div>
+          )}
+
+          {/* Bulk action toolbar */}
+          {someSelected && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "#eef6ff", border: "1px solid #b8d0e8", marginBottom: 8 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY }}>{selectedIds.size} selected</span>
+              <button className="btn" onClick={downloadSelected} disabled={downloadingSelected}
+                style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, background: "#fff", border: `1px solid ${ARC_NAVY}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
+                {downloadingSelected ? <><Spinner size={10} /> Downloading…</> : "↓ Download Selected"}
+              </button>
+              {isAdmin && (
+                <button className="btn" onClick={deleteSelected} disabled={deletingSelected}
+                  style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: ARC_TERRACOTTA, border: `1px solid ${ARC_TERRACOTTA}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
+                  {deletingSelected ? <><Spinner size={10} /> Deleting…</> : "× Delete Selected"}
+                </button>
+              )}
+              <button className="btn" onClick={() => setSelectedIds(new Set())}
+                style={{ fontSize: 11, color: "#9a9088", background: "none", border: "none", padding: "4px 8px", marginLeft: "auto" }}>
+                Clear selection
+              </button>
+            </div>
+          )}
+
+          {/* Drawing list */}
+          {loading ? (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 13 }}><Spinner size={12} /> Loading drawings…</div>
+          ) : drawings.length === 0 ? (
+            <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
+              <div style={{ fontSize: 36, marginBottom: 12 }}>📐</div>
+              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>No drawings uploaded yet</p>
+              {isAdmin && <p style={{ fontSize: 12, color: "#9a9088" }}>Click + Upload Drawing to add the first one, or use Archimind Sync.</p>}
+            </div>
+          ) : filteredDrawings.length === 0 ? (
+            <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "32px", textAlign: "center" }}>
+              <p style={{ fontSize: 13, color: "#9a9088", fontStyle: "italic" }}>No drawings match the current filters.</p>
+            </div>
+          ) : (
+            <div style={{ background: "#fff", border: "1px solid #e8e0d5", overflowX: "auto" }}>
+              <div style={{ display: "grid", gridTemplateColumns: COLS, gap: "0 10px", padding: "8px 16px", background: ARC_NAVY, minWidth: 900 }}>
+                <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+                  <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+                    style={{ cursor: "pointer", width: 14, height: 14, accentColor: "#fff" }} />
+                </div>
+                {["Drawing No.", "Title", "Rev.", "Status", "Scale", "Type", "Volume", "Level", "", "", ""].map((h, i) => (
+                  <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
+                ))}
+              </div>
+              {filteredDrawings.map((d, i) => (
+                <div key={d.id} style={{ background: selectedIds.has(d.id) ? "#eef6ff" : i % 2 === 0 ? "#faf8f5" : "#fff", minWidth: 900 }}>
+                  <DrawingRow d={d} projectId={projectId} isAdmin={isAdmin}
+                    onUpdate={updateField} onDelete={handleDelete}
+                    onView={setViewingDrawing} downloadingId={downloadingId} onDownload={handleDownload}
+                    selectable={true} selected={selectedIds.has(d.id)} onSelect={toggleSelect} />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {drawings.length > 0 && (
+            <p style={{ fontSize: 11, color: "#b0a8a0", marginTop: 8, fontStyle: "italic" }}>
+              {drawings.length} drawing{drawings.length !== 1 ? "s" : ""}{isAdmin ? " · Click title, drawing number, or revision to edit inline. Type, volume and level are also editable." : ""}
+            </p>
+          )}
+
+          {viewingDrawing && (
+            <PdfViewerModal
+              drawing={viewingDrawing}
+              projectId={projectId}
+              onClose={() => setViewingDrawing(null)}
+              drawings={filteredDrawings}
+              currentIndex={filteredDrawings.findIndex(d => d.id === viewingDrawing.id)}
+            />
+          )}
         </div>
       )}
 
-      {/* Issue snapshots */}
-      {snapshots.length > 0 && (
-        <div>
-          <p style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 8 }}>
-            Issue Archive ({snapshots.length})
-          </p>
-          <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
-            {snapshots.map((f, i) => (
-              <div key={f.key} style={{ ...rowStyle, borderBottom: i < snapshots.length - 1 ? "1px solid #f0ede8" : "none" }}>
-                <span style={iconStyle}>📄</span>
-                <div style={{ flex: 1 }}>
-                  <div style={nameStyle}>{f.label}</div>
-                  <div style={metaStyle}>{f.name}</div>
-                </div>
-                <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                  <button className="btn" onClick={() => openSnapshot(f)}
-                    disabled={downloading === f.key}
-                    style={btnStyle(ARC_NAVY)}>
-                    {downloading === f.key ? <Spinner size={10} /> : "View"}
-                  </button>
-                  <button className="btn" onClick={() => downloadFile(f)}
-                    disabled={downloading === f.key}
-                    style={btnStyle("#9a9088")}>
-                    {downloading === f.key ? <Spinner size={10} /> : "↓"}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+      {/* Transmittal sub-tab */}
+      {drawingSubTab === "transmittal" && (
+        <TransmittalTab projectId={projectId} isAdmin={isAdmin} />
       )}
     </div>
   );
-}
-
-// ── Utilities ─────────────────────────────────────────────────────────────────
-function fileToBase64(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(",")[1]);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
-function base64ToBlob(base64, mimeType) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return new Blob([bytes], { type: mimeType });
 }
 
 // ── Project detail ────────────────────────────────────────────────────────────
@@ -1699,16 +1821,10 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
     try {
       const { consultant } = await api(`/api/projects/${projectId}/consultants`, { method: "POST", body: newConsultant });
       setData(d => ({ ...d, consultants: [...d.consultants, consultant] }));
-      setNewConsultant({ discipline: "", company: "", contact_name: "", email: "", phone: "" }); setAddingConsultant(false);
+      setNewConsultant({ discipline: "", company: "", contact_name: "", email: "", phone: "" });
+      setAddingConsultant(false);
     } catch (e) { console.error(e); }
     setSavingKey("consultant", false);
-  }
-
-  async function updateConsultant(cid, field, value) {
-    const consultant = data.consultants.find(c => c.id === cid);
-    if (!consultant) return;
-    const updated = { ...consultant, [field]: value };
-    try { await api(`/api/projects/${projectId}/consultants/${cid}`, { method: "PATCH", body: updated }); setData(d => ({ ...d, consultants: d.consultants.map(c => c.id === cid ? updated : c) })); } catch (e) { console.error(e); }
   }
 
   async function deleteConsultant(cid) {
@@ -1716,13 +1832,20 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
   }
 
   async function updateUvalue(uid, field, value) {
-    const parsed = value === "" ? null : Number(value);
-    try { const { uvalue } = await api(`/api/projects/${projectId}/uvalues/${uid}`, { method: "PATCH", body: { [field]: field === "notes" ? value : parsed } }); setData(d => ({ ...d, uvalues: d.uvalues.map(u => u.id === uid ? uvalue : u) })); } catch (e) { console.error(e); }
+    const uv = data.uvalues.find(u => u.id === uid);
+    const updated = { ...uv, [field]: value === "" ? null : parseFloat(value) || value };
+    try { await api(`/api/projects/${projectId}/uvalues/${uid}`, { method: "PATCH", body: updated }); setData(d => ({ ...d, uvalues: d.uvalues.map(u => u.id === uid ? updated : u) })); } catch (e) { console.error(e); }
   }
 
   async function addUvalue() {
     if (!newUvalueElement.trim()) return;
-    try { const { uvalue } = await api(`/api/projects/${projectId}/uvalues`, { method: "POST", body: { element: newUvalueElement.trim() } }); setData(d => ({ ...d, uvalues: [...d.uvalues, uvalue] })); setNewUvalueElement(""); setAddingUvalue(false); } catch (e) { console.error(e); }
+    setSavingKey("uvalue", true);
+    try {
+      const { uvalue } = await api(`/api/projects/${projectId}/uvalues`, { method: "POST", body: { element: newUvalueElement.trim() } });
+      setData(d => ({ ...d, uvalues: [...d.uvalues, uvalue] }));
+      setNewUvalueElement(""); setAddingUvalue(false);
+    } catch (e) { console.error(e); }
+    setSavingKey("uvalue", false);
   }
 
   async function deleteUvalue(uid) {
@@ -1731,12 +1854,17 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
 
   async function addNote() {
     if (!newNote.label.trim()) return;
-    try { const { note } = await api(`/api/projects/${projectId}/notes`, { method: "POST", body: newNote }); setData(d => ({ ...d, notes: [...d.notes, note] })); setNewNote({ label: "", value: "" }); setAddingNote(false); } catch (e) { console.error(e); }
+    setSavingKey("note", true);
+    try {
+      const { note } = await api(`/api/projects/${projectId}/notes`, { method: "POST", body: { label: newNote.label.trim(), value: newNote.value.trim(), sort_order: data.notes.length } });
+      setData(d => ({ ...d, notes: [...d.notes, note] }));
+      setNewNote({ label: "", value: "" }); setAddingNote(false);
+    } catch (e) { console.error(e); }
+    setSavingKey("note", false);
   }
 
   async function updateNote(nid, field, value) {
     const note = data.notes.find(n => n.id === nid);
-    if (!note) return;
     const updated = { ...note, [field]: value };
     try { await api(`/api/projects/${projectId}/notes/${nid}`, { method: "PATCH", body: updated }); setData(d => ({ ...d, notes: d.notes.map(n => n.id === nid ? updated : n) })); } catch (e) { console.error(e); }
   }
@@ -1753,7 +1881,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
 
   const TABS = [
     { id: "info", label: "Info" }, { id: "consultants", label: "Consultants" }, { id: "u-values", label: "U-Values" },
-    { id: "notes", label: "Notes" }, { id: "drawings", label: "Drawings" }, { id: "documents", label: "Documents" },
+    { id: "notes", label: "Notes" }, { id: "drawings", label: "Drawings" },
     { id: "products", label: "Products" }, { id: "minutes", label: "Minutes" }, { id: "emails", label: "Emails" },
   ];
 
@@ -1810,24 +1938,29 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
               <div key={field} style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>{label}</label>
                 <input value={editForm[field] || ""} onChange={e => setEditForm(f => ({ ...f, [field]: e.target.value }))}
-                  style={{ width: "100%", border: "1px solid #ddd8d0", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none" }} />
+                  style={{ width: "100%", border: "1px solid #ddd8d0", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", boxSizing: "border-box" }} />
               </div>
             ))}
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>RIBA Stage</label>
-              <select value={editForm.stage || ""} onChange={e => setEditForm(f => ({ ...f, stage: e.target.value }))} style={{ width: "100%", border: "1px solid #ddd8d0", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: editForm.stage ? ARC_NAVY : "#9a9088" }}>
+              <select value={editForm.stage || ""} onChange={e => setEditForm(f => ({ ...f, stage: e.target.value }))}
+                style={{ width: "100%", border: "1px solid #ddd8d0", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: editForm.stage ? ARC_NAVY : "#9a9088", outline: "none", boxSizing: "border-box" }}>
                 <option value="">Select stage…</option>
                 {RIBA_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>Status</label>
-              <select value={editForm.status || "active"} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))} style={{ width: "100%", border: "1px solid #ddd8d0", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif" }}>
-                <option value="active">Active</option><option value="on-hold">On Hold</option><option value="complete">Complete</option>
+              <select value={editForm.status || "active"} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
+                style={{ width: "100%", border: "1px solid #ddd8d0", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", boxSizing: "border-box" }}>
+                {["active","on-hold","complete","archived"].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button className="btn" onClick={saveEditForm} disabled={saving.editForm} style={{ background: ARC_NAVY, color: "#fff", padding: "9px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>{saving.editForm ? <Spinner size={12} /> : "Save"}</button>
+              <button className="btn" onClick={saveEditForm} disabled={saving.editForm}
+                style={{ background: ARC_NAVY, color: "#fff", padding: "9px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                {saving.editForm ? <Spinner size={12} /> : "Save Changes"}
+              </button>
               <button className="btn" onClick={() => setEditingProject(false)} style={{ background: "none", color: "#9a9088", padding: "9px 16px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
             </div>
           </div>
@@ -1835,26 +1968,44 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
       )}
 
       {/* Tab content */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "24px 32px" }}>
 
         {activeTab === "info" && (
           <div style={{ maxWidth: 700 }}>
             {sectionTitle("Project Information")}
-            <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "20px 24px", marginBottom: 20 }}>
-              {[["Project Name", project.name],["Job Number", project.job_number],["Client", project.client],["Location", project.location],["Project Lead", project.project_lead],["RIBA Stage", project.stage],["Status", project.status]].map(([label, value]) => (
-                <div key={label} style={{ display: "flex", borderBottom: "1px solid #f0ede8", padding: "10px 0", alignItems: "flex-start", gap: 16 }}>
-                  <div style={{ width: 160, fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.05em", textTransform: "uppercase", flexShrink: 0, paddingTop: 1 }}>{label}</div>
-                  <div style={{ flex: 1, fontSize: 13, color: value ? ARC_NAVY : "#b0a8a0", fontStyle: value ? "normal" : "italic" }}>{value || "Not set"}</div>
+            <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "24px" }}>
+              {[
+                ["Job Number", "job_number"],
+                ["Client", "client"],
+                ["Location", "location"],
+                ["Project Lead", "project_lead"],
+                ["Description", "description"],
+              ].map(([label, field]) => (
+                <div key={field} style={{ display: "flex", marginBottom: 16, gap: 20 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", width: 120, flexShrink: 0, paddingTop: 2 }}>{label}</div>
+                  <div style={{ flex: 1, fontSize: 13, color: ARC_NAVY }}>
+                    {isAdmin
+                      ? <EditableField value={project[field]} onSave={async v => { try { const { project: p } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { [field]: v } }); setData(d => ({ ...d, project: p })); } catch (e) { console.error(e); } }} placeholder={`Click to add ${label.toLowerCase()}…`} multiline={field === "description"} />
+                      : <span style={{ color: project[field] ? ARC_NAVY : "#b0a8a0", fontStyle: project[field] ? "normal" : "italic" }}>{project[field] || `No ${label.toLowerCase()} set`}</span>
+                    }
+                  </div>
                 </div>
               ))}
-              {project.description && (
-                <div style={{ display: "flex", padding: "10px 0", alignItems: "flex-start", gap: 16 }}>
-                  <div style={{ width: 160, fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.05em", textTransform: "uppercase", flexShrink: 0, paddingTop: 1 }}>Description</div>
-                  <div style={{ flex: 1, fontSize: 13, color: ARC_NAVY, lineHeight: 1.6 }}>{project.description}</div>
+              <div style={{ display: "flex", marginBottom: 0, gap: 20 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", width: 120, flexShrink: 0, paddingTop: 2 }}>RIBA Stage</div>
+                <div style={{ flex: 1 }}>
+                  {isAdmin ? (
+                    <select value={project.stage || ""} onChange={async e => { try { const { project: p } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { stage: e.target.value } }); setData(d => ({ ...d, project: p })); } catch (err) { console.error(err); } }}
+                      style={{ border: "1px solid #ddd8d0", padding: "5px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: project.stage ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff" }}>
+                      <option value="">Select stage…</option>
+                      {RIBA_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  ) : (
+                    <span style={{ fontSize: 13, color: project.stage ? ARC_NAVY : "#b0a8a0" }}>{project.stage || "No stage set"}</span>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
-            <div style={{ fontSize: 11, color: "#b0a8a0", fontStyle: "italic" }}>Created {new Date(project.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</div>
           </div>
         )}
 
@@ -1864,40 +2015,42 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
             {addingConsultant && (
               <div style={{ background: "#fff", border: `1px solid ${AD_GREEN}`, padding: "20px 24px", marginBottom: 16 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px" }}>
-                  {[["discipline","Discipline","e.g. Structural Engineer"],["company","Company","Company name"],["contact_name","Contact Name","Full name"],["email","Email","email@example.com"],["phone","Phone","01234 567890"]].map(([field, label, placeholder]) => (
-                    <div key={field} style={{ marginBottom: 12 }}>
-                      <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>{label}</label>
-                      <input value={newConsultant[field]} onChange={e => setNewConsultant(c => ({ ...c, [field]: e.target.value }))} placeholder={placeholder}
-                        style={{ width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none" }} />
+                  {[["discipline","Discipline"],["company","Company"],["contact_name","Contact Name"],["email","Email"],["phone","Phone"]].map(([f, l]) => (
+                    <div key={f} style={{ marginBottom: 12 }}>
+                      <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>{l}</label>
+                      <input value={newConsultant[f]} onChange={e => setNewConsultant(c => ({ ...c, [f]: e.target.value }))}
+                        style={{ width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", boxSizing: "border-box" }} />
                     </div>
                   ))}
                 </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-                  <button className="btn" onClick={addConsultant} disabled={saving.consultant} style={{ background: AD_GREEN, color: "#fff", padding: "7px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>{saving.consultant ? <Spinner size={12} /> : "Add"}</button>
-                  <button className="btn" onClick={() => { setAddingConsultant(false); setNewConsultant({ discipline: "", company: "", contact_name: "", email: "", phone: "" }); }} style={{ background: "none", color: "#9a9088", padding: "7px 14px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="btn" onClick={addConsultant} disabled={saving.consultant}
+                    style={{ background: AD_GREEN, color: "#fff", padding: "7px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    {saving.consultant ? <Spinner size={11} /> : "Add"}
+                  </button>
+                  <button className="btn" onClick={() => { setAddingConsultant(false); setNewConsultant({ discipline: "", company: "", contact_name: "", email: "", phone: "" }); }}
+                    style={{ background: "none", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
                 </div>
               </div>
             )}
-            {consultants.length === 0 && !addingConsultant ? (
-              <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "40px", textAlign: "center" }}><p style={{ fontSize: 13, color: "#9a9088", fontStyle: "italic" }}>No consultants added yet.</p></div>
+            {consultants.length === 0 ? (
+              <p style={{ fontSize: 13, color: "#9a9088", fontStyle: "italic" }}>No consultants added yet.</p>
             ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {consultants.map(c => (
-                  <div key={c.id} style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "14px 20px" }}>
-                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16 }}>
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>
-                          <EditableField value={c.discipline} onSave={v => updateConsultant(c.id, "discipline", v)} placeholder="Discipline" />
-                          {c.company && <span style={{ fontWeight: 400, color: "#9a9088" }}> — <EditableField value={c.company} onSave={v => updateConsultant(c.id, "company", v)} placeholder="Company" /></span>}
-                        </div>
-                        <div style={{ fontSize: 12, color: "#9a9088", display: "flex", gap: 16, flexWrap: "wrap" }}>
-                          {c.contact_name && <span>👤 <EditableField value={c.contact_name} onSave={v => updateConsultant(c.id, "contact_name", v)} placeholder="Name" style={{ fontSize: 12 }} /></span>}
-                          {c.email && <span>✉ <EditableField value={c.email} onSave={v => updateConsultant(c.id, "email", v)} placeholder="Email" style={{ fontSize: 12 }} /></span>}
-                          {c.phone && <span>📞 <EditableField value={c.phone} onSave={v => updateConsultant(c.id, "phone", v)} placeholder="Phone" style={{ fontSize: 12 }} /></span>}
-                        </div>
+              <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
+                {consultants.map((c, i) => (
+                  <div key={c.id} style={{ display: "flex", alignItems: "flex-start", gap: 16, padding: "14px 20px", borderBottom: i < consultants.length - 1 ? "1px solid #f0ede8" : "none" }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 3 }}>{c.company || "—"}</div>
+                      <div style={{ fontSize: 11, color: "#9a9088", display: "flex", gap: 16, flexWrap: "wrap" }}>
+                        {c.discipline && <span style={{ fontWeight: 600, color: "#6a7a8a" }}>{c.discipline}</span>}
+                        {c.contact_name && <span>👤 {c.contact_name}</span>}
+                        {c.email && <span>✉ {c.email}</span>}
+                        {c.phone && <span>📞 {c.phone}</span>}
                       </div>
-                      {isAdmin && <button className="btn" onClick={() => deleteConsultant(c.id)} style={{ background: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", border: "none", flexShrink: 0 }} onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.target.style.color = "#c8c0b8"}>×</button>}
                     </div>
+                    {isAdmin && <button className="btn" onClick={() => deleteConsultant(c.id)}
+                      style={{ background: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", border: "none", flexShrink: 0 }}
+                      onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.target.style.color = "#c8c0b8"}>×</button>}
                   </div>
                 ))}
               </div>
@@ -1906,86 +2059,78 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
         )}
 
         {activeTab === "u-values" && (
-          <div style={{ maxWidth: 700 }}>
-            {sectionTitle("U-Value Requirements", isAdmin && addBtn("Add Element", () => setAddingUvalue(true)))}
+          <div style={{ maxWidth: 800 }}>
+            {sectionTitle("U-Value Targets", isAdmin && addBtn("Add Element", () => setAddingUvalue(true)))}
             {addingUvalue && (
-              <div style={{ background: "#fff", border: `1px solid ${AD_GREEN}`, padding: "16px 20px", marginBottom: 16, display: "flex", gap: 10, alignItems: "center" }}>
-                <input value={newUvalueElement} onChange={e => setNewUvalueElement(e.target.value)} placeholder="Element name e.g. Flat Roof" autoFocus
+              <div style={{ display: "flex", gap: 8, marginBottom: 14, alignItems: "center" }}>
+                <input value={newUvalueElement} onChange={e => setNewUvalueElement(e.target.value)} autoFocus placeholder="Element name…"
                   onKeyDown={e => { if (e.key === "Enter") addUvalue(); if (e.key === "Escape") { setAddingUvalue(false); setNewUvalueElement(""); } }}
                   style={{ flex: 1, border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none" }} />
-                <button className="btn" onClick={addUvalue} style={{ background: AD_GREEN, color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Add</button>
-                <button className="btn" onClick={() => { setAddingUvalue(false); setNewUvalueElement(""); }} style={{ background: "none", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+                <button className="btn" onClick={addUvalue} disabled={!newUvalueElement.trim() || saving.uvalue}
+                  style={{ background: AD_GREEN, color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  {saving.uvalue ? <Spinner size={11} /> : "Add"}
+                </button>
+                <button className="btn" onClick={() => { setAddingUvalue(false); setNewUvalueElement(""); }}
+                  style={{ background: "none", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
               </div>
             )}
             <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
-              <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                <thead>
-                  <tr>{["Element","Target (W/m²K)","Achieved (W/m²K)","Notes",""].map((h, i) => (
-                    <th key={i} style={{ background: ARC_NAVY, color: "#fff", padding: "8px 14px", textAlign: "left", fontSize: 10, fontWeight: 500, letterSpacing: "0.05em", textTransform: "uppercase", width: i === 4 ? 32 : "auto" }}>{h}</th>
-                  ))}</tr>
-                </thead>
-                <tbody>
-                  {uvalues.map((u, i) => (
-                    <tr key={u.id} style={{ background: i % 2 === 0 ? "#faf8f5" : "#fff" }}>
-                      <td style={{ padding: "9px 14px", borderBottom: "1px solid #e8e0d5", fontWeight: 500, color: ARC_NAVY }}>{u.element}</td>
-                      <td style={{ padding: "9px 14px", borderBottom: "1px solid #e8e0d5" }}>
-                        {isAdmin ? <input type="number" step="0.01" defaultValue={u.target ?? ""} placeholder="—" onBlur={e => updateUvalue(u.id, "target", e.target.value)} style={{ width: 80, border: "1px solid #e8e0d5", padding: "3px 6px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "transparent" }} />
-                        : <span style={{ color: u.target !== null ? ARC_NAVY : "#b0a8a0" }}>{u.target !== null ? u.target : "—"}</span>}
-                      </td>
-                      <td style={{ padding: "9px 14px", borderBottom: "1px solid #e8e0d5" }}>
-                        {isAdmin ? <input type="number" step="0.01" defaultValue={u.achieved ?? ""} placeholder="—" onBlur={e => updateUvalue(u.id, "achieved", e.target.value)} style={{ width: 80, border: "1px solid #e8e0d5", padding: "3px 6px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: u.achieved !== null && u.target !== null ? (u.achieved <= u.target ? AD_GREEN : ARC_TERRACOTTA) : ARC_NAVY, outline: "none", background: "transparent" }} />
-                        : <span style={{ color: u.achieved !== null && u.target !== null ? (u.achieved <= u.target ? AD_GREEN : ARC_TERRACOTTA) : (u.achieved !== null ? ARC_NAVY : "#b0a8a0") }}>{u.achieved !== null ? u.achieved : "—"}</span>}
-                      </td>
-                      <td style={{ padding: "9px 14px", borderBottom: "1px solid #e8e0d5" }}>
-                        {isAdmin ? <input defaultValue={u.notes ?? ""} placeholder="Optional notes" onBlur={e => updateUvalue(u.id, "notes", e.target.value)} style={{ width: "100%", border: "1px solid #e8e0d5", padding: "3px 6px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "transparent" }} />
-                        : <span style={{ color: u.notes ? ARC_NAVY : "#b0a8a0" }}>{u.notes || "—"}</span>}
-                      </td>
-                      <td style={{ padding: "9px 8px", borderBottom: "1px solid #e8e0d5", textAlign: "center" }}>
-                        {isAdmin && <button className="btn" onClick={() => deleteUvalue(u.id)} style={{ background: "none", color: "#c8c0b8", fontSize: 14, padding: "0 2px", border: "none" }} onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.target.style.color = "#c8c0b8"}>×</button>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 1fr 36px", gap: "0 12px", padding: "8px 16px", background: ARC_NAVY }}>
+                {["Element", "Target (W/m²K)", "Achieved (W/m²K)", "Notes", ""].map((h, i) => (
+                  <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
+                ))}
+              </div>
+              {uvalues.map((u, i) => (
+                <div key={u.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 1fr 36px", gap: "0 12px", padding: "10px 16px", alignItems: "center", background: i % 2 === 0 ? "#faf8f5" : "#fff", borderBottom: "1px solid #f0ede8" }}>
+                  <div style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500 }}>{u.element}</div>
+                  <div><EditableField value={u.target !== null ? String(u.target) : ""} onSave={v => updateUvalue(u.id, "target", v)} placeholder="—" style={{ fontSize: 13, textAlign: "center" }} /></div>
+                  <div><EditableField value={u.achieved !== null ? String(u.achieved) : ""} onSave={v => updateUvalue(u.id, "achieved", v)} placeholder="—" style={{ fontSize: 13, textAlign: "center" }} /></div>
+                  <div><EditableField value={u.notes} onSave={v => updateUvalue(u.id, "notes", v)} placeholder="Notes…" style={{ fontSize: 12 }} /></div>
+                  {isAdmin && <button className="btn" onClick={() => deleteUvalue(u.id)}
+                    style={{ background: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", border: "none", textAlign: "center" }}
+                    onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.target.style.color = "#c8c0b8"}>×</button>}
+                </div>
+              ))}
             </div>
-            <p style={{ fontSize: 11, color: "#b0a8a0", marginTop: 8, fontStyle: "italic" }}>Achieved values shown in green if they meet or beat the target, red if they exceed it.{isAdmin && " Click any value to edit it directly."}</p>
           </div>
         )}
 
         {activeTab === "notes" && (
           <div style={{ maxWidth: 700 }}>
-            {sectionTitle("Additional Information", isAdmin && addBtn("Add Note", () => setAddingNote(true)))}
+            {sectionTitle("Key Notes", isAdmin && addBtn("Add Note", () => setAddingNote(true)))}
             {addingNote && (
-              <div style={{ background: "#fff", border: `1px solid ${AD_GREEN}`, padding: "16px 20px", marginBottom: 16 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: "0 16px" }}>
-                  <div>
-                    <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>Label</label>
-                    <input value={newNote.label} onChange={e => setNewNote(n => ({ ...n, label: e.target.value }))} placeholder="e.g. Planning Reference" autoFocus
-                      style={{ width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", marginBottom: 12 }} />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>Value</label>
-                    <input value={newNote.value} onChange={e => setNewNote(n => ({ ...n, value: e.target.value }))} placeholder="e.g. 24/01234/FUL"
-                      style={{ width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", marginBottom: 12 }} />
-                  </div>
+              <div style={{ background: "#fff", border: `1px solid ${AD_GREEN}`, padding: "16px 20px", marginBottom: 14 }}>
+                <div style={{ marginBottom: 10 }}>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>Label</label>
+                  <input value={newNote.label} onChange={e => setNewNote(n => ({ ...n, label: e.target.value }))} autoFocus placeholder="e.g. Planning reference"
+                    style={{ width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", boxSizing: "border-box" }} />
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>Value</label>
+                  <input value={newNote.value} onChange={e => setNewNote(n => ({ ...n, value: e.target.value }))} placeholder="e.g. 22/01234/FUL"
+                    style={{ width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", boxSizing: "border-box" }} />
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button className="btn" onClick={addNote} style={{ background: AD_GREEN, color: "#fff", padding: "7px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Add</button>
-                  <button className="btn" onClick={() => { setAddingNote(false); setNewNote({ label: "", value: "" }); }} style={{ background: "none", color: "#9a9088", padding: "7px 14px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+                  <button className="btn" onClick={addNote} disabled={!newNote.label.trim() || saving.note}
+                    style={{ background: AD_GREEN, color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    {saving.note ? <Spinner size={11} /> : "Add"}
+                  </button>
+                  <button className="btn" onClick={() => { setAddingNote(false); setNewNote({ label: "", value: "" }); }}
+                    style={{ background: "none", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
                 </div>
               </div>
             )}
-            {notes.length === 0 && !addingNote ? (
-              <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "40px", textAlign: "center" }}><p style={{ fontSize: 13, color: "#9a9088", fontStyle: "italic" }}>No additional notes yet.</p></div>
+            {notes.length === 0 ? (
+              <p style={{ fontSize: 13, color: "#9a9088", fontStyle: "italic" }}>No notes added yet.</p>
             ) : (
               <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
                 {notes.map((n, i) => (
-                  <div key={n.id} style={{ display: "flex", alignItems: "flex-start", gap: 16, padding: "10px 16px", borderBottom: i < notes.length - 1 ? "1px solid #f0ede8" : "none" }}>
-                    <div style={{ width: 180, fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.05em", textTransform: "uppercase", flexShrink: 0, paddingTop: 1 }}>
-                      {isAdmin ? <EditableField value={n.label} onSave={v => updateNote(n.id, "label", v)} placeholder="Label" /> : n.label}
+                  <div key={n.id} style={{ display: "flex", alignItems: "flex-start", gap: 16, padding: "12px 20px", borderBottom: i < notes.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#faf8f5" : "#fff" }}>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.04em", textTransform: "uppercase", width: 140, flexShrink: 0, paddingTop: 2 }}>
+                      <EditableField value={n.label} onSave={v => updateNote(n.id, "label", v)} placeholder="Label" style={{ fontSize: 11 }} />
                     </div>
                     <div style={{ flex: 1, fontSize: 13, color: ARC_NAVY }}>
-                      {isAdmin ? <EditableField value={n.value} onSave={v => updateNote(n.id, "value", v)} placeholder="Value" multiline /> : n.value}
+                      <EditableField value={n.value} onSave={v => updateNote(n.id, "value", v)} placeholder="Value…" multiline />
                     </div>
                     {isAdmin && <button className="btn" onClick={() => deleteNote(n.id)} style={{ background: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", border: "none", flexShrink: 0 }} onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.target.style.color = "#c8c0b8"}>×</button>}
                   </div>
@@ -1999,7 +2144,6 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
           <DrawingsTab projectId={projectId} isAdmin={isAdmin} onDrawingsLoaded={setDrawings} />
         )}
 
-        {activeTab === "documents" && <DocumentsTab projectId={projectId} />}
         {activeTab === "products" && (
           <ProductsTab projectId={projectId} isAdmin={isAdmin} />
         )}
