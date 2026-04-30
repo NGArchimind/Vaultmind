@@ -815,6 +815,7 @@ Any conflicts or caveats within the document. If none: "No contradictions identi
       setCostEst(costGBP);
       setStatusMsg("Answer ready");
     } catch (err) {
+      console.error("askQuestion error:", err);
       setStage(null);
       if (err.message === "TIMEOUT") {
         setTimedOut(true);
@@ -822,7 +823,7 @@ Any conflicts or caveats within the document. If none: "No contradictions identi
       } else if (err.message && err.message.includes('rate_limit')) {
         setStatusMsg('Rate limit reached — retrying automatically in 15 seconds…');
       } else {
-        setStatusMsg("Error: " + err.message);
+        setStatusMsg("Error: " + (err.message || String(err)));
       }
     }
   };
