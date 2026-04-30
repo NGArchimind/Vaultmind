@@ -19,8 +19,18 @@ export default function AdminSection() {
   const [addError, setAddError] = useState("");
 
   // Inline role change tracking
-  const [updatingRole, setUpdatingRole] = useState(null); // uid being updated
+  const [updatingRole, setUpdatingRole] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+
+  // Transmittal template
+  const [templateDownloading, setTemplateDownloading] = useState(false);
+  const [templateUploading, setTemplateUploading] = useState(false);
+  const [templateMsg, setTemplateMsg] = useState(null);
+
+  function showTemplateMsg(type, text) {
+    setTemplateMsg({ type, text });
+    setTimeout(() => setTemplateMsg(null), 7000);
+  }
 
   const loadUsers = async () => {
     setLoading(true);
@@ -82,6 +92,53 @@ export default function AdminSection() {
       alert("Failed to delete user: " + e.message);
     }
     setDeletingId(null);
+  };
+
+  const handleDownloadTemplate = async () => {
+    setTemplateDownloading(true);
+    try {
+      const data = await api("/api/admin/transmittal-template");
+      const binary = atob(data.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "transmittal_template.xlsx";
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (e) { showTemplateMsg("err", "Download failed: " + e.message); }
+    setTemplateDownloading(false);
+  };
+
+  const handleUploadTemplate = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.name.endsWith(".xlsx")) {
+      showTemplateMsg("err", "Please upload an .xlsx file.");
+      e.target.value = "";
+      return;
+    }
+    setTemplateUploading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64 = reader.result.split(",")[1];
+        try {
+          await api("/api/admin/transmittal-template", { method: "POST", body: { base64 } });
+          showTemplateMsg("ok", "Template uploaded successfully. All future transmittals will use this template.");
+        } catch (err) {
+          showTemplateMsg("err", err.message);
+        }
+        setTemplateUploading(false);
+      };
+      reader.onerror = () => { showTemplateMsg("err", "Failed to read file."); setTemplateUploading(false); };
+      reader.readAsDataURL(file);
+    } catch (e) {
+      showTemplateMsg("err", e.message);
+      setTemplateUploading(false);
+    }
+    e.target.value = "";
   };
 
   return (
@@ -289,6 +346,82 @@ export default function AdminSection() {
       <p style={{ fontSize: 11, color: "#b0a8a0", marginTop: 16, letterSpacing: "0.03em" }}>
         {users.length} user{users.length !== 1 ? "s" : ""}
       </p>
+
+      {/* ── Transmittal Template ─────────────────────────────────────────── */}
+      <div style={{ marginTop: 40, marginBottom: 8 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 300, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif", marginBottom: 4 }}>
+          Transmittal Template
+        </h2>
+        <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 20 }}>
+          Download the starter template, adjust the formatting and visual styling in Excel, then upload it back. All future transmittals will use your custom template.
+        </p>
+
+        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${ARC_TERRACOTTA}`, padding: "24px 28px", maxWidth: 560 }}>
+          <p style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 20 }}>
+            Template Management
+          </p>
+
+          {/* Instructions */}
+          <div style={{ background: "#faf8f5", border: "1px solid #e8e0d5", padding: "12px 16px", marginBottom: 20, fontSize: 12, color: "#6a6058", lineHeight: 1.7 }}>
+            <strong style={{ display: "block", marginBottom: 4, color: ARC_NAVY }}>How to customise:</strong>
+            1. Download the starter template below<br />
+            2. Open in Excel — adjust colours, fonts, and layout as needed<br />
+            3. Do not move or rename the named cells (shown with pink highlights)<br />
+            4. Save the file and upload it back here
+          </div>
+
+          {/* Template status message */}
+          {templateMsg && (
+            <div style={{
+              padding: "10px 14px", marginBottom: 16, fontSize: 12, borderRadius: 2,
+              background: templateMsg.type === "ok" ? "#eef6ee" : "#fdf0f0",
+              border: `1px solid ${templateMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`,
+              color: templateMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA,
+            }}>
+              {templateMsg.text}
+            </div>
+          )}
+
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
+            {/* Download */}
+            <button
+              onClick={handleDownloadTemplate}
+              disabled={templateDownloading}
+              style={{
+                background: ARC_NAVY, color: "#fff", border: "none",
+                padding: "10px 20px", fontSize: 11, fontWeight: 600,
+                letterSpacing: "0.06em", textTransform: "uppercase",
+                cursor: templateDownloading ? "not-allowed" : "pointer",
+                opacity: templateDownloading ? 0.6 : 1,
+                display: "flex", alignItems: "center", gap: 8,
+                fontFamily: "Inter, Arial, sans-serif",
+              }}
+            >
+              {templateDownloading ? <><Spinner size={11} /> Downloading…</> : "↓ Download Template"}
+            </button>
+
+            {/* Upload */}
+            <label style={{
+              background: "transparent", color: templateUploading ? "#9a9088" : ARC_TERRACOTTA,
+              border: `1px solid ${ARC_TERRACOTTA}`, padding: "9px 20px",
+              fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase",
+              cursor: templateUploading ? "not-allowed" : "pointer",
+              display: "flex", alignItems: "center", gap: 8,
+              fontFamily: "Inter, Arial, sans-serif",
+            }}>
+              {templateUploading ? <><Spinner size={11} /> Uploading…</> : "↑ Upload Custom Template"}
+              <input
+                type="file"
+                accept=".xlsx"
+                onChange={handleUploadTemplate}
+                disabled={templateUploading}
+                style={{ display: "none" }}
+              />
+            </label>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }

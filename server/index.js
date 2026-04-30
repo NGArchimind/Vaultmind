@@ -1209,6 +1209,8 @@ app.delete("/api/projects/:id/todos/:tid", requireAuth, async (req, res) => {
 
 // ── Transmittal generation ────────────────────────────────────────────────────
 
+const TEMPLATE_KEY = "templates/transmittal_template.xlsx";
+
 function transmittalPrefix(projectId) {
   return `projects/${projectId}/documents/transmittals/`;
 }
@@ -1222,6 +1224,156 @@ function formatDateDMY(date) {
 
 function formatDateISO(date) {
   return date.toISOString().slice(0, 10);
+}
+
+// ── Build starter template workbook ──────────────────────────────────────────
+// Named ranges used by generateTransmittal:
+//   job_number      → A2  (job number value)
+//   project_name    → A6  (project name value)
+//   site_location   → A4  (site/location value)
+//   date_day_start  → C5  (first Day cell — issue columns start here)
+//   drawings_start  → A10 (first drawing title cell — drawing rows start here)
+async function buildStarterTemplate() {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "Archimind";
+
+  const ws = wb.addWorksheet("Drawing Schedule");
+  ws.pageSetup = {
+    paperSize: 9, orientation: "portrait", fitToPage: true,
+    fitToWidth: 1, fitToHeight: 0,
+    margins: { left: 0.5, right: 0.5, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 },
+  };
+
+  const TEAL    = "FF2d6a4f";
+  const NAVY    = "FF1a2332";
+  const SALMON  = "FFFFC0CB";
+  const LGREY   = "FFF5F5F5";
+  const HDRFILL = "FFE8E8E8";
+  const WHITE   = "FFFFFFFF";
+  const BORDCLR = "FFB0B0B0";
+
+  function sf(argb) { return { type: "pattern", pattern: "solid", fgColor: { argb } }; }
+  function bdr() { const s = { style: "thin", color: { argb: BORDCLR } }; return { top: s, left: s, bottom: s, right: s }; }
+  function f(bold = false, size = 8, color = NAVY) { return { name: "Arial", size, bold, color: { argb: color } }; }
+
+  ws.getColumn(1).width = 52;
+  ws.getColumn(2).width = 12;
+  ws.getColumn(3).width = 8;
+
+  // Row 1: Banner
+  ws.getRow(1).height = 22;
+  ws.mergeCells("A1:C1");
+  Object.assign(ws.getCell("A1"), {
+    value: "Architectural Design and Technology",
+    font: { name: "Arial", size: 11, bold: false, italic: true, color: { argb: WHITE } },
+    fill: sf(TEAL),
+    alignment: { horizontal: "center", vertical: "middle" },
+  });
+
+  // Row 2: Job number (named: job_number → A2)
+  ws.getRow(2).height = 13;
+  Object.assign(ws.getCell("A2"), { value: "Job Number -", font: f(true, 8) });
+  ws.mergeCells("B2:C2");
+  Object.assign(ws.getCell("B2"), { value: "Drawings - Working Drawings", font: f(false, 8) });
+
+  // Row 3: Spacer
+  ws.getRow(3).height = 4;
+
+  // Row 4: Site (named: site_location → A4)
+  ws.getRow(4).height = 12;
+  Object.assign(ws.getCell("A4"), { value: "Site -", font: f(false, 8) });
+  Object.assign(ws.getCell("B4"), { value: "Date of Issue", font: f(false, 8) });
+
+  // Row 5: Day header — date_day_start named range → C5
+  ws.getRow(5).height = 12;
+  Object.assign(ws.getCell("B5"), { value: "Day", font: f(false, 8) });
+  Object.assign(ws.getCell("C5"), {
+    value: "", font: f(false, 8),
+    alignment: { horizontal: "center" }, fill: sf(SALMON),
+  });
+
+  // Row 6: Project name (named: project_name → A6) + Month header
+  ws.getRow(6).height = 14;
+  Object.assign(ws.getCell("A6"), {
+    value: "Project Name",
+    font: { name: "Arial", size: 11, bold: true, color: { argb: NAVY } },
+  });
+  Object.assign(ws.getCell("B6"), { value: "Month", font: f(false, 8) });
+  Object.assign(ws.getCell("C6"), {
+    value: "", font: f(false, 8),
+    alignment: { horizontal: "center" }, fill: sf(SALMON),
+  });
+
+  // Row 7: Year header
+  ws.getRow(7).height = 12;
+  Object.assign(ws.getCell("B7"), { value: "Year", font: f(false, 8) });
+  Object.assign(ws.getCell("C7"), {
+    value: "", font: f(false, 8),
+    alignment: { horizontal: "center" }, fill: sf(SALMON),
+  });
+
+  // Row 8: Column headers
+  ws.getRow(8).height = 14;
+  Object.assign(ws.getCell("A8"), {
+    value: "Drawing Title", font: f(true, 8), fill: sf(HDRFILL),
+    border: bdr(), alignment: { vertical: "middle" },
+  });
+  Object.assign(ws.getCell("B8"), {
+    value: "Drawing", font: f(true, 8), fill: sf(HDRFILL),
+    border: bdr(), alignment: { horizontal: "center", vertical: "middle" },
+  });
+  Object.assign(ws.getCell("C8"), {
+    value: "Amendments", font: f(true, 8), fill: sf(HDRFILL),
+    border: bdr(), alignment: { horizontal: "left", vertical: "middle" },
+  });
+
+  // Row 9: Example group header
+  ws.getRow(9).height = 13;
+  ws.mergeCells("A9:C9");
+  Object.assign(ws.getCell("A9"), {
+    value: "Drawing Group (e.g. GA Plans)",
+    font: f(true, 8), fill: sf(HDRFILL),
+    border: bdr(), alignment: { vertical: "middle" },
+  });
+
+  // Row 10: Example drawing row — drawings_start named range → A10
+  ws.getRow(10).height = 12;
+  Object.assign(ws.getCell("A10"), {
+    value: "Example Drawing Title", font: f(false, 8),
+    fill: sf(WHITE), border: bdr(), alignment: { vertical: "middle" },
+  });
+  Object.assign(ws.getCell("B10"), {
+    value: "XXXX-00-001", font: f(false, 8),
+    fill: sf(WHITE), border: bdr(), alignment: { horizontal: "center", vertical: "middle" },
+  });
+  Object.assign(ws.getCell("C10"), {
+    value: "P01", font: f(true, 8),
+    fill: sf(SALMON), border: bdr(), alignment: { horizontal: "center", vertical: "middle" },
+  });
+
+  // Row 11: Alternating example row
+  ws.getRow(11).height = 12;
+  Object.assign(ws.getCell("A11"), {
+    value: "Example Drawing Title 2", font: f(false, 8),
+    fill: sf(LGREY), border: bdr(), alignment: { vertical: "middle" },
+  });
+  Object.assign(ws.getCell("B11"), {
+    value: "XXXX-00-002", font: f(false, 8),
+    fill: sf(LGREY), border: bdr(), alignment: { horizontal: "center", vertical: "middle" },
+  });
+  Object.assign(ws.getCell("C11"), {
+    value: "", font: f(false, 8),
+    fill: sf(SALMON), border: bdr(), alignment: { horizontal: "center", vertical: "middle" },
+  });
+
+  // ── Named ranges ───────────────────────────────────────────────────────────
+  wb.definedNames.add("'Drawing Schedule'!$A$2", "job_number");
+  wb.definedNames.add("'Drawing Schedule'!$A$6", "project_name");
+  wb.definedNames.add("'Drawing Schedule'!$A$4", "site_location");
+  wb.definedNames.add("'Drawing Schedule'!$C$5", "date_day_start");
+  wb.definedNames.add("'Drawing Schedule'!$A$10", "drawings_start");
+
+  return wb;
 }
 
 async function generateTransmittal(projectId, syncResults) {
@@ -1250,232 +1402,157 @@ async function generateTransmittal(projectId, syncResults) {
     const issueDay   = String(now.getDate()).padStart(2, "0");
     const issueMonth = String(now.getMonth() + 1).padStart(2, "0");
     const issueYear  = String(now.getFullYear()).slice(2);
-    const issueDateDMY = `${issueDay}/${issueMonth}/${issueYear}`;
     const issueDateISO = formatDateISO(now);
     const prefix = transmittalPrefix(projectId);
     const excelKey = `${prefix}transmittal.xlsx`;
 
-    // ── Colour / style constants ──────────────────────────────────────────────
-    const TEAL    = "FF2d6a4f";  // practice dark teal banner (matches Architectus green)
-    const NAVY    = "FF1a2332";  // dark navy text
-    const SALMON  = "FFFFC0CB";  // latest issue column highlight (pink/salmon)
-    const LGREY   = "FFF5F5F5";  // alternating row light grey
-    const HDRFILL = "FFE8E8E8";  // column header row fill
+    // ── Load template (custom from R2 or build starter) ─────────────────────
+    const workbook = new ExcelJS.Workbook();
+    try {
+      const tmpl = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: TEMPLATE_KEY }));
+      const buf  = await streamToBuffer(tmpl.Body);
+      await workbook.xlsx.load(buf);
+    } catch (_) {
+      // No custom template uploaded yet — build the starter
+      const starterWb = await buildStarterTemplate();
+      const starterBuf = await starterWb.xlsx.writeBuffer();
+      await workbook.xlsx.load(starterBuf);
+    }
+
+    const ws = workbook.getWorksheet("Drawing Schedule");
+    if (!ws) throw new Error("Worksheet 'Drawing Schedule' not found in template");
+
+    // ── Read named ranges to find anchor cells ───────────────────────────────
+    function resolveNamedRange(name) {
+      try {
+        const ref = workbook.definedNames.getRanges(name);
+        if (!ref || !ref.ranges || ref.ranges.length === 0) return null;
+        // ref.ranges[0] is like "'Drawing Schedule'!$A$2"
+        const match = ref.ranges[0].match(/\$([A-Z]+)\$(\d+)/);
+        if (!match) return null;
+        const col = match[1].split("").reduce((acc, ch) => acc * 26 + ch.charCodeAt(0) - 64, 0);
+        const row = parseInt(match[2], 10);
+        return { row, col };
+      } catch (_) { return null; }
+    }
+
+    const anchorJobNumber     = resolveNamedRange("job_number")     || { row: 2, col: 1 };
+    const anchorProjectName   = resolveNamedRange("project_name")   || { row: 6, col: 1 };
+    const anchorSiteLocation  = resolveNamedRange("site_location")  || { row: 4, col: 1 };
+    const anchorDateDayStart  = resolveNamedRange("date_day_start") || { row: 5, col: 3 };
+    const anchorDrawingsStart = resolveNamedRange("drawings_start") || { row: 10, col: 1 };
+
+    // ── Fill project info ────────────────────────────────────────────────────
+    ws.getCell(anchorJobNumber.row, anchorJobNumber.col).value =
+      project?.job_number ? `Job Number - ${project.job_number}` : "Job Number -";
+
+    ws.getCell(anchorProjectName.row, anchorProjectName.col).value = project?.name || "";
+
+    ws.getCell(anchorSiteLocation.row, anchorSiteLocation.col).value =
+      project?.location ? `Site - ${project.location}` : "Site -";
+
+    // ── Issue history: stored in hidden _meta sheet ──────────────────────────
+    let metaWs = workbook.getWorksheet("_meta");
+    if (!metaWs) {
+      metaWs = workbook.addWorksheet("_meta");
+      metaWs.state = "hidden";
+    }
+
+    // Read existing issue dates from meta
+    const existingIssueDates = [];
+    let mc = 1;
+    while (metaWs.getRow(1).getCell(mc).value) {
+      existingIssueDates.push({
+        day:   String(metaWs.getRow(1).getCell(mc).value),
+        month: String(metaWs.getRow(2).getCell(mc).value),
+        year:  String(metaWs.getRow(3).getCell(mc).value),
+      });
+      mc++;
+    }
+
+    // Append this new issue to meta
+    const newMetaCol = existingIssueDates.length + 1;
+    metaWs.getRow(1).getCell(newMetaCol).value = issueDay;
+    metaWs.getRow(2).getCell(newMetaCol).value = issueMonth;
+    metaWs.getRow(3).getCell(newMetaCol).value = issueYear;
+
+    const allIssueDates = [...existingIssueDates, { day: issueDay, month: issueMonth, year: issueYear }];
+    const totalIssueCols = allIssueDates.length;
+
+    // ── Colours / style helpers ──────────────────────────────────────────────
+    const SALMON  = "FFFFC0CB";
+    const LGREY   = "FFF5F5F5";
+    const HDRFILL = "FFE8E8E8";
     const WHITE   = "FFFFFFFF";
     const BORDCLR = "FFB0B0B0";
+    const NAVY    = "FF1a2332";
 
     function sf(argb) { return { type: "pattern", pattern: "solid", fgColor: { argb } }; }
-    function bdr(style = "thin") {
-      const s = { style, color: { argb: BORDCLR } };
-      return { top: s, left: s, bottom: s, right: s };
+    function bdr() { const s = { style: "thin", color: { argb: BORDCLR } }; return { top: s, left: s, bottom: s, right: s }; }
+    function f(bold = false, size = 8, color = NAVY) { return { name: "Arial", size, bold, color: { argb: color } }; }
+
+    // ── Write issue date columns into header rows ────────────────────────────
+    const dayRow   = anchorDateDayStart.row;
+    const monthRow = dayRow + 1;
+    const yearRow  = dayRow + 2;
+    const issueStartCol = anchorDateDayStart.col;
+
+    // Set column widths for issue columns
+    for (let i = 0; i < totalIssueCols; i++) {
+      ws.getColumn(issueStartCol + i).width = 8;
     }
-    function font(bold = false, size = 8, color = NAVY) {
-      return { name: "Arial", size, bold, color: { argb: color } };
-    }
 
-    // ── Column layout ─────────────────────────────────────────────────────────
-    // Col 1 (A): Drawing Title   width 52
-    // Col 2 (B): Drawing No.     width 12
-    // Col 3+:    Issue columns   width 8 each
-    const COL_TITLE  = 1;
-    const COL_DRAWNO = 2;
-    const FIXED_COLS = 2;
+    allIssueDates.forEach((issue, i) => {
+      const colNum = issueStartCol + i;
+      const isLatest = i === totalIssueDates - 1;
+      const fill = sf(isLatest ? SALMON : "FFE8E8E8");
 
-    // ── Load or rebuild workbook ──────────────────────────────────────────────
-    const workbook = new ExcelJS.Workbook();
-    workbook.creator = "Archimind";
-
-    // Page setup for A4 portrait printing
-    let ws;
-    let existingIssueDates = []; // array of { col, day, month, year }
-
-    try {
-      const existing = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: excelKey }));
-      const buf = await streamToBuffer(existing.Body);
-      await workbook.xlsx.load(buf);
-      ws = workbook.getWorksheet("Drawing Schedule");
-    } catch (_) { /* first time */ }
-
-    const isNew = !ws;
-
-    // Always rebuild from scratch to keep data/format in sync with current register
-    // Remove old sheet and recreate so drawing rows stay current
-    if (!isNew) {
-      workbook.removeWorksheet(ws.id);
-    }
-    ws = workbook.addWorksheet("Drawing Schedule");
-
-    ws.pageSetup = {
-      paperSize: 9,           // A4
-      orientation: "portrait",
-      fitToPage: true,
-      fitToWidth: 1,
-      fitToHeight: 0,
-      margins: { left: 0.5, right: 0.5, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 },
-    };
-
-    ws.getColumn(COL_TITLE).width  = 52;
-    ws.getColumn(COL_DRAWNO).width = 12;
-
-    // ── Rebuild issue history from syncResults metadata ───────────────────────
-    // We store issue dates in a hidden metadata sheet so history survives rebuild
-    let metaWs = workbook.getWorksheet("_meta");
-    if (!metaWs) metaWs = workbook.addWorksheet("_meta");
-    metaWs.state = "hidden";
-
-    // Read existing issue dates from meta sheet (row 1 = days, row 2 = months, row 3 = years)
-    const metaRow1 = metaWs.getRow(1);
-    const metaRow2 = metaWs.getRow(2);
-    const metaRow3 = metaWs.getRow(3);
-
-    // Read all existing issue columns from meta
-    let col = 1;
-    while (metaRow1.getCell(col).value) {
-      existingIssueDates.push({
-        col: FIXED_COLS + col,
-        day:   String(metaRow1.getCell(col).value),
-        month: String(metaRow2.getCell(col).value),
-        year:  String(metaRow3.getCell(col).value),
+      [dayRow, monthRow, yearRow].forEach((r, ri) => {
+        const cell = ws.getCell(r, colNum);
+        cell.value = [issue.day, issue.month, issue.year][ri];
+        cell.font  = f(false, 8);
+        cell.fill  = fill;
+        cell.alignment = { horizontal: "center" };
+        cell.border = bdr();
       });
-      col++;
+    });
+
+    // Also update the Amendments header to span all issue columns
+    const amendRow = anchorDateDayStart.row + 3; // row 8 in default template
+    const amendCell = ws.getCell(amendRow, issueStartCol);
+    if (amendCell.isMerged) {
+      // can't easily unmerge — just set value
+    } else {
+      try {
+        ws.mergeCells(amendRow, issueStartCol, amendRow, issueStartCol + totalIssueCols - 1);
+      } catch (_) { /* already merged or overlapping */ }
     }
+    amendCell.value = "Amendments";
+    amendCell.font  = f(true, 8);
+    amendCell.fill  = sf(HDRFILL);
+    amendCell.border = bdr();
 
-    // Append this new issue
-    const newMetaCol = existingIssueDates.length + 1;
-    metaRow1.getCell(newMetaCol).value = issueDay;
-    metaRow2.getCell(newMetaCol).value = issueMonth;
-    metaRow3.getCell(newMetaCol).value = issueYear;
-    metaRow1.commit(); metaRow2.commit(); metaRow3.commit();
-
-    // Full list including this issue
-    const allIssueDates = [
-      ...existingIssueDates,
-      { col: FIXED_COLS + newMetaCol, day: issueDay, month: issueMonth, year: issueYear },
-    ];
-
-    const totalIssueCols = allIssueDates.length;
-    const lastIssueCol = FIXED_COLS + totalIssueCols;
-
-    // Set issue column widths
-    for (let i = 1; i <= totalIssueCols; i++) {
-      ws.getColumn(FIXED_COLS + i).width = 8;
-    }
-
-    // ── Helper: set all border sides on a range ───────────────────────────────
-    function setRangeBorder(r1, c1, r2, c2, style = "thin") {
-      for (let r = r1; r <= r2; r++) {
-        for (let c = c1; c <= c2; c++) {
-          ws.getCell(r, c).border = bdr(style);
-        }
+    // ── Clear existing drawing rows (from drawings_start downwards) ──────────
+    const drawStartRow = anchorDrawingsStart.row;
+    const drawStartCol = anchorDrawingsStart.col; // always col 1 (title)
+    const drawNoCol    = drawStartCol + 1;        // col 2 (drawing number)
+    const lastRow = ws.rowCount;
+    for (let r = drawStartRow; r <= lastRow + 5; r++) {
+      ws.getRow(r).height = undefined;
+      for (let c = 1; c <= issueStartCol + totalIssueCols; c++) {
+        const cell = ws.getCell(r, c);
+        cell.value     = null;
+        cell.font      = f(false, 8);
+        cell.fill      = sf(WHITE);
+        cell.border    = undefined;
+        cell.alignment = {};
       }
     }
 
-    // ── ROW 1: Practice banner ────────────────────────────────────────────────
-    ws.getRow(1).height = 22;
-    ws.mergeCells(1, 1, 1, lastIssueCol);
-    const bannerCell = ws.getCell(1, 1);
-    bannerCell.value = "Architectural Design and Technology";
-    bannerCell.font  = { name: "Arial", size: 11, bold: false, italic: true, color: { argb: WHITE } };
-    bannerCell.fill  = sf(TEAL);
-    bannerCell.alignment = { horizontal: "center", vertical: "middle" };
+    // ── Write drawing rows grouped by drawing_type ───────────────────────────
+    const revMap = {};
+    drawings.forEach(d => { if (d.drawing_number) revMap[d.drawing_number] = d.revision || ""; });
 
-    // ── ROW 2: Job number + "Drawings - Working Drawings" ────────────────────
-    ws.getRow(2).height = 13;
-    ws.getCell(2, COL_TITLE).value = project?.job_number ? `Job Number - ${project.job_number}` : "Job Number -";
-    ws.getCell(2, COL_TITLE).font  = font(true, 8);
-    ws.getCell(2, COL_DRAWNO).value = "Drawings - Working Drawings";
-    ws.getCell(2, COL_DRAWNO).font  = font(false, 8);
-    ws.mergeCells(2, COL_DRAWNO, 2, lastIssueCol);
-
-    // ── ROW 3: blank spacer ───────────────────────────────────────────────────
-    ws.getRow(3).height = 4;
-
-    // ── ROWS 4-7: Left col = site/project info, right = date of issue header ─
-    // Row 4: "Site - [location]"  |  "Date of Issue"  |  Day values
-    // Row 5: "[location2]"        |  "Day"            |  day nums
-    // Row 6: "[project bold]"     |  "Month"          |  month nums
-    // Row 7: blank               |  "Year"            |  year nums
-
-    ws.getRow(4).height = 12;
-    ws.getRow(5).height = 12;
-    ws.getRow(6).height = 12;
-    ws.getRow(7).height = 12;
-
-    // Left side project info
-    ws.getCell(4, COL_TITLE).value = project?.location ? `Site - ${project.location}` : "Site -";
-    ws.getCell(4, COL_TITLE).font  = font(false, 8);
-
-    ws.getCell(5, COL_TITLE).value = project?.location || "";
-    ws.getCell(5, COL_TITLE).font  = font(false, 8);
-
-    ws.getCell(6, COL_TITLE).value = project?.name || "";
-    ws.getCell(6, COL_TITLE).font  = { name: "Arial", size: 11, bold: true, color: { argb: NAVY } };
-
-    // "Date of Issue" label merged over drawing no col + issue cols, row 4
-    ws.mergeCells(4, COL_DRAWNO, 4, lastIssueCol);
-    ws.getCell(4, COL_DRAWNO).value = "Date of Issue";
-    ws.getCell(4, COL_DRAWNO).font  = font(false, 8);
-    ws.getCell(4, COL_DRAWNO).alignment = { horizontal: "left" };
-
-    // Row 5: "Day" label + day values
-    ws.getCell(5, COL_DRAWNO).value = "Day";
-    ws.getCell(5, COL_DRAWNO).font  = font(false, 8);
-    allIssueDates.forEach((issue, i) => {
-      const c = ws.getCell(5, FIXED_COLS + i + 1);
-      c.value = issue.day;
-      c.font  = font(false, 8);
-      c.alignment = { horizontal: "center" };
-      if (FIXED_COLS + i + 1 === lastIssueCol) c.fill = sf(SALMON);
-    });
-
-    // Row 6: "Month" label + month values
-    ws.getCell(6, COL_DRAWNO).value = "Month";
-    ws.getCell(6, COL_DRAWNO).font  = font(false, 8);
-    allIssueDates.forEach((issue, i) => {
-      const c = ws.getCell(6, FIXED_COLS + i + 1);
-      c.value = issue.month;
-      c.font  = font(false, 8);
-      c.alignment = { horizontal: "center" };
-      if (FIXED_COLS + i + 1 === lastIssueCol) c.fill = sf(SALMON);
-    });
-
-    // Row 7: "Year" label + year values
-    ws.getCell(7, COL_DRAWNO).value = "Year";
-    ws.getCell(7, COL_DRAWNO).font  = font(false, 8);
-    allIssueDates.forEach((issue, i) => {
-      const c = ws.getCell(7, FIXED_COLS + i + 1);
-      c.value = issue.year;
-      c.font  = font(false, 8);
-      c.alignment = { horizontal: "center" };
-      if (FIXED_COLS + i + 1 === lastIssueCol) c.fill = sf(SALMON);
-    });
-
-    // ── ROW 8: Thin border line + column headers ──────────────────────────────
-    ws.getRow(8).height = 14;
-
-    ws.getCell(8, COL_TITLE).value = "Drawing Title";
-    ws.getCell(8, COL_TITLE).font  = font(true, 8);
-    ws.getCell(8, COL_TITLE).fill  = sf(HDRFILL);
-    ws.getCell(8, COL_TITLE).border = bdr();
-    ws.getCell(8, COL_TITLE).alignment = { vertical: "middle" };
-
-    ws.getCell(8, COL_DRAWNO).value = "Drawing";
-    ws.getCell(8, COL_DRAWNO).font  = font(true, 8);
-    ws.getCell(8, COL_DRAWNO).fill  = sf(HDRFILL);
-    ws.getCell(8, COL_DRAWNO).border = bdr();
-    ws.getCell(8, COL_DRAWNO).alignment = { horizontal: "center", vertical: "middle" };
-
-    // "Amendments" header merged across all issue columns
-    ws.mergeCells(8, FIXED_COLS + 1, 8, lastIssueCol);
-    const amendHdr = ws.getCell(8, FIXED_COLS + 1);
-    amendHdr.value = "Amendments";
-    amendHdr.font  = font(true, 8);
-    amendHdr.fill  = sf(HDRFILL);
-    amendHdr.border = bdr();
-    amendHdr.alignment = { horizontal: "left", vertical: "middle" };
-
-    // ── Drawing rows ──────────────────────────────────────────────────────────
-    // Group drawings by drawing_type. Ungrouped = "Other"
     const groups = {};
     for (const d of drawings) {
       const grp = (d.drawing_type || "Other").trim();
@@ -1483,81 +1560,62 @@ async function generateTransmittal(projectId, syncResults) {
       groups[grp].push(d);
     }
 
-    // Build revision map from current register
-    const revMap = {};
-    drawings.forEach(d => { if (d.drawing_number) revMap[d.drawing_number] = d.revision || ""; });
-
-    let currentRow = 9;
-    let drawingRowCount = 0; // for alternating fill
+    let currentRow = drawStartRow;
+    let drawIdx = 0;
 
     for (const [groupName, groupDrawings] of Object.entries(groups)) {
       // Group header row
       ws.getRow(currentRow).height = 13;
-      ws.mergeCells(currentRow, COL_TITLE, currentRow, lastIssueCol);
-      const grpCell = ws.getCell(currentRow, COL_TITLE);
-      grpCell.value = groupName;
-      grpCell.font  = font(true, 8);
-      grpCell.fill  = sf(HDRFILL);
-      grpCell.border = bdr();
-      grpCell.alignment = { vertical: "middle" };
+      try {
+        ws.mergeCells(currentRow, drawStartCol, currentRow, issueStartCol + totalIssueCols - 1);
+      } catch (_) {}
+      const gh = ws.getCell(currentRow, drawStartCol);
+      gh.value = groupName;
+      gh.font  = f(true, 8);
+      gh.fill  = sf(HDRFILL);
+      gh.border = bdr();
+      gh.alignment = { vertical: "middle" };
       currentRow++;
 
-      // Drawing rows
       for (const d of groupDrawings) {
         ws.getRow(currentRow).height = 12;
-        const rowFill = drawingRowCount % 2 === 0 ? WHITE : LGREY;
-
-        // Title cell
-        const titleCell = ws.getCell(currentRow, COL_TITLE);
-        titleCell.value = d.title || "";
-        titleCell.font  = font(false, 8);
-        titleCell.fill  = sf(rowFill);
-        titleCell.border = bdr();
-        titleCell.alignment = { vertical: "middle" };
-
-        // Drawing number cell
-        const noCell = ws.getCell(currentRow, COL_DRAWNO);
-        noCell.value = d.drawing_number || "";
-        noCell.font  = font(false, 8);
-        noCell.fill  = sf(rowFill);
-        noCell.border = bdr();
-        noCell.alignment = { horizontal: "center", vertical: "middle" };
-
-        // Issue revision cells
+        const rowFill = drawIdx % 2 === 0 ? WHITE : LGREY;
         const isChanged = changedNumbers.has(d.drawing_number);
-        for (let i = 0; i < totalIssueCols; i++) {
-          const issueColNum = FIXED_COLS + i + 1;
-          const isThisIssue = issueColNum === lastIssueCol;
-          const cell = ws.getCell(currentRow, issueColNum);
 
-          // Only populate the latest issue column for changed drawings;
-          // previous columns are empty (new sheet = history is in meta only)
-          // For the current issue: show revision if changed
-          if (isThisIssue) {
-            cell.value = isChanged ? (revMap[d.drawing_number] || "") : "";
-            cell.fill  = sf(SALMON);
-          } else {
-            cell.value = "";
-            cell.fill  = sf(rowFill);
-          }
-          cell.font      = font(isThisIssue && isChanged, 8);
-          cell.border    = bdr();
+        // Title
+        const tc = ws.getCell(currentRow, drawStartCol);
+        tc.value = d.title || "";
+        tc.font  = f(false, 8); tc.fill = sf(rowFill);
+        tc.border = bdr(); tc.alignment = { vertical: "middle" };
+
+        // Drawing number
+        const nc = ws.getCell(currentRow, drawNoCol);
+        nc.value = d.drawing_number || "";
+        nc.font  = f(false, 8); nc.fill = sf(rowFill);
+        nc.border = bdr(); nc.alignment = { horizontal: "center", vertical: "middle" };
+
+        // Issue columns
+        for (let i = 0; i < totalIssueCols; i++) {
+          const colNum = issueStartCol + i;
+          const isLatest = i === totalIssueDates - 1;
+          const cell = ws.getCell(currentRow, colNum);
+          cell.value = isLatest ? (isChanged ? (revMap[d.drawing_number] || "") : "") : "";
+          cell.font  = f(isLatest && isChanged, 8);
+          cell.fill  = sf(isLatest ? SALMON : rowFill);
+          cell.border = bdr();
           cell.alignment = { horizontal: "center", vertical: "middle" };
         }
 
         currentRow++;
-        drawingRowCount++;
+        drawIdx++;
       }
 
-      // Blank spacer row between groups
-      ws.getRow(currentRow).height = 6;
-      for (let c = 1; c <= lastIssueCol; c++) {
-        ws.getCell(currentRow, c).fill = sf(WHITE);
-      }
+      // Spacer row
+      ws.getRow(currentRow).height = 5;
       currentRow++;
     }
 
-    // ── Save Excel ────────────────────────────────────────────────────────────
+    // ── Save Excel to R2 ─────────────────────────────────────────────────────
     const xlsxBuffer = await workbook.xlsx.writeBuffer();
     await r2.send(new PutObjectCommand({
       Bucket: BUCKET, Key: excelKey,
@@ -1565,81 +1623,56 @@ async function generateTransmittal(projectId, syncResults) {
       ContentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     }));
 
-    // ── HTML snapshot (matches Excel layout) ──────────────────────────────────
-    // Build table rows from drawings grouped same way
-    const htmlGroups = [];
-    for (const [groupName, groupDrawings] of Object.entries(groups)) {
-      const rows = groupDrawings.map(d => ({
-        title: d.title || "",
-        drawingNo: d.drawing_number || "",
-        isChanged: changedNumbers.has(d.drawing_number),
-        revision: revMap[d.drawing_number] || "",
-      }));
-      htmlGroups.push({ name: groupName, rows });
-    }
-
+    // ── HTML snapshot ─────────────────────────────────────────────────────────
     const issueCellsHtml = allIssueDates.map((issue, i) => {
       const isLatest = i === allIssueDates.length - 1;
-      return `<th style="width:28px;text-align:center;background:${isLatest ? "#ffc0cb" : "#e8e8e8"};${isLatest ? "font-weight:bold;" : ""}">${issue.day}<br>${issue.month}<br>${issue.year}</th>`;
+      return `<th style="width:28px;text-align:center;background:${isLatest ? "#ffc0cb" : "#e8e8e8"}">${issue.day}<br>${issue.month}<br>${issue.year}</th>`;
     }).join("");
 
-    const htmlBodyRows = htmlGroups.map(grp => {
-      const grpRow = `<tr><td colspan="${2 + allIssueDates.length}" style="font-weight:bold;background:#e8e8e8;padding:4px 6px;border:1px solid #b0b0b0;font-size:8pt">${grp.name}</td></tr>`;
-      const dRows = grp.rows.map((d, idx) => {
+    const htmlBodyRows = Object.entries(groups).map(([grpName, grpDrawings]) => {
+      const grpRow = `<tr><td colspan="${2 + allIssueDates.length}" style="font-weight:bold;background:#e8e8e8;padding:4px 6px;border:1px solid #b0b0b0;font-size:8pt">${grpName}</td></tr>`;
+      const dRows = grpDrawings.map((d, idx) => {
         const bg = idx % 2 === 0 ? "#ffffff" : "#f5f5f5";
+        const isChanged = changedNumbers.has(d.drawing_number);
         const issueCells = allIssueDates.map((issue, i) => {
           const isLatest = i === allIssueDates.length - 1;
-          const val = isLatest ? (d.isChanged ? d.revision : "") : "";
-          return `<td style="text-align:center;background:${isLatest ? "#ffc0cb" : bg};border:1px solid #b0b0b0;font-size:8pt;${isLatest && d.isChanged ? "font-weight:bold;" : ""}">${val}</td>`;
+          const val = isLatest ? (isChanged ? (revMap[d.drawing_number] || "") : "") : "";
+          return `<td style="text-align:center;background:${isLatest ? "#ffc0cb" : bg};border:1px solid #b0b0b0;font-size:8pt;${isLatest && isChanged ? "font-weight:bold;" : ""}">${val}</td>`;
         }).join("");
-        return `<tr style="background:${bg}">
-          <td style="padding:2px 6px;border:1px solid #b0b0b0;font-size:8pt">${d.title}</td>
-          <td style="text-align:center;padding:2px 6px;border:1px solid #b0b0b0;font-size:8pt">${d.drawingNo}</td>
-          ${issueCells}
-        </tr>`;
+        return `<tr><td style="padding:2px 6px;border:1px solid #b0b0b0;font-size:8pt;background:${bg}">${d.title || ""}</td><td style="text-align:center;padding:2px 4px;border:1px solid #b0b0b0;font-size:8pt;background:${bg}">${d.drawing_number || ""}</td>${issueCells}</tr>`;
       }).join("");
-      return grpRow + dRows + `<tr style="height:6px"><td colspan="${2 + allIssueDates.length}"></td></tr>`;
+      return grpRow + dRows + `<tr style="height:5px"><td colspan="${2 + allIssueDates.length}"></td></tr>`;
     }).join("");
 
     const htmlSnapshot = `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <title>Drawing Schedule — ${(project?.name || "").replace(/</g, "&lt;")}</title>
 <style>
-  @page { size: A4 portrait; margin: 15mm; }
-  body { font-family: Arial, sans-serif; font-size: 8pt; color: #1a2332; margin: 0; padding: 16px; }
-  .banner { background: #2d6a4f; color: #fff; padding: 8px 12px; font-size: 11pt; font-style: italic; text-align: center; }
-  .meta-row { display: flex; justify-content: space-between; align-items: baseline; padding: 4px 0; border-bottom: 1px solid #ccc; margin-bottom: 2px; }
-  .meta-row .left { font-weight: bold; font-size: 8pt; }
-  .meta-row .right { font-size: 8pt; }
-  .project-name { font-size: 12pt; font-weight: bold; padding: 4px 0 8px 0; }
-  table { border-collapse: collapse; width: 100%; margin-top: 4px; }
-  th { background: #e8e8e8; padding: 3px 5px; font-size: 8pt; border: 1px solid #b0b0b0; vertical-align: bottom; }
-  td { padding: 2px 6px; font-size: 8pt; border: 1px solid #b0b0b0; }
-  .generated { font-size: 7pt; color: #999; margin-top: 10px; text-align: right; }
+  @page{size:A4 portrait;margin:15mm}
+  body{font-family:Arial,sans-serif;font-size:8pt;color:#1a2332;margin:0;padding:16px}
+  .banner{background:#2d6a4f;color:#fff;padding:8px 12px;font-size:11pt;font-style:italic;text-align:center}
+  .meta{display:flex;justify-content:space-between;padding:3px 0;font-size:8pt;border-bottom:1px solid #ccc}
+  .project-name{font-size:12pt;font-weight:bold;padding:4px 0 8px 0}
+  table{border-collapse:collapse;width:100%;margin-top:4px}
+  th{background:#e8e8e8;padding:3px 4px;font-size:8pt;border:1px solid #b0b0b0;vertical-align:bottom}
+  td{padding:2px 6px;font-size:8pt;border:1px solid #b0b0b0}
+  .generated{font-size:7pt;color:#999;margin-top:10px;text-align:right}
 </style></head><body>
 <div class="banner">Architectural Design and Technology</div>
-<div class="meta-row">
-  <span class="left">${project?.job_number ? `Job Number - ${project.job_number}` : "Job Number -"}</span>
-  <span class="right">Drawings - Working Drawings</span>
+<div class="meta">
+  <span><b>${project?.job_number ? `Job Number - ${project.job_number}` : "Job Number -"}</b></span>
+  <span>Drawings - Working Drawings</span>
 </div>
 <div style="font-size:8pt;padding:2px 0">${project?.location ? `Site - ${project.location}` : ""}</div>
 <div class="project-name">${(project?.name || "").replace(/</g, "&lt;")}</div>
-<table>
-  <thead>
-    <tr>
-      <th style="text-align:left;width:auto">Drawing Title</th>
-      <th style="width:80px">Drawing</th>
-      ${issueCellsHtml}
-    </tr>
-  </thead>
-  <tbody>
-    ${htmlBodyRows}
-  </tbody>
-</table>
+<table><thead><tr>
+  <th style="text-align:left">Drawing Title</th>
+  <th style="width:90px">Drawing</th>
+  ${issueCellsHtml}
+</tr></thead><tbody>${htmlBodyRows}</tbody></table>
 <div class="generated">Generated by Archimind · ${issueDay}/${issueMonth}/${issueYear}</div>
 </body></html>`;
 
-    // ── Save HTML snapshot ────────────────────────────────────────────────────
     const snapshotKeyBase = `${prefix}transmittal_${issueDateISO}`;
     let snapshotKey = `${snapshotKeyBase}.html`;
     const existingKeys = await listAllKeys(prefix);
@@ -1648,7 +1681,6 @@ async function generateTransmittal(projectId, syncResults) {
       while (existingKeys.includes(`${snapshotKeyBase}_${n}.html`)) n++;
       snapshotKey = `${snapshotKeyBase}_${n}.html`;
     }
-
     await r2.send(new PutObjectCommand({
       Bucket: BUCKET, Key: snapshotKey,
       Body: Buffer.from(htmlSnapshot, "utf-8"),
@@ -2097,6 +2129,59 @@ app.delete("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) 
     const { error } = await supabase.auth.admin.deleteUser(req.params.uid);
     if (error) throw error;
     res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/admin/transmittal-template — download starter template (or existing custom one)
+app.get("/api/admin/transmittal-template", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    let buffer;
+    try {
+      // Try to serve the custom uploaded template
+      const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: TEMPLATE_KEY }));
+      buffer = await streamToBuffer(result.Body);
+    } catch (_) {
+      // No custom template yet — generate the starter
+      const wb = await buildStarterTemplate();
+      const buf = await wb.xlsx.writeBuffer();
+      buffer = Buffer.from(buf);
+    }
+    res.json({ base64: buffer.toString("base64"), name: "transmittal_template.xlsx" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/admin/transmittal-template — upload a custom template
+app.post("/api/admin/transmittal-template", requireAuth, requireAdmin, async (req, res) => {
+  const { base64 } = req.body;
+  if (!base64) return res.status(400).json({ error: "base64 required" });
+  try {
+    // Validate it has the required named ranges before saving
+    const wb = new ExcelJS.Workbook();
+    const buf = Buffer.from(base64, "base64");
+    await wb.xlsx.load(buf);
+
+    const required = ["job_number", "project_name", "site_location", "date_day_start", "drawings_start"];
+    const missing = required.filter(name => {
+      try { const r = wb.definedNames.getRanges(name); return !r || !r.ranges || r.ranges.length === 0; }
+      catch (_) { return true; }
+    });
+    if (missing.length > 0) {
+      return res.status(400).json({
+        error: `Template is missing required named ranges: ${missing.join(", ")}. Please define these in Excel using Formulas → Name Manager.`,
+      });
+    }
+
+    await r2.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: TEMPLATE_KEY,
+      Body: buf,
+      ContentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }));
+    res.json({ saved: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
