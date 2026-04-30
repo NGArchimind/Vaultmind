@@ -455,7 +455,7 @@ export default function App() {
 
   // ── 3-pass Q&A pipeline ───────────────────────────────────────────────────────
   const askQuestion = async () => {
-    if ((!vaultIndex && !tempDoc) || !question.trim()) return;
+    if ((!vault && !tempDoc) || !question.trim()) return;
     const q = question.trim();
     setAnswer(null);
     setCostEst(null);
@@ -467,8 +467,8 @@ export default function App() {
     setStatusMsg("Pass 1/3 · Reading contents pages and scoring sections…");
 
     try {
-      // ── Temp doc only mode (no vault indexed) ─────────────────────────────────
-      if (!vaultIndex && tempDoc) {
+      // ── Temp doc only mode (no vault selected) ───────────────────────────────
+      if (!vault && tempDoc) {
         setStage("answering");
         setStatusMsg("Reading temporary document and synthesising answer…");
         setProgress({ index: 100, select: 100, read: 100, answer: 0 });
@@ -501,8 +501,9 @@ Any conflicts or caveats within the document. If none: "No contradictions identi
           `You are an expert building regulations consultant. Answer using ONLY the provided document. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts.`,
           65536
         );
+        console.log("Temp doc answer received:", finalAnswer ? finalAnswer.slice(0, 100) : "EMPTY/UNDEFINED");
         setProgress(p => ({ ...p, answer: 100 }));
-        setAnswer(finalAnswer);
+        setAnswer(finalAnswer || "No answer returned from AI.");
         setStage("done");
         setHistory(prev => [...prev, { vaultId: "temp", question: q, answer: finalAnswer, timestamp: new Date() }]);
         setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
