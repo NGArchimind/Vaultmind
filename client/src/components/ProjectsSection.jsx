@@ -1098,6 +1098,24 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
   const [deletingSelected, setDeletingSelected] = useState(false);
   const [downloadingSelected, setDownloadingSelected] = useState(false);
 
+  // Transmittal generation
+  const [generatingTransmittal, setGeneratingTransmittal] = useState(false);
+  const [transmittalMsg, setTransmittalMsg] = useState(null); // { type: "ok"|"err", text }
+
+  async function handleGenerateTransmittal() {
+    if (generatingTransmittal || drawings.length === 0) return;
+    setGeneratingTransmittal(true);
+    setTransmittalMsg(null);
+    try {
+      await api(`/api/projects/${projectId}/transmittals/generate`, { method: "POST" });
+      setTransmittalMsg({ type: "ok", text: "Transmittal generated — check the Documents tab." });
+    } catch (e) {
+      setTransmittalMsg({ type: "err", text: "Failed to generate transmittal: " + e.message });
+    }
+    setGeneratingTransmittal(false);
+    setTimeout(() => setTransmittalMsg(null), 6000);
+  }
+
   // Filters
   const [filterText, setFilterText] = useState("");
   const [filterType, setFilterType] = useState("");
@@ -1284,13 +1302,33 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       {/* Section header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Drawing Register</h3>
-        {isAdmin && !showUpload && (
-          <button className="btn" onClick={() => setShowUpload(true)}
-            style={{ fontSize: 11, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
-            + Upload Drawing
-          </button>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {isAdmin && drawings.length > 0 && !showUpload && (
+            <button className="btn" onClick={handleGenerateTransmittal} disabled={generatingTransmittal}
+              style={{ fontSize: 11, color: ARC_TERRACOTTA, background: "none", border: `1px solid ${ARC_TERRACOTTA}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
+              {generatingTransmittal ? <><Spinner size={10} /> Generating…</> : "↓ Generate Transmittal"}
+            </button>
+          )}
+          {isAdmin && !showUpload && (
+            <button className="btn" onClick={() => setShowUpload(true)}
+              style={{ fontSize: 11, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+              + Upload Drawing
+            </button>
+          )}
+        </div>
       </div>
+
+      {/* Transmittal status message */}
+      {transmittalMsg && (
+        <div style={{
+          padding: "8px 14px", marginBottom: 14, fontSize: 12,
+          background: transmittalMsg.type === "ok" ? "#eef6ee" : "#fdf0f0",
+          border: `1px solid ${transmittalMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`,
+          color: transmittalMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA,
+        }}>
+          {transmittalMsg.text}
+        </div>
+      )}
 
       {/* Upload panel */}
       {showUpload && (
