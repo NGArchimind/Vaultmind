@@ -1079,9 +1079,8 @@ export default function App() {
                         <p style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{statusMsg}</p>
                       </div>
                     ) : answer ? (
-                      <div style={{ maxWidth: 680, margin: "0 auto", padding: 20, background: "#fff", border: "1px solid #ccc" }}>
-                        <p style={{ fontSize: 12, color: "green", marginBottom: 8 }}>Answer received ({answer.length} chars)</p>
-                        <pre style={{ fontSize: 11, whiteSpace: "pre-wrap", color: "#333" }}>{answer.slice(0, 500)}</pre>
+                      <div style={{ maxWidth: 680, margin: "0 auto" }}>
+                        <AnswerRenderer text={answer} />
                       </div>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
