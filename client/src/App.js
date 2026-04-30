@@ -467,49 +467,40 @@ export default function App() {
     setStatusMsg("Pass 1/3 · Reading contents pages and scoring sections…");
 
     try {
-      // ── Temp doc only mode (no vault selected) ───────────────────────────────
+      // ── Temp doc only mode (no vault selected) — same as Pass 3 but with just the temp doc
       if (!vault && tempDoc) {
         setStage("answering");
-        setStatusMsg("Reading temporary document and synthesising answer…");
+        setStatusMsg("Reading document and synthesising answer…");
         setProgress({ index: 100, select: 100, read: 100, answer: 0 });
+
         const docBlocks = [{
           type: "document",
           source: { type: "base64", media_type: "application/pdf", data: tempDoc.base64 },
+          title: tempDoc.name,
         }];
+
         const priorContext = conversationHistory.slice(-5);
         const contextBlock = priorContext.length > 0
-          ? `CONVERSATION SO FAR:\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
+          ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
           : "";
-        const tempPrompt = `You are an expert building regulations consultant. Use ONLY the provided document to answer.
 
-${contextBlock}CURRENT QUESTION: ${q}
-
-Respond with:
-## Summary
-A direct answer in 2-4 sentences citing the document.
-
-## Detailed Analysis
-Supporting detail and any relevant clauses, tables, or cross-references.
-
-## Regulatory Context
-Broader context from the document if relevant.
-
-## Contradictions & Conflicts
-Any conflicts or caveats within the document. If none: "No contradictions identified."`;
         const { text: finalAnswer, usage: answerUsage } = await callClaude(
-          [{ role: "user", content: [...docBlocks, { type: "text", text: tempPrompt }] }],
+          [{ role: "user", content: [...docBlocks, { type: "text", text: `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document to answer.\n\n${contextBlock}CURRENT QUESTION: ${q}\n\nRESPONSE FORMAT — output in this exact order:\n\n## Summary\nA confident, direct answer in 2–4 sentences citing the document.\n\n## Detailed Analysis\nSupporting detail — relevant clauses, tables, cross-references.\n\n## Regulatory Context\nBroader background. If nothing to add: "No additional context required."\n\n## Contradictions & Conflicts\nAny conflicts or caveats. If none: "No contradictions identified."` }] }],
           `You are an expert building regulations consultant. Answer using ONLY the provided document. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts.`,
           65536
         );
-        console.log("Temp doc answer received:", finalAnswer ? finalAnswer.slice(0, 100) : "EMPTY/UNDEFINED");
+
         setProgress(p => ({ ...p, answer: 100 }));
-        setAnswer(finalAnswer || "No answer returned from AI.");
+        setAnswer(finalAnswer);
         setStage("done");
+        setStatusMsg("Answer ready");
         setHistory(prev => [...prev, { vaultId: "temp", question: q, answer: finalAnswer, timestamp: new Date() }]);
         setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
-        const inputCost  = ((answerUsage?.input_tokens  || 0) / 1_000_000) * 0.15 * 0.8;
-        const outputCost = ((answerUsage?.output_tokens || 0) / 1_000_000) * 0.60 * 0.8;
-        setCostEst(inputCost + outputCost);
+        const GEMINI_INPUT_PRICE_USD = 0.15;
+        const GEMINI_OUTPUT_PRICE_USD = 0.60;
+        const USD_TO_GBP = 0.79;
+        const costGBP = (((answerUsage?.input_tokens || 0) / 1_000_000) * GEMINI_INPUT_PRICE_USD + ((answerUsage?.output_tokens || 0) / 1_000_000) * GEMINI_OUTPUT_PRICE_USD) * USD_TO_GBP;
+        setCostEst(costGBP);
         return;
       }
 
@@ -1086,7 +1077,7 @@ Any conflicts or caveats within the document. If none: "No contradictions identi
                         <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 16 }}>{statusMsg}</p>
                       </div>
                     ) : answer ? (
-                      <div style={{ width: "100%", maxWidth: 680 }}>
+                      <div style={{ width: "100%", maxWidth: 680, overflowY: "auto" }}>
                         <AnswerRenderer answer={answer} />
                       </div>
                     ) : (
