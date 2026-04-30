@@ -72,6 +72,9 @@ export default function App() {
   const [loadingVaults, setLoadingVaults] = useState(true);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [tempDoc, setTempDoc] = useState(null);
+  const [tempDocIndex, setTempDocIndex] = useState(null);
+  const [tempDocIndexing, setTempDocIndexing] = useState(false);
+  const tempDocIndexRef = useRef(null); // ref so askQuestion can await it
   const [tempDocDragOver, setTempDocDragOver] = useState(false);
   const [lastQuestion, setLastQuestion] = useState("");
   const [timedOut, setTimedOut] = useState(false);
@@ -138,9 +141,21 @@ export default function App() {
   const loadTempDoc = async (file) => {
     if (!file || file.type !== "application/pdf") return;
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const base64 = e.target.result.split(",")[1];
       setTempDoc({ name: file.name, base64 });
+      setTempDocIndex(null);
+      setTempDocIndexing(true);
+      // Index in background — store a promise in ref so askQuestion can await it
+      const indexPromise = indexOnePdf(file.name, base64).then(result => {
+        setTempDocIndex({ documents: [{ name: file.name, headings: result.headings, base64 }] });
+        setTempDocIndexing(false);
+        return result;
+      }).catch(err => {
+        console.warn("Temp doc indexing failed:", err.message);
+        setTempDocIndexing(false);
+      });
+      tempDocIndexRef.current = indexPromise;
     };
     reader.readAsDataURL(file);
   };
@@ -467,45 +482,20 @@ export default function App() {
     setStatusMsg("Pass 1/3 · Reading contents pages and scoring sections…");
 
     try {
-      // ── Temp doc only mode (no vault selected) — same as Pass 3 but with just the temp doc
+      // ── Temp doc only mode — wait for background index then run full pipeline ──
       if (!vault && tempDoc) {
-        setStage("answering");
-        setStatusMsg("Reading document and synthesising answer…");
-        setProgress({ index: 100, select: 100, read: 100, answer: 0 });
-
-        const docBlocks = [{
-          type: "document",
-          source: { type: "base64", media_type: "application/pdf", data: tempDoc.base64 },
-          title: tempDoc.name,
-        }];
-
-        const priorContext = conversationHistory.slice(-5);
-        const contextBlock = priorContext.length > 0
-          ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
-          : "";
-
-        const { text: finalAnswer, usage: answerUsage } = await callClaude(
-          [{ role: "user", content: [...docBlocks, { type: "text", text: `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document to answer.\n\n${contextBlock}CURRENT QUESTION: ${q}\n\nRESPONSE FORMAT — output in this exact order:\n\n## Summary\nA confident, direct answer in 2–4 sentences citing the document.\n\n## Detailed Analysis\nSupporting detail — relevant clauses, tables, cross-references.\n\n## Regulatory Context\nBroader background. If nothing to add: "No additional context required."\n\n## Contradictions & Conflicts\nAny conflicts or caveats. If none: "No contradictions identified."` }] }],
-          `You are an expert building regulations consultant. Answer using ONLY the provided document. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts.`,
-          65536
-        );
-
-        setProgress(p => ({ ...p, answer: 100 }));
-        setAnswer(finalAnswer);
-        setStage("done");
-        setStatusMsg("Answer ready");
-        setHistory(prev => [...prev, { vaultId: "temp", question: q, answer: finalAnswer, timestamp: new Date() }]);
-        setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
-        const GEMINI_INPUT_PRICE_USD = 0.15;
-        const GEMINI_OUTPUT_PRICE_USD = 0.60;
-        const USD_TO_GBP = 0.79;
-        const costGBP = (((answerUsage?.input_tokens || 0) / 1_000_000) * GEMINI_INPUT_PRICE_USD + ((answerUsage?.output_tokens || 0) / 1_000_000) * GEMINI_OUTPUT_PRICE_USD) * USD_TO_GBP;
-        setCostEst(costGBP);
-        return;
+        // Wait for background indexing to complete if still running
+        if (tempDocIndexing && tempDocIndexRef.current) {
+          setStatusMsg("Waiting for document to finish indexing…");
+          await tempDocIndexRef.current;
+        }
+        // Use tempDocIndex as the active index — fall through to normal pipeline below
+        // by temporarily treating it as if it were a vault index
       }
 
       const useAllSubVaults = queryScope === "all" && parentMaster;
-      const activeIndex = useAllSubVaults ? await buildCombinedIndex() : vaultIndex;
+      const activeIndex = !vault && tempDocIndex ? tempDocIndex
+        : useAllSubVaults ? await buildCombinedIndex() : vaultIndex;
 
       // ── PASS 1: Score index ──────────────────────────────────────────────────
       setStatusMsg("Pass 1/3 · Scoring index — identifying relevant sections…");
@@ -624,6 +614,9 @@ export default function App() {
             console.warn(`Could not load ${found.fileName} from ${found.subVault.name}:`, e);
           }
         }
+      } else if (!vault && tempDoc && tempDocIndex) {
+        // Temp doc — base64 already in memory, no server fetch needed
+        contentsData.push({ pdf: { name: tempDoc.name, size: 0 }, base64: tempDoc.base64 });
       } else {
         const docsNeeded = pdfs.filter(p =>
           selectedDocNames.some(n => p.name.includes(n) || n.includes(p.name))
@@ -795,7 +788,7 @@ export default function App() {
       setProgress(p => ({ ...p, answer: 100 }));
       setAnswer(finalAnswer);
       setStage("done");
-      setHistory(prev => [...prev, { vaultId: vault.id, question: q, answer: finalAnswer, timestamp: new Date() }]);
+      setHistory(prev => [...prev, { vaultId: vault?.id || "temp", question: q, answer: finalAnswer, timestamp: new Date() }]);
       setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
 
       const GEMINI_INPUT_PRICE_USD = 0.15;
@@ -1009,7 +1002,7 @@ export default function App() {
                   <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "8px 10px" }}>
                     <span style={{ fontSize: 11, color: ARC_TERRACOTTA, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {tempDoc.name}</span>
-                    <button className="btn" onClick={() => setTempDoc(null)} title="Remove"
+                    <button className="btn" onClick={() => { setTempDoc(null); setTempDocIndex(null); setTempDocIndexing(false); tempDocIndexRef.current = null; }} title="Remove"
                       style={{ background: "none", color: ARC_TERRACOTTA, fontSize: 14, padding: "0 2px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
                   </div>
                   <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Temporary — will not be saved. Included in all questions.</p>
@@ -1067,24 +1060,32 @@ export default function App() {
               tempDoc ? (
                 // Temp doc loaded with no vault — show question bar directly
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-                  <div style={{ flex: 1, overflowY: "auto", padding: "32px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <div style={{ flex: 1, overflowY: "auto", padding: "32px" }}>
                     {isRunning ? (
-                      <div style={{ width: "100%", maxWidth: 680 }}>
-                        <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 16 }}>{statusMsg}</p>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
+                        <p style={{ fontSize: 12, color: "#9a9088" }}>{statusMsg}</p>
                       </div>
                     ) : statusMsg && statusMsg.startsWith("Error") ? (
-                      <div style={{ width: "100%", maxWidth: 680 }}>
-                        <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 16 }}>{statusMsg}</p>
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+                        <p style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{statusMsg}</p>
                       </div>
                     ) : answer ? (
-                      <div style={{ width: "100%", maxWidth: 680, overflowY: "auto" }}>
+                      <div style={{ maxWidth: 680, margin: "0 auto" }}>
                         <AnswerRenderer answer={answer} />
                       </div>
                     ) : (
-                      <>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
                         <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>📄 {tempDoc.name}</p>
-                        <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Ask a question about this document</p>
-                      </>
+                        {tempDocIndexing ? (
+                          <p style={{ fontSize: 12, color: "#9a9088", display: "flex", alignItems: "center", gap: 6 }}>
+                            <Spinner size={11} /> Indexing document — you can ask a question while this runs…
+                          </p>
+                        ) : tempDocIndex ? (
+                          <p style={{ fontSize: 12, color: AD_GREEN }}>✓ Indexed — ready to query</p>
+                        ) : (
+                          <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Ask a question about this document</p>
+                        )}
+                      </div>
                     )}
                   </div>
                   <div style={{ padding: "16px 32px 20px", borderTop: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0 }}>
