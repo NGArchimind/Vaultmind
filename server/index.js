@@ -2161,6 +2161,137 @@ app.get("/api/logo", requireAuth, async (req, res) => {
   }
 });
 
+// ── Admin: schedule colours ───────────────────────────────────────────────────
+// Colours stored in R2 at: settings/schedule_colours.json
+// Shape: { header, groupRow, bforward, latestIssue, rowEven, rowOdd, headerText, bodyText }
+
+const DEFAULT_COLOURS = {
+  header:      "#1a2332",
+  groupRow:    "#f0ede8",
+  bforward:    "#2e5e8e",
+  latestIssue: "#c25a45",
+  rowEven:     "#ffffff",
+  rowOdd:      "#faf8f5",
+  headerText:  "#ffffff",
+  bodyText:    "#1a2332",
+};
+
+app.get("/api/admin/colours", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: "settings/schedule_colours.json" }));
+    const buf = await streamToBuffer(result.Body);
+    res.json(JSON.parse(buf.toString()));
+  } catch (err) {
+    if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
+      return res.json(DEFAULT_COLOURS);
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/api/admin/colours", requireAuth, requireAdmin, async (req, res) => {
+  const colours = req.body;
+  if (!colours || typeof colours !== "object") return res.status(400).json({ error: "colours object required" });
+  try {
+    await r2.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: "settings/schedule_colours.json",
+      Body: JSON.stringify({ ...DEFAULT_COLOURS, ...colours }),
+      ContentType: "application/json",
+    }));
+    res.json({ saved: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/colours — authenticated route for all users
+app.get("/api/colours", requireAuth, async (req, res) => {
+  try {
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: "settings/schedule_colours.json" }));
+    const buf = await streamToBuffer(result.Body);
+    res.json(JSON.parse(buf.toString()));
+  } catch (err) {
+    if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
+      return res.json(DEFAULT_COLOURS);
+    }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Transmittal PDF — save snapshot to R2 and return key ─────────────────────
+// POST /api/projects/:id/transmittal/pdf
+// Body: { html: string } — the print-ready HTML generated client-side
+app.post("/api/projects/:id/transmittal/pdf", requireAuth, async (req, res) => {
+  const { html } = req.body;
+  if (!html) return res.status(400).json({ error: "html required" });
+  try {
+    const prefix = `projects/${req.params.id}/documents/transmittals/`;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const baseKey = `${prefix}schedule_${dateStr}`;
+    let key = `${baseKey}.html`;
+    const existingKeys = await listAllKeys(prefix);
+    if (existingKeys.includes(key)) {
+      let n = 2;
+      while (existingKeys.includes(`${baseKey}_${n}.html`)) n++;
+      key = `${baseKey}_${n}.html`;
+    }
+    await r2.send(new PutObjectCommand({
+      Bucket: BUCKET,
+      Key: key,
+      Body: Buffer.from(html, "utf-8"),
+      ContentType: "text/html",
+    }));
+    res.json({ key, saved: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Transmittal files listing (PDF snapshots) ─────────────────────────────────
+// GET /api/projects/:id/transmittals/files
+function transmittalPrefix(projectId) {
+  return `projects/${projectId}/documents/transmittals/`;
+}
+
+app.get("/api/projects/:id/transmittals/files", requireAuth, async (req, res) => {
+  try {
+    const prefix = transmittalPrefix(req.params.id);
+    const keys = await listAllKeys(prefix);
+    const files = keys
+      .map(key => {
+        const name = key.replace(prefix, "");
+        if (!name.endsWith(".html")) return null;
+        const label = name
+          .replace("schedule_", "Issue — ")
+          .replace(".html", "")
+          .replace(/_(\d+)$/, " ($1)");
+        return { key, name, label, type: "pdf-snapshot" };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.name.localeCompare(a.name));
+    res.json({ files });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/projects/:id/transmittals/download?key=...
+app.get("/api/projects/:id/transmittals/download", requireAuth, async (req, res) => {
+  const { key } = req.query;
+  if (!key) return res.status(400).json({ error: "key required" });
+  const expectedPrefix = transmittalPrefix(req.params.id);
+  if (!key.startsWith(expectedPrefix)) return res.status(403).json({ error: "Forbidden" });
+  try {
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+    const buffer = await streamToBuffer(result.Body);
+    const name = key.split("/").pop();
+    res.json({ base64: buffer.toString("base64"), name, contentType: "text/html" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 

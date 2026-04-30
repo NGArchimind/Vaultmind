@@ -312,10 +312,108 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
 }
 
 // ── Transmittal tab ───────────────────────────────────────────────────────────
+
+// ── DocumentsTab ──────────────────────────────────────────────────────────────
+function DocumentsTab({ projectId }) {
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [opening, setOpening] = useState(null);
+
+  useEffect(() => { loadFiles(); }, [projectId]);
+
+  async function loadFiles() {
+    setLoading(true);
+    try {
+      const data = await api(`/api/projects/${projectId}/transmittals/files`);
+      setFiles(data.files || []);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  }
+
+  async function openFile(file) {
+    if (opening) return;
+    setOpening(file.key);
+    try {
+      const data = await api(`/api/projects/${projectId}/transmittals/download?key=${encodeURIComponent(file.key)}`);
+      const binary = atob(data.base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+      setTimeout(() => URL.revokeObjectURL(url), 15000);
+    } catch (e) { console.error(e); }
+    setOpening(null);
+  }
+
+  if (loading) return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 13 }}>
+      <Spinner size={13} /> Loading documents…
+    </div>
+  );
+
+  if (files.length === 0) return (
+    <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
+      <div style={{ fontSize: 36, marginBottom: 12 }}>📁</div>
+      <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>
+        No documents yet
+      </p>
+      <p style={{ fontSize: 12, color: "#9a9088" }}>
+        Use "Export PDF" in the Drawing Schedule tab to generate and store snapshots here.
+      </p>
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>
+          Stored Schedules
+        </h3>
+        <button className="btn" onClick={loadFiles}
+          style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 10px" }}>
+          ↻ Refresh
+        </button>
+      </div>
+      <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
+        {files.map((f, i) => (
+          <div key={f.key} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", borderBottom: i < files.length - 1 ? "1px solid #f0ede8" : "none" }}>
+            <span style={{ fontSize: 18, flexShrink: 0, width: 24, textAlign: "center" }}>📄</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>{f.label}</div>
+              <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>{f.name}</div>
+            </div>
+            <button className="btn" onClick={() => openFile(f)} disabled={opening === f.key}
+              style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, background: "none", border: `1px solid ${ARC_NAVY}`, padding: "4px 12px", flexShrink: 0, letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
+              {opening === f.key ? <><Spinner size={10} /> Opening…</> : "Open / Print"}
+            </button>
+          </div>
+        ))}
+      </div>
+      <p style={{ fontSize: 11, color: "#b0a8a0", marginTop: 8 }}>
+        Open a schedule to print or save as PDF using your browser's print dialog.
+      </p>
+    </div>
+  );
+}
+
+// ── TransmittalTab ────────────────────────────────────────────────────────────
+const DEFAULT_COLOURS = {
+  header:      "#1a2332",
+  groupRow:    "#f0ede8",
+  bforward:    "#2e5e8e",
+  latestIssue: "#c25a45",
+  rowEven:     "#ffffff",
+  rowOdd:      "#faf8f5",
+  headerText:  "#ffffff",
+  bodyText:    "#1a2332",
+};
+
 function TransmittalTab({ projectId, isAdmin }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [logo, setLogo] = useState(null);
+  const [colours, setColours] = useState(DEFAULT_COLOURS);
   const [notes, setNotes] = useState("");
   const [notesDraft, setNotesDraft] = useState("");
   const [editingNotes, setEditingNotes] = useState(false);
@@ -323,12 +421,14 @@ function TransmittalTab({ projectId, isAdmin }) {
   const [recordingIssue, setRecordingIssue] = useState(false);
   const [issueMsg, setIssueMsg] = useState(null);
   const [exportingExcel, setExportingExcel] = useState(false);
-  // bforward overrides: { [drawing_number]: { value, manual } }
+  const [exportingPdf, setExportingPdf] = useState(false);
   const [bfOverrides, setBfOverrides] = useState({});
-  const [editingBf, setEditingBf] = useState(null); // drawing_number being edited
+  const [editingBf, setEditingBf] = useState(null);
   const [bfDraft, setBfDraft] = useState("");
+  // Warning dialog before saving a B' Forward override
+  const [pendingOverride, setPendingOverride] = useState(null); // { drawingNumber, value }
 
-  useEffect(() => { load(); loadLogo(); }, [projectId]);
+  useEffect(() => { load(); loadLogo(); loadColours(); }, [projectId]);
 
   async function load() {
     setLoading(true);
@@ -346,7 +446,14 @@ function TransmittalTab({ projectId, isAdmin }) {
     try {
       const d = await api("/api/logo");
       if (d.logo) setLogo(d);
-    } catch (e) { /* no logo set */ }
+    } catch (e) {}
+  }
+
+  async function loadColours() {
+    try {
+      const d = await api("/api/colours");
+      setColours({ ...DEFAULT_COLOURS, ...d });
+    } catch (e) {}
   }
 
   async function saveNotes() {
@@ -362,7 +469,11 @@ function TransmittalTab({ projectId, isAdmin }) {
     setSavingNotes(false);
   }
 
-  async function saveBfOverride(drawingNumber, value) {
+  // Called when user confirms the warning dialog
+  async function confirmBfOverride() {
+    if (!pendingOverride) return;
+    const { drawingNumber, value } = pendingOverride;
+    setPendingOverride(null);
     const isAuto = data?.autoBforward?.[drawingNumber] === value;
     const newOverrides = {
       ...bfOverrides,
@@ -376,6 +487,14 @@ function TransmittalTab({ projectId, isAdmin }) {
         body: { bforward_overrides: newOverrides },
       });
     } catch (e) { console.error(e); }
+  }
+
+  // Called when user finishes editing a B' Forward cell — shows warning first
+  function requestBfOverride(drawingNumber, value) {
+    setEditingBf(null);
+    const currentVal = getBfValue(drawingNumber);
+    if (value === currentVal) return; // no change
+    setPendingOverride({ drawingNumber, value });
   }
 
   async function recordIssue() {
@@ -411,6 +530,33 @@ function TransmittalTab({ projectId, isAdmin }) {
     setExportingExcel(false);
   }
 
+  async function exportPdf() {
+    if (!data || exportingPdf) return;
+    setExportingPdf(true);
+    try {
+      const html = buildPrintHtml(data, logo, colours, bfOverrides, notes);
+      // Save to R2 for Documents tab
+      try {
+        await api(`/api/projects/${projectId}/transmittal/pdf`, {
+          method: "POST",
+          body: { html },
+        });
+      } catch (e) { console.warn("PDF save to R2 failed (non-fatal):", e.message); }
+      // Open in new tab with auto-print
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, "_blank");
+      // Auto-trigger print dialog after page loads
+      if (win) {
+        win.onload = () => {
+          setTimeout(() => { try { win.print(); } catch (_) {} }, 400);
+        };
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 20000);
+    } catch (e) { console.error(e); }
+    setExportingPdf(false);
+  }
+
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 13 }}>
       <Spinner size={13} /> Loading drawing schedule…
@@ -441,14 +587,13 @@ function TransmittalTab({ projectId, isAdmin }) {
     groups[grp].push(d);
   }
 
-  const btnSm = (color, bg = "none") => ({
-    fontSize: 11, fontWeight: 600, color, background: bg,
+  const btnSm = (color) => ({
+    fontSize: 11, fontWeight: 600, color, background: "none",
     border: `1px solid ${color}`, padding: "4px 12px",
     letterSpacing: "0.04em", cursor: "pointer", flexShrink: 0,
-    fontFamily: "Inter, Arial, sans-serif",
+    fontFamily: "Inter, Arial, sans-serif", display: "flex", alignItems: "center", gap: 5,
   });
 
-  // Column widths for the schedule table
   const COL_TITLE = 280;
   const COL_NUMBER = 120;
   const COL_BF = 64;
@@ -457,13 +602,13 @@ function TransmittalTab({ projectId, isAdmin }) {
 
   const cellBase = {
     padding: "5px 8px", borderRight: "1px solid #e8e0d5", borderBottom: "1px solid #e8e0d5",
-    fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY,
+    fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: colours.bodyText,
     boxSizing: "border-box",
   };
 
   const hdrCell = {
     ...cellBase,
-    background: ARC_NAVY, color: "#fff", fontWeight: 600, fontSize: 10,
+    background: colours.header, color: colours.headerText, fontWeight: 600, fontSize: 10,
     letterSpacing: "0.05em", textTransform: "uppercase",
   };
 
@@ -478,7 +623,32 @@ function TransmittalTab({ projectId, isAdmin }) {
 
   return (
     <div>
-      {/* Header bar */}
+      {/* Warning dialog */}
+      {pendingOverride && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", width: 440, borderTop: `3px solid ${ARC_TERRACOTTA}`, padding: "28px 32px", fontFamily: "Inter, Arial, sans-serif" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 10 }}>Override B' Forward?</h3>
+            <p style={{ fontSize: 13, color: "#5a5048", lineHeight: 1.6, marginBottom: 8 }}>
+              You are manually changing the B' Forward value for <strong>{pendingOverride.drawingNumber}</strong> to <strong>{pendingOverride.value}</strong>.
+            </p>
+            <p style={{ fontSize: 12, color: ARC_TERRACOTTA, lineHeight: 1.6, marginBottom: 24 }}>
+              ⚠ Changes to B' Forward history can cause coordination problems. Only proceed if you are sure this is correct.
+            </p>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="btn" onClick={confirmBfOverride}
+                style={{ background: ARC_TERRACOTTA, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>
+                Yes, Override
+              </button>
+              <button className="btn" onClick={() => setPendingOverride(null)}
+                style={{ background: "none", color: "#9a9088", border: "1px solid #ddd8d0", padding: "9px 16px", fontSize: 11, cursor: "pointer" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Action bar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, gap: 10, flexWrap: "wrap" }}>
         <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>
           Drawing Schedule
@@ -495,13 +665,14 @@ function TransmittalTab({ projectId, isAdmin }) {
             </span>
           )}
           {isAdmin && (
-            <button className="btn" onClick={recordIssue} disabled={recordingIssue}
-              style={btnSm(ARC_TERRACOTTA)}>
+            <button className="btn" onClick={recordIssue} disabled={recordingIssue} style={btnSm(ARC_TERRACOTTA)}>
               {recordingIssue ? <><Spinner size={10} /> Recording…</> : "+ Record Issue"}
             </button>
           )}
-          <button className="btn" onClick={exportExcel} disabled={exportingExcel}
-            style={btnSm(AD_GREEN)}>
+          <button className="btn" onClick={exportPdf} disabled={exportingPdf} style={btnSm(ARC_NAVY)}>
+            {exportingPdf ? <><Spinner size={10} /> Preparing…</> : "↓ Export PDF"}
+          </button>
+          <button className="btn" onClick={exportExcel} disabled={exportingExcel} style={btnSm(AD_GREEN)}>
             {exportingExcel ? <><Spinner size={10} /> Exporting…</> : "↓ Export Excel"}
           </button>
           <button className="btn" onClick={load}
@@ -515,24 +686,66 @@ function TransmittalTab({ projectId, isAdmin }) {
       <div style={{ overflowX: "auto", background: "#fff", border: "1px solid #e8e0d5" }}>
         <div style={{ minWidth: totalWidth }}>
 
-          {/* Practice header block */}
-          <div style={{ borderBottom: "2px solid #e8e0d5", padding: "12px 16px", display: "flex", alignItems: "flex-start", gap: 20, background: "#faf8f5" }}>
+          {/* Header block: logo + job info */}
+          <div style={{ borderBottom: "2px solid #e8e0d5", padding: "14px 16px", display: "flex", alignItems: "flex-start", gap: 20, background: "#faf8f5", minHeight: 64 }}>
             {logo?.base64 && (
               <img
                 src={`data:${logo.mimeType};base64,${logo.base64}`}
                 alt="Practice logo"
-                style={{ maxHeight: 48, maxWidth: 120, objectFit: "contain", flexShrink: 0 }}
+                style={{ maxHeight: 56, maxWidth: 140, objectFit: "contain", flexShrink: 0 }}
               />
             )}
+            {!logo?.base64 && (
+              <div style={{ width: 100, height: 48, border: "1px dashed #ddd8d0", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <span style={{ fontSize: 9, color: "#c0b8b0", textAlign: "center", lineHeight: 1.4 }}>Logo<br />here</span>
+              </div>
+            )}
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY }}>
-                {project?.job_number ? `Job No. ${project.job_number}` : ""}
-                {project?.job_number && project?.name ? " — " : ""}
+              <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>
                 {project?.name || ""}
               </div>
-              {project?.location && (
-                <div style={{ fontSize: 11, color: "#9a9088", marginTop: 3 }}>
-                  {project.location}
+              <div style={{ fontSize: 11, color: "#9a9088", marginTop: 3, display: "flex", gap: 16, flexWrap: "wrap" }}>
+                {project?.job_number && <span><strong>Job No.</strong> {project.job_number}</span>}
+                {project?.location && <span>{project.location}</span>}
+              </div>
+            </div>
+            {/* Notes: below job info, above drawings — rendered here inside header block */}
+          </div>
+
+          {/* Notes section — below job info, above column headers */}
+          <div style={{ borderBottom: "1px solid #e8e0d5", padding: "10px 16px", background: "#fffdf8", display: "flex", alignItems: "flex-start", gap: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em", paddingTop: 2, flexShrink: 0, minWidth: 44 }}>Notes</div>
+            <div style={{ flex: 1 }}>
+              {editingNotes ? (
+                <div>
+                  <textarea
+                    value={notesDraft}
+                    onChange={e => setNotesDraft(e.target.value)}
+                    rows={2}
+                    style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "6px 8px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", resize: "vertical", boxSizing: "border-box" }}
+                  />
+                  <div style={{ display: "flex", gap: 8, marginTop: 5 }}>
+                    <button className="btn" onClick={saveNotes} disabled={savingNotes}
+                      style={{ background: AD_GREEN, color: "#fff", padding: "4px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", border: "none" }}>
+                      {savingNotes ? <Spinner size={10} /> : "Save"}
+                    </button>
+                    <button className="btn" onClick={() => setEditingNotes(false)}
+                      style={{ background: "none", color: "#9a9088", padding: "4px 10px", fontSize: 11, border: "1px solid #ddd8d0" }}>
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                  <p style={{ fontSize: 12, color: notes ? ARC_NAVY : "#b0a8a0", fontStyle: notes ? "normal" : "italic", margin: 0, lineHeight: 1.6, flex: 1 }}>
+                    {notes || (isAdmin ? "Click Edit to add notes…" : "—")}
+                  </p>
+                  {isAdmin && (
+                    <button className="btn" onClick={() => { setNotesDraft(notes); setEditingNotes(true); }}
+                      style={{ fontSize: 10, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "2px 8px", fontWeight: 600, flexShrink: 0 }}>
+                      Edit
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -542,7 +755,7 @@ function TransmittalTab({ projectId, isAdmin }) {
           <div style={{ display: "flex", borderBottom: "2px solid #e8e0d5" }}>
             <div style={{ ...hdrCell, width: COL_TITLE, flexShrink: 0 }}>Drawing Title</div>
             <div style={{ ...hdrCell, width: COL_NUMBER, flexShrink: 0, textAlign: "center" }}>Drawing No.</div>
-            <div style={{ ...hdrCell, width: COL_BF, flexShrink: 0, textAlign: "center", background: "#2e5e8e", borderLeft: "2px solid #fff" }}>
+            <div style={{ ...hdrCell, width: COL_BF, flexShrink: 0, textAlign: "center", background: colours.bforward, borderLeft: "2px solid rgba(255,255,255,0.3)" }}>
               B' Fwd
             </div>
             {issues.map((issue, i) => {
@@ -554,8 +767,8 @@ function TransmittalTab({ projectId, isAdmin }) {
               return (
                 <div key={issue.id} style={{
                   ...hdrCell, width: COL_ISSUE, flexShrink: 0, textAlign: "center", lineHeight: 1.4,
-                  background: isLatest ? ARC_TERRACOTTA : "#3a4a5a",
-                  borderLeft: "1px solid rgba(255,255,255,0.2)",
+                  background: isLatest ? colours.latestIssue : colours.header,
+                  borderLeft: "1px solid rgba(255,255,255,0.15)",
                 }}>
                   <div>{day}</div>
                   <div>{month}</div>
@@ -570,53 +783,49 @@ function TransmittalTab({ projectId, isAdmin }) {
             )}
           </div>
 
-          {/* Drawing rows */}
+          {/* Drawing rows grouped */}
           {Object.entries(groups).map(([groupName, groupDrawings]) => (
             <div key={groupName}>
-              {/* Group header */}
-              <div style={{ display: "flex", background: "#f0ede8", borderBottom: "1px solid #e8e0d5" }}>
-                <div style={{ ...cellBase, flex: 1, fontWeight: 700, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", color: "#6a5a50", background: "#f0ede8", borderRight: "none" }}>
+              <div style={{ display: "flex", background: colours.groupRow, borderBottom: "1px solid #e8e0d5" }}>
+                <div style={{ ...cellBase, flex: 1, fontWeight: 700, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", color: colours.bodyText, background: colours.groupRow, borderRight: "none" }}>
                   {groupName}
                 </div>
               </div>
-              {/* Drawing rows */}
               {groupDrawings.map((d, idx) => {
-                const rowBg = idx % 2 === 0 ? "#fff" : "#faf8f5";
+                const rowBg = idx % 2 === 0 ? colours.rowEven : colours.rowOdd;
                 const bfVal = getBfValue(d.drawing_number);
                 const bfManual = isBfManual(d.drawing_number);
                 const isEditingThis = editingBf === d.drawing_number;
                 return (
                   <div key={d.id} style={{ display: "flex", background: rowBg }}>
-                    {/* Title */}
-                    <div style={{ ...cellBase, width: COL_TITLE, flexShrink: 0, background: rowBg }}>
-                      {d.title}
-                    </div>
-                    {/* Drawing number */}
+                    <div style={{ ...cellBase, width: COL_TITLE, flexShrink: 0, background: rowBg }}>{d.title}</div>
                     <div style={{ ...cellBase, width: COL_NUMBER, flexShrink: 0, textAlign: "center", fontWeight: 600, fontSize: 11, background: rowBg }}>
                       {d.drawing_number || "—"}
                     </div>
-                    {/* B' Forward */}
+                    {/* B' Forward — highlight on screen only, not in PDF */}
                     <div style={{
                       ...cellBase, width: COL_BF, flexShrink: 0, textAlign: "center", fontWeight: 700,
-                      background: bfManual ? "#fff8e6" : rowBg,
-                      borderLeft: "2px solid #e0d8d0",
+                      background: bfManual ? "#fff3cc" : rowBg,
+                      borderLeft: `2px solid ${colours.bforward}44`,
                       position: "relative",
-                    }}>
+                    }}
+                      className="bf-cell"
+                    >
                       {isEditingThis ? (
                         <input
                           autoFocus
                           value={bfDraft}
                           onChange={e => setBfDraft(e.target.value)}
-                          onBlur={() => { if (bfDraft !== bfVal) saveBfOverride(d.drawing_number, bfDraft); else setEditingBf(null); }}
+                          onBlur={() => { if (bfDraft !== bfVal) requestBfOverride(d.drawing_number, bfDraft); else setEditingBf(null); }}
                           onKeyDown={e => {
-                            if (e.key === "Enter") saveBfOverride(d.drawing_number, bfDraft);
+                            if (e.key === "Enter") requestBfOverride(d.drawing_number, bfDraft);
                             if (e.key === "Escape") setEditingBf(null);
                           }}
                           style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "2px 4px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", textAlign: "center", outline: "none" }}
                         />
                       ) : (
                         <span
-                          onClick={() => isAdmin ? (setEditingBf(d.drawing_number), setBfDraft(bfVal)) : null}
+                          onClick={() => { if (isAdmin) { setEditingBf(d.drawing_number); setBfDraft(bfVal); } }}
                           title={isAdmin ? (bfManual ? "Manually overridden — click to edit" : "Auto-calculated — click to override") : bfVal}
                           style={{ cursor: isAdmin ? "text" : "default", display: "block" }}
                         >
@@ -631,9 +840,10 @@ function TransmittalTab({ projectId, isAdmin }) {
                       const isLatest = i === issues.length - 1;
                       return (
                         <div key={issue.id} style={{
-                          ...cellBase, width: COL_ISSUE, flexShrink: 0, textAlign: "center", fontWeight: rev ? 700 : 400,
-                          background: isLatest ? "#fff0f0" : rowBg,
-                          color: rev ? ARC_NAVY : "#c8c0b8",
+                          ...cellBase, width: COL_ISSUE, flexShrink: 0, textAlign: "center",
+                          fontWeight: rev ? 700 : 400,
+                          background: isLatest ? colours.latestIssue + "22" : rowBg,
+                          color: rev ? colours.bodyText : "#c8c0b8",
                           borderLeft: "1px solid #e8e0d5",
                         }}>
                           {rev || ""}
@@ -646,58 +856,163 @@ function TransmittalTab({ projectId, isAdmin }) {
               })}
             </div>
           ))}
-
-          {/* Notes row */}
-          {(notes || isAdmin) && (
-            <div style={{ borderTop: "2px solid #e8e0d5", padding: "12px 16px", background: "#faf8f5" }}>
-              <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
-                Notes
-                {isAdmin && !editingNotes && (
-                  <button className="btn" onClick={() => { setNotesDraft(notes); setEditingNotes(true); }}
-                    style={{ marginLeft: 10, fontSize: 10, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "1px 8px", fontWeight: 600 }}>
-                    Edit
-                  </button>
-                )}
-              </div>
-              {editingNotes ? (
-                <div>
-                  <textarea
-                    value={notesDraft}
-                    onChange={e => setNotesDraft(e.target.value)}
-                    rows={3}
-                    style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "8px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", resize: "vertical", boxSizing: "border-box" }}
-                  />
-                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                    <button className="btn" onClick={saveNotes} disabled={savingNotes}
-                      style={{ background: AD_GREEN, color: "#fff", padding: "5px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}>
-                      {savingNotes ? <Spinner size={11} /> : "Save"}
-                    </button>
-                    <button className="btn" onClick={() => setEditingNotes(false)}
-                      style={{ background: "none", color: "#9a9088", padding: "5px 12px", fontSize: 11, border: "1px solid #ddd8d0" }}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <p style={{ fontSize: 12, color: notes ? ARC_NAVY : "#b0a8a0", fontStyle: notes ? "normal" : "italic", margin: 0, lineHeight: 1.6 }}>
-                  {notes || (isAdmin ? "Click Edit to add notes…" : "")}
-                </p>
-              )}
-            </div>
-          )}
         </div>
       </div>
 
       {/* Legend */}
       {isAdmin && (
         <p style={{ fontSize: 11, color: "#b0a8a0", marginTop: 8, fontStyle: "italic" }}>
-          B' Forward column is auto-calculated. Click a value to override it manually.
-          <span style={{ color: ARC_TERRACOTTA }}> ✎</span> indicates a manual override.
-          Use "+ Record Issue" to snapshot the current register as a new dated issue column.
+          B' Forward is auto-calculated. Click any value to override —
+          <span style={{ background: "#fff3cc", padding: "0 4px", marginLeft: 4 }}>yellow highlight</span> indicates a manual override (screen only, not shown on export).
+          Use "+ Record Issue" to snapshot the current register as a new dated column.
         </p>
       )}
     </div>
   );
+}
+
+// ── buildPrintHtml — generates self-contained A4 print HTML ──────────────────
+function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
+  const { project, drawings, issues, revMap, autoBforward } = data;
+
+  const c = { ...DEFAULT_COLOURS, ...(colours || {}) };
+
+  function getBf(dn) {
+    const ov = bfOverrides[dn];
+    return ov ? ov.value : (autoBforward[dn] || "");
+  }
+
+  const groups = {};
+  for (const d of drawings) {
+    const grp = (d.drawing_type || "Other").trim();
+    if (!groups[grp]) groups[grp] = [];
+    groups[grp].push(d);
+  }
+
+  // Issue date header cells
+  const issueDateHeaders = issues.map((issue, i) => {
+    const dt = new Date(issue.issue_date);
+    const day   = String(dt.getUTCDate()).padStart(2, "0");
+    const month = String(dt.getUTCMonth() + 1).padStart(2, "0");
+    const year  = String(dt.getUTCFullYear()).slice(2);
+    const isLatest = i === issues.length - 1;
+    const bg = isLatest ? c.latestIssue : c.header;
+    return `<th class="issue-col" style="background:${bg}">${day}<br>${month}<br>${year}</th>`;
+  }).join("");
+
+  // Drawing rows
+  const rowsHtml = Object.entries(groups).map(([grpName, grpDrawings]) => {
+    const grpRow = `<tr><td colspan="${3 + issues.length}" class="group-row">${grpName}</td></tr>`;
+    const dRows = grpDrawings.map((d, idx) => {
+      const rowBg = idx % 2 === 0 ? c.rowEven : c.rowOdd;
+      const bfVal = getBf(d.drawing_number);
+      const issueCells = issues.map((issue, i) => {
+        const rev = revMap[issue.id]?.[d.drawing_number] || "";
+        const isLatest = i === issues.length - 1;
+        const bg = isLatest ? c.latestIssue + "33" : rowBg;
+        return `<td class="issue-cell" style="background:${bg};font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"}">${rev}</td>`;
+      }).join("");
+      return `<tr style="background:${rowBg}">
+        <td class="title-cell" style="background:${rowBg}">${d.title || ""}</td>
+        <td class="num-cell" style="background:${rowBg}">${d.drawing_number || "—"}</td>
+        <td class="bf-cell" style="background:${rowBg}">${bfVal || "—"}</td>
+        ${issueCells}
+      </tr>`;
+    }).join("");
+    return grpRow + dRows;
+  }).join("");
+
+  const logoHtml = logo?.base64
+    ? `<img src="data:${logo.mimeType};base64,${logo.base64}" style="max-height:52px;max-width:130px;object-fit:contain" />`
+    : "";
+
+  const notesHtml = notes
+    ? `<div class="notes-row"><span class="notes-label">Notes</span><span class="notes-text">${notes.replace(/</g, "&lt;")}</span></div>`
+    : "";
+
+  const now = new Date();
+  const dateStr = `${String(now.getDate()).padStart(2,"0")}/${String(now.getMonth()+1).padStart(2,"0")}/${now.getFullYear()}`;
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Drawing Schedule — ${(project?.name || "").replace(/</g,"&lt;")}</title>
+<style>
+  @page { size: A4 landscape; margin: 12mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 8pt; color: ${c.bodyText}; background: #fff; }
+  .no-print { display: none !important; }
+
+  /* Header */
+  .hdr { display: flex; align-items: flex-start; gap: 16px; padding: 10px 0 8px; border-bottom: 2px solid #ddd; margin-bottom: 0; }
+  .hdr-info { flex: 1; }
+  .hdr-name { font-size: 13pt; font-weight: 600; color: ${c.bodyText}; }
+  .hdr-meta { font-size: 8pt; color: #777; margin-top: 3px; }
+  .generated { font-size: 7pt; color: #aaa; margin-top: 2px; }
+
+  /* Notes */
+  .notes-row { display: flex; gap: 12px; padding: 6px 0; border-bottom: 1px solid #ddd; font-size: 8pt; }
+  .notes-label { font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #888; font-size: 7pt; padding-top: 1px; min-width: 36px; flex-shrink: 0; }
+  .notes-text { color: ${c.bodyText}; line-height: 1.5; }
+
+  /* Table */
+  table { width: 100%; border-collapse: collapse; margin-top: 0; table-layout: fixed; }
+  th, td { border: 1px solid #ddd; padding: 3px 5px; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  thead th { background: ${c.header}; color: ${c.headerText}; font-size: 7pt; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
+  .th-bf { background: ${c.bforward} !important; border-left: 2px solid rgba(255,255,255,0.4) !important; }
+  .issue-col { width: 38px; text-align: center; line-height: 1.3; }
+  .group-row { background: ${c.groupRow}; font-weight: 700; font-size: 7pt; text-transform: uppercase; letter-spacing: 0.06em; color: ${c.bodyText}; }
+  .title-cell { width: auto; }
+  .num-cell { width: 100px; text-align: center; font-weight: 600; }
+  .bf-cell { width: 52px; text-align: center; font-weight: 700; border-left: 2px solid ${c.bforward}55; }
+  .issue-cell { width: 38px; text-align: center; }
+
+  /* Pagination */
+  @media print {
+    table { page-break-inside: auto; }
+    tr { page-break-inside: avoid; }
+    .no-print { display: none !important; }
+    /* No yellow highlight on print — overrides are plain */
+    .bf-cell { background: inherit !important; }
+  }
+</style>
+</head>
+<body>
+<div class="hdr">
+  ${logoHtml}
+  <div class="hdr-info">
+    <div class="hdr-name">${(project?.name || "").replace(/</g,"&lt;")}</div>
+    <div class="hdr-meta">
+      ${project?.job_number ? `<strong>Job No.</strong> ${project.job_number}` : ""}
+      ${project?.job_number && project?.location ? " &nbsp;·&nbsp; " : ""}
+      ${project?.location || ""}
+    </div>
+    <div class="generated">Generated by Archimind · ${dateStr}</div>
+  </div>
+</div>
+${notesHtml}
+<table>
+  <colgroup>
+    <col style="width:auto">
+    <col style="width:100px">
+    <col style="width:52px">
+    ${issues.map(() => `<col style="width:38px">`).join("")}
+  </colgroup>
+  <thead>
+    <tr>
+      <th>Drawing Title</th>
+      <th class="num-cell">Drawing No.</th>
+      <th class="bf-cell th-bf">B' Fwd</th>
+      ${issueDateHeaders}
+    </tr>
+  </thead>
+  <tbody>
+    ${rowsHtml}
+  </tbody>
+</table>
+</body>
+</html>`;
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -1881,7 +2196,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
 
   const TABS = [
     { id: "info", label: "Info" }, { id: "consultants", label: "Consultants" }, { id: "u-values", label: "U-Values" },
-    { id: "notes", label: "Notes" }, { id: "drawings", label: "Drawings" },
+    { id: "notes", label: "Notes" }, { id: "drawings", label: "Drawings" }, { id: "documents", label: "Documents" },
     { id: "products", label: "Products" }, { id: "minutes", label: "Minutes" }, { id: "emails", label: "Emails" },
   ];
 
@@ -2144,6 +2459,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
           <DrawingsTab projectId={projectId} isAdmin={isAdmin} onDrawingsLoaded={setDrawings} />
         )}
 
+        {activeTab === "documents" && <DocumentsTab projectId={projectId} />}
         {activeTab === "products" && (
           <ProductsTab projectId={projectId} isAdmin={isAdmin} />
         )}
