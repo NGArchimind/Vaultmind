@@ -148,14 +148,17 @@ export default function App() {
       setTempDocIndexing(true);
       // Index in background — store a promise in ref so askQuestion can await it
       const indexPromise = indexOnePdf(file.name, base64).then(result => {
-        setTempDocIndex({ documents: [{ name: file.name, headings: result.headings, base64 }] });
+        const idx = { documents: [{ name: file.name, headings: result.headings, base64 }] };
+        tempDocIndexRef.current = idx; // store result directly so askQuestion can use it immediately
+        setTempDocIndex(idx);
         setTempDocIndexing(false);
-        return result;
+        return idx;
       }).catch(err => {
         console.warn("Temp doc indexing failed:", err.message);
         setTempDocIndexing(false);
+        tempDocIndexRef.current = null;
       });
-      tempDocIndexRef.current = indexPromise;
+      tempDocIndexRef.current = indexPromise; // initially a promise, replaced with result on completion
     };
     reader.readAsDataURL(file);
   };
@@ -483,18 +486,24 @@ export default function App() {
 
     try {
       // ── Temp doc only mode — wait for background index then run full pipeline ──
+      let resolvedTempIndex = null;
       if (!vault && tempDoc) {
         // Wait for background indexing to complete if still running
-        if (tempDocIndexing && tempDocIndexRef.current) {
+        if (tempDocIndexRef.current && typeof tempDocIndexRef.current.then === "function") {
           setStatusMsg("Waiting for document to finish indexing…");
-          await tempDocIndexRef.current;
+          resolvedTempIndex = await tempDocIndexRef.current;
+        } else {
+          resolvedTempIndex = tempDocIndexRef.current; // already resolved
         }
-        // Use tempDocIndex as the active index — fall through to normal pipeline below
-        // by temporarily treating it as if it were a vault index
+        if (!resolvedTempIndex) {
+          setStage(null);
+          setStatusMsg("Document indexing failed — please try removing and re-uploading the file.");
+          return;
+        }
       }
 
       const useAllSubVaults = queryScope === "all" && parentMaster;
-      const activeIndex = !vault && tempDocIndex ? tempDocIndex
+      const activeIndex = resolvedTempIndex ? resolvedTempIndex
         : useAllSubVaults ? await buildCombinedIndex() : vaultIndex;
 
       // ── PASS 1: Score index ──────────────────────────────────────────────────
@@ -614,7 +623,7 @@ export default function App() {
             console.warn(`Could not load ${found.fileName} from ${found.subVault.name}:`, e);
           }
         }
-      } else if (!vault && tempDoc && tempDocIndex) {
+      } else if (!vault && tempDoc && resolvedTempIndex) {
         // Temp doc — base64 already in memory, no server fetch needed
         contentsData.push({ pdf: { name: tempDoc.name, size: 0 }, base64: tempDoc.base64 });
       } else {
