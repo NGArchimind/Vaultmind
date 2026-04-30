@@ -1072,10 +1072,45 @@ Any conflicts or caveats within the document. If none: "No contradictions identi
           {/* Main panel */}
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
             {!vault ? (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Select a vault</p>
-                <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Upload documents and query building regulations</p>
-              </div>
+              tempDoc ? (
+                // Temp doc loaded with no vault — show question bar directly
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                  <div style={{ flex: 1, overflowY: "auto", padding: "32px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    {isRunning ? (
+                      <div style={{ width: "100%", maxWidth: 680 }}>
+                        <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 16 }}>{statusMsg}</p>
+                      </div>
+                    ) : answer ? (
+                      <div style={{ width: "100%", maxWidth: 680 }}>
+                        <AnswerRenderer answer={answer} />
+                      </div>
+                    ) : (
+                      <>
+                        <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>📄 {tempDoc.name}</p>
+                        <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Ask a question about this document</p>
+                      </>
+                    )}
+                  </div>
+                  <div style={{ padding: "16px 32px 20px", borderTop: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0 }}>
+                    <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
+                      <textarea value={question} onChange={e => setQuestion(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
+                        placeholder="Ask a question about this document…"
+                        disabled={isRunning} rows={2} className="arc-input"
+                        style={{ flex: 1, border: "1px solid #ddd8d0", borderRight: "none", padding: "12px 16px", color: ARC_NAVY, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#faf8f5" : "#ffffff", letterSpacing: "0.01em" }} />
+                      <button className="btn" onClick={askQuestion} disabled={isRunning || !question.trim()}
+                        style={{ background: isRunning || !question.trim() ? "#f0ede8" : ARC_NAVY, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                        {isRunning ? <Spinner size={14} /> : "Search"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Select a vault</p>
+                  <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Upload documents and query building regulations</p>
+                </div>
+              )
             ) : (
               <>
                 {/* Vault header */}
