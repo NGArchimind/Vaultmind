@@ -455,7 +455,7 @@ export default function App() {
 
   // ── 3-pass Q&A pipeline ───────────────────────────────────────────────────────
   const askQuestion = async () => {
-    if (!vaultIndex || !question.trim()) return;
+    if ((!vaultIndex && !tempDoc) || !question.trim()) return;
     const q = question.trim();
     setAnswer(null);
     setCostEst(null);
@@ -467,6 +467,63 @@ export default function App() {
     setStatusMsg("Pass 1/3 · Reading contents pages and scoring sections…");
 
     try {
+      // ── Temp doc only mode (no vault indexed) ─────────────────────────────────
+      if (!vaultIndex && tempDoc) {
+        setStage("answering");
+        setStatusMsg("Reading temporary document and synthesising answer…");
+        setProgress({ index: 100, select: 100, read: 100, answer: 0 });
+        const docBlocks = [{
+          type: "document",
+          source: { type: "base64", media_type: "application/pdf", data: tempDoc.base64 },
+          title: `TEMPORARY DOCUMENT: ${tempDoc.name}`,
+        }];
+        const priorContext = conversationHistory.slice(-5);
+        const contextBlock = priorContext.length > 0
+          ? `CONVERSATION SO FAR:
+
+${priorContext.map((h, i) => `Question ${i+1}: ${h.question}
+Answer ${i+1}: ${h.answer.slice(0, 1000)}`).join("
+
+---
+
+")}
+
+---
+
+`
+          : "";
+        const tempPrompt = `You are an expert building regulations consultant. Use ONLY the provided document to answer.
+
+${contextBlock}CURRENT QUESTION: ${q}
+
+Respond with:
+## Summary
+A direct answer in 2-4 sentences citing the document.
+
+## Detailed Analysis
+Supporting detail and any relevant clauses, tables, or cross-references.
+
+## Regulatory Context
+Broader context from the document if relevant.
+
+## Contradictions & Conflicts
+Any conflicts or caveats within the document. If none: "No contradictions identified."`;
+        const { text: finalAnswer, usage: answerUsage } = await callClaude(
+          [{ role: "user", content: [...docBlocks, { type: "text", text: tempPrompt }] }],
+          `You are an expert building regulations consultant. Answer using ONLY the provided document. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts.`,
+          65536
+        );
+        setProgress(p => ({ ...p, answer: 100 }));
+        setAnswer(finalAnswer);
+        setStage("done");
+        setHistory(prev => [...prev, { vaultId: "temp", question: q, answer: finalAnswer, timestamp: new Date() }]);
+        setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
+        const inputCost  = ((answerUsage?.input_tokens  || 0) / 1_000_000) * 0.15 * 0.8;
+        const outputCost = ((answerUsage?.output_tokens || 0) / 1_000_000) * 0.60 * 0.8;
+        setCostEst(inputCost + outputCost);
+        return;
+      }
+
       const useAllSubVaults = queryScope === "all" && parentMaster;
       const activeIndex = useAllSubVaults ? await buildCombinedIndex() : vaultIndex;
 
@@ -1213,7 +1270,7 @@ export default function App() {
                       )}
                     </div>
 
-                    {(vaultIndex || (queryScope === "all" && parentMaster)) && (
+                    {(vaultIndex || (queryScope === "all" && parentMaster) || tempDoc) && (
                       <div style={{ padding: "16px 32px 20px", borderTop: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
                         <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
                           <textarea value={question} onChange={e => setQuestion(e.target.value)}
