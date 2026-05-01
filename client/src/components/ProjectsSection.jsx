@@ -1082,7 +1082,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
       }).join("");
       return `<tr>
         <td class="pin" style="background:${rowBg};color:${c.bodyText};text-align:center;font-weight:600;padding:3px 6px;border:1px solid #e0e0e0;font-size:7.5pt;white-space:nowrap;width:1%">${d.drawing_number || "—"}</td>
-        <td class="pin" style="background:${rowBg};color:${c.bodyText};padding:3px 6px;border:1px solid #e0e0e0;font-size:8pt">${d.title || ""}</td>
+        <td class="pin" style="background:${rowBg};color:${c.bodyText};padding:3px 6px;border:1px solid #e0e0e0;font-size:8pt;white-space:nowrap;width:1%">${d.title || ""}</td>
         <td class="pin" style="background:${bfBg};color:${c.bodyText};text-align:center;font-weight:700;padding:3px 6px;border:1px solid #ccc;border-left:2px solid ${c.bforward};font-size:8pt;white-space:nowrap;width:1%">${bfVal || "—"}</td>
         ${issueCells}
       </tr>`;
@@ -1175,7 +1175,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     table { page-break-inside: auto; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     thead { display: table-header-group; }
-    @page { size: A4 landscape; margin: 10mm; }
+    @page { size: A4 landscape; margin: 0; }
   }
 </style>
 </head>
@@ -1197,7 +1197,7 @@ ${notesHtml}
   <thead>
     <tr>
       <th style="text-align:center;white-space:nowrap;padding:4px 6px;width:1%">Drawing No.</th>
-      <th style="text-align:left;padding:4px 6px">Drawing Title</th>
+      <th style="text-align:left;padding:4px 6px;white-space:nowrap;width:1%">Drawing Title</th>
       <th style="text-align:center;white-space:nowrap;width:1%;background:${c.bforward};color:${c.headerText};border-left:2px solid rgba(255,255,255,0.4)">B' Fwd</th>
       ${issueDateHeaders}
     </tr>
