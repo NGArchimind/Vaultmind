@@ -111,8 +111,8 @@ export default function AdminSection() {
     setLogoLoading(true);
     try {
       const data = await api("/api/admin/logo");
-      setLogo(data.logo ? data : null);
-    } catch (e) { /* no logo */ }
+      setLogo(data.base64 ? data : null);
+    } catch (e) { setLogo(null); }
     setLogoLoading(false);
   }
 

@@ -445,8 +445,9 @@ function TransmittalTab({ projectId, isAdmin }) {
   async function loadLogo() {
     try {
       const d = await api("/api/logo");
-      if (d.logo) setLogo(d);
-    } catch (e) {}
+      if (d.base64) setLogo(d);
+      else setLogo(null);
+    } catch (e) { setLogo(null); }
   }
 
   async function loadColours() {
@@ -687,29 +688,29 @@ function TransmittalTab({ projectId, isAdmin }) {
         <div style={{ minWidth: totalWidth }}>
 
           {/* Header block: logo + job info */}
-          <div style={{ borderBottom: "2px solid #e8e0d5", padding: "14px 16px", display: "flex", alignItems: "flex-start", gap: 20, background: "#faf8f5", minHeight: 64 }}>
-            {logo?.base64 && (
-              <img
-                src={`data:${logo.mimeType};base64,${logo.base64}`}
-                alt="Practice logo"
-                style={{ maxHeight: 56, maxWidth: 140, objectFit: "contain", flexShrink: 0 }}
-              />
-            )}
-            {!logo?.base64 && (
-              <div style={{ width: 100, height: 48, border: "1px dashed #ddd8d0", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <span style={{ fontSize: 9, color: "#c0b8b0", textAlign: "center", lineHeight: 1.4 }}>Logo<br />here</span>
-              </div>
-            )}
+          <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, background: "#faf8f5", minHeight: 88 }}>
+            <div style={{ width: 160, height: 72, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
+              {logo?.base64 ? (
+                <img
+                  src={`data:${logo.mimeType};base64,${logo.base64}`}
+                  alt="Practice logo"
+                  style={{ maxHeight: 72, maxWidth: 160, objectFit: "contain", display: "block" }}
+                />
+              ) : (
+                <div style={{ width: 160, height: 72, border: "1px dashed #ddd8d0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ fontSize: 10, color: "#c0b8b0", textAlign: "center", lineHeight: 1.5 }}>Practice logo<br /><span style={{ fontSize: 9 }}>Upload in Admin</span></span>
+                </div>
+              )}
+            </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>
                 {project?.name || ""}
               </div>
-              <div style={{ fontSize: 11, color: "#9a9088", marginTop: 3, display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 12, color: "#9a9088", marginTop: 4, display: "flex", gap: 16, flexWrap: "wrap" }}>
                 {project?.job_number && <span><strong>Job No.</strong> {project.job_number}</span>}
                 {project?.location && <span>{project.location}</span>}
               </div>
             </div>
-            {/* Notes: below job info, above drawings — rendered here inside header block */}
           </div>
 
           {/* Notes section — below job info, above column headers */}
@@ -923,8 +924,8 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   }).join("");
 
   const logoHtml = logo?.base64
-    ? `<img src="data:${logo.mimeType};base64,${logo.base64}" style="max-height:52px;max-width:130px;object-fit:contain" />`
-    : "";
+    ? `<img src="data:${logo.mimeType};base64,${logo.base64}" style="max-height:72px;max-width:160px;object-fit:contain;display:block" />`
+    : `<div style="width:160px;height:72px;border:1px dashed #ddd;display:flex;align-items:center;justify-content:center;flex-shrink:0"><span style="font-size:8pt;color:#ccc;text-align:center">Practice logo</span></div>`;
 
   const notesHtml = notes
     ? `<div class="notes-row"><span class="notes-label">Notes</span><span class="notes-text">${notes.replace(/</g, "&lt;")}</span></div>`
@@ -945,7 +946,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   .no-print { display: none !important; }
 
   /* Header */
-  .hdr { display: flex; align-items: flex-start; gap: 16px; padding: 10px 0 8px; border-bottom: 2px solid #ddd; margin-bottom: 0; }
+  .hdr { display: flex; align-items: center; gap: 24px; padding: 12px 0 10px; border-bottom: 2px solid #ddd; margin-bottom: 0; min-height: 88px; }
   .hdr-info { flex: 1; }
   .hdr-name { font-size: 13pt; font-weight: 600; color: ${c.bodyText}; }
   .hdr-meta { font-size: 8pt; color: #777; margin-top: 3px; }
