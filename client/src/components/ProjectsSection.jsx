@@ -485,6 +485,9 @@ function TransmittalTab({ projectId, isAdmin }) {
   // pendingCell: { issueId, issueDate, drawingNumber, drawingTitle, oldValue, newValue } | null
   const [pendingCell, setPendingCell] = useState(null);
 
+  // Delete issue column confirmation
+  const [pendingDeleteIssue, setPendingDeleteIssue] = useState(null);
+
   // ── TEST ONLY — inject fake issue columns into local state ──────────────────
   const [testInjected, setTestInjected] = useState(false);
   function injectTestIssues() {
