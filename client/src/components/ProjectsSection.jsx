@@ -314,10 +314,12 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
 // ── Transmittal tab ───────────────────────────────────────────────────────────
 
 // ── DocumentsTab ──────────────────────────────────────────────────────────────
-function DocumentsTab({ projectId }) {
+function DocumentsTab({ projectId, isAdmin }) {
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [opening, setOpening] = useState(null);
+  const [selectedKeys, setSelectedKeys] = useState(new Set());
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => { loadFiles(); }, [projectId]);
 
@@ -326,6 +328,7 @@ function DocumentsTab({ projectId }) {
     try {
       const data = await api(`/api/projects/${projectId}/transmittals/files`);
       setFiles(data.files || []);
+      setSelectedKeys(new Set());
     } catch (e) { console.error(e); }
     setLoading(false);
   }
@@ -345,6 +348,39 @@ function DocumentsTab({ projectId }) {
     } catch (e) { console.error(e); }
     setOpening(null);
   }
+
+  function toggleSelect(key) {
+    setSelectedKeys(prev => {
+      const n = new Set(prev);
+      n.has(key) ? n.delete(key) : n.add(key);
+      return n;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedKeys.size === files.length && files.length > 0) {
+      setSelectedKeys(new Set());
+    } else {
+      setSelectedKeys(new Set(files.map(f => f.key)));
+    }
+  }
+
+  async function deleteSelected() {
+    if (!window.confirm(`Delete ${selectedKeys.size} snapshot${selectedKeys.size !== 1 ? "s" : ""}? This cannot be undone.`)) return;
+    setDeleting(true);
+    try {
+      await api(`/api/projects/${projectId}/transmittals/files`, {
+        method: "DELETE",
+        body: { keys: [...selectedKeys] },
+      });
+      setFiles(prev => prev.filter(f => !selectedKeys.has(f.key)));
+      setSelectedKeys(new Set());
+    } catch (e) { console.error(e); }
+    setDeleting(false);
+  }
+
+  const allSelected = files.length > 0 && selectedKeys.size === files.length;
+  const someSelected = selectedKeys.size > 0;
 
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 13 }}>
@@ -368,16 +404,44 @@ function DocumentsTab({ projectId }) {
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>
-          Stored Schedules
+          Stored Schedules — Transmittals
         </h3>
-        <button className="btn" onClick={loadFiles}
-          style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 10px" }}>
-          ↻ Refresh
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {isAdmin && someSelected && (
+            <button className="btn" onClick={deleteSelected} disabled={deleting}
+              style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: ARC_TERRACOTTA, border: `1px solid ${ARC_TERRACOTTA}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
+              {deleting ? <><Spinner size={10} /> Deleting…</> : `× Delete ${selectedKeys.size} selected`}
+            </button>
+          )}
+          <button className="btn" onClick={loadFiles}
+            style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 10px" }}>
+            ↻ Refresh
+          </button>
+        </div>
       </div>
+
+      {/* Select-all bar */}
+      {isAdmin && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 16px", background: "#f5f3f0", border: "1px solid #e8e0d5", borderBottom: "none", marginBottom: 0 }}>
+          <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+            style={{ cursor: "pointer", width: 14, height: 14, accentColor: ARC_NAVY }} />
+          <span style={{ fontSize: 11, color: "#9a9088" }}>
+            {someSelected ? `${selectedKeys.size} of ${files.length} selected` : "Select all"}
+          </span>
+        </div>
+      )}
+
       <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
         {files.map((f, i) => (
-          <div key={f.key} style={{ display: "flex", alignItems: "center", gap: 14, padding: "10px 16px", borderBottom: i < files.length - 1 ? "1px solid #f0ede8" : "none" }}>
+          <div key={f.key} style={{
+            display: "flex", alignItems: "center", gap: 14, padding: "10px 16px",
+            borderBottom: i < files.length - 1 ? "1px solid #f0ede8" : "none",
+            background: selectedKeys.has(f.key) ? "#eef6ff" : "inherit",
+          }}>
+            {isAdmin && (
+              <input type="checkbox" checked={selectedKeys.has(f.key)} onChange={() => toggleSelect(f.key)}
+                style={{ cursor: "pointer", width: 14, height: 14, accentColor: ARC_NAVY, flexShrink: 0 }} />
+            )}
             <span style={{ fontSize: 18, flexShrink: 0, width: 24, textAlign: "center" }}>📄</span>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 13, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>{f.label}</div>
@@ -434,6 +498,38 @@ function TransmittalTab({ projectId, isAdmin }) {
   // Warning dialog before saving any cell change
   // pendingCell: { issueId, issueDate, drawingNumber, drawingTitle, oldValue, newValue } | null
   const [pendingCell, setPendingCell] = useState(null);
+
+  // Delete issue column — admin only, triggered from date cell
+  const [pendingDeleteIssue, setPendingDeleteIssue] = useState(null);
+
+  async function confirmDeleteIssue() {
+    if (!pendingDeleteIssue) return;
+    const { issueId } = pendingDeleteIssue;
+    setPendingDeleteIssue(null);
+    try {
+      await api(`/api/projects/${projectId}/transmittal/issues/${issueId}`, { method: "DELETE" });
+      // Remove from local state
+      setData(prev => {
+        if (!prev) return prev;
+        const newIssues = prev.issues.filter(i => i.id !== issueId);
+        const newRevMap = { ...prev.revMap };
+        delete newRevMap[issueId];
+        // Recalculate autoBforward
+        const newAutoBforward = {};
+        for (const drawing of prev.drawings) {
+          const dn = drawing.drawing_number;
+          if (!dn) continue;
+          let highest = null;
+          for (const issue of newIssues) {
+            const rev = newRevMap[issue.id]?.[dn];
+            if (rev && (!highest || compareRevStr(rev, highest) > 0)) highest = rev;
+          }
+          newAutoBforward[dn] = highest || "";
+        }
+        return { ...prev, issues: newIssues, revMap: newRevMap, autoBforward: newAutoBforward };
+      });
+    } catch (e) { console.error(e); }
+  }
 
   useEffect(() => { load(); loadLogo(); loadColours(); }, [projectId]);
 
@@ -644,6 +740,31 @@ function TransmittalTab({ projectId, isAdmin }) {
 
   return (
     <div>
+      {/* Delete issue column confirmation dialog */}
+      {pendingDeleteIssue && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", width: 440, borderTop: `3px solid ${ARC_TERRACOTTA}`, padding: "28px 32px", fontFamily: "Inter, Arial, sans-serif" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 12 }}>⚠ Delete Issue Column?</h3>
+            <p style={{ fontSize: 13, color: "#5a5048", lineHeight: 1.7, marginBottom: 8 }}>
+              You are about to permanently delete the issue column dated <strong>{new Date(pendingDeleteIssue.issueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</strong>.
+            </p>
+            <p style={{ fontSize: 12, color: ARC_TERRACOTTA, lineHeight: 1.6, marginBottom: 24 }}>
+              This will delete the issue record and all revision data for this column. This action cannot be undone.
+            </p>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="btn" onClick={confirmDeleteIssue}
+                style={{ background: ARC_TERRACOTTA, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>
+                Yes, Delete Column
+              </button>
+              <button className="btn" onClick={() => setPendingDeleteIssue(null)}
+                style={{ background: "none", color: "#9a9088", border: "1px solid #ddd8d0", padding: "9px 16px", fontSize: 11, cursor: "pointer" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Warning dialog for cell edits */}
       {pendingCell && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -776,9 +897,9 @@ function TransmittalTab({ projectId, isAdmin }) {
           </div>
 
           {/* Column headers */}
-          <div style={{ display: "flex", borderBottom: "2px solid #e8e0d5" }}>
+          <div style={{ display: "flex", borderBottom: "2px solid #e8e0d5", position: "sticky", top: 0, zIndex: 10 }}>
             <div style={{ ...hdrCell, width: COL_TITLE, flexShrink: 0 }}>Drawing Title</div>
-            <div style={{ ...hdrCell, width: COL_NUMBER, flexShrink: 0, textAlign: "center" }}>Drawing No.</div>
+            <div style={{ ...hdrCell, width: COL_NUMBER, flexShrink: 0, textAlign: "center", position: "sticky", left: COL_TITLE, zIndex: 2, boxShadow: "2px 0 4px rgba(0,0,0,0.08)" }}>Drawing No.</div>
             <div style={{ ...hdrCell, width: COL_BF, flexShrink: 0, textAlign: "center", background: colours.bforward, borderLeft: "2px solid rgba(255,255,255,0.3)" }}>
               B' Fwd
             </div>
@@ -793,8 +914,27 @@ function TransmittalTab({ projectId, isAdmin }) {
                   ...hdrCell, width: COL_ISSUE, flexShrink: 0, textAlign: "center", lineHeight: 1.4,
                   background: isLatest ? colours.latestIssue : colours.header,
                   borderLeft: "1px solid rgba(255,255,255,0.15)",
+                  position: "relative",
+                  paddingBottom: isAdmin ? 18 : hdrCell.padding,
                 }}>
                   <div>{day}</div><div>{month}</div><div>{year}</div>
+                  {isAdmin && (
+                    <button
+                      className="btn"
+                      onClick={() => setPendingDeleteIssue({ issueId: issue.id, issueDate: issue.issue_date })}
+                      title="Delete this issue column"
+                      style={{
+                        position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)",
+                        background: "rgba(255,255,255,0.15)", border: "none", color: "rgba(255,255,255,0.5)",
+                        fontSize: 9, lineHeight: 1, padding: "1px 4px", cursor: "pointer",
+                        fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.02em",
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.color = "#fff"; e.currentTarget.style.background = "rgba(194,90,69,0.7)"; }}
+                      onMouseLeave={e => { e.currentTarget.style.color = "rgba(255,255,255,0.5)"; e.currentTarget.style.background = "rgba(255,255,255,0.15)"; }}
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -821,7 +961,7 @@ function TransmittalTab({ projectId, isAdmin }) {
                     {/* Title */}
                     <div style={{ ...cellBase, width: COL_TITLE, flexShrink: 0, background: rowBg }}>{d.title}</div>
                     {/* Drawing number */}
-                    <div style={{ ...cellBase, width: COL_NUMBER, flexShrink: 0, textAlign: "center", fontWeight: 600, fontSize: 11, background: rowBg }}>
+                    <div style={{ ...cellBase, width: COL_NUMBER, flexShrink: 0, textAlign: "center", fontWeight: 600, fontSize: 11, background: rowBg, position: "sticky", left: COL_TITLE, zIndex: 1, boxShadow: "2px 0 4px rgba(0,0,0,0.06)" }}>
                       {d.drawing_number || "—"}
                     </div>
                     {/* B' Forward — auto only, not editable */}
@@ -2527,7 +2667,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
           <DrawingsTab projectId={projectId} isAdmin={isAdmin} onDrawingsLoaded={setDrawings} />
         )}
 
-        {activeTab === "documents" && <DocumentsTab projectId={projectId} />}
+        {activeTab === "documents" && <DocumentsTab projectId={projectId} isAdmin={isAdmin} />}
         {activeTab === "products" && (
           <ProductsTab projectId={projectId} isAdmin={isAdmin} />
         )}

@@ -2315,6 +2315,59 @@ app.get("/api/projects/:id/transmittals/files", requireAuth, async (req, res) =>
   }
 });
 
+// ── DELETE /api/projects/:id/transmittal/issues/:issueId — delete an entire issue column
+// Admin only. Deletes the issue record and all its revision rows.
+app.delete("/api/projects/:id/transmittal/issues/:issueId", requireAuth, requireAdmin, async (req, res) => {
+  const { id: projectId, issueId } = req.params;
+  try {
+    // Verify the issue belongs to this project
+    const { data: issue, error: issueError } = await supabase
+      .from("project_transmittal_issues")
+      .select("id, project_id, issue_date")
+      .eq("id", issueId)
+      .eq("project_id", projectId)
+      .single();
+    if (issueError || !issue) return res.status(404).json({ error: "Issue not found for this project" });
+
+    // Delete all revision rows for this issue
+    const { error: revError } = await supabase
+      .from("project_transmittal_revisions")
+      .delete()
+      .eq("issue_id", issueId);
+    if (revError) throw revError;
+
+    // Delete the issue record itself
+    const { error: delError } = await supabase
+      .from("project_transmittal_issues")
+      .delete()
+      .eq("id", issueId)
+      .eq("project_id", projectId);
+    if (delError) throw delError;
+
+    res.json({ deleted: true, issue_date: issue.issue_date });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/projects/:id/transmittals/files — batch delete R2 snapshots
+// Body: { keys: string[] }
+app.delete("/api/projects/:id/transmittals/files", requireAuth, requireAdmin, async (req, res) => {
+  const { keys } = req.body;
+  if (!Array.isArray(keys) || keys.length === 0) return res.status(400).json({ error: "keys array required" });
+  const expectedPrefix = transmittalPrefix(req.params.id);
+  const invalid = keys.filter(k => !k.startsWith(expectedPrefix));
+  if (invalid.length > 0) return res.status(403).json({ error: "Forbidden — one or more keys are not in this project's transmittals folder" });
+  try {
+    for (const key of keys) {
+      await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+    }
+    res.json({ deleted: keys.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/projects/:id/transmittals/download?key=...
 app.get("/api/projects/:id/transmittals/download", requireAuth, async (req, res) => {
   const { key } = req.query;
