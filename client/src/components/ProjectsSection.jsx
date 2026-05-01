@@ -445,8 +445,9 @@ function TransmittalTab({ projectId, isAdmin }) {
   async function loadLogo() {
     try {
       const d = await api("/api/logo");
-      if (d.logo) setLogo(d);
-    } catch (e) {}
+      if (d.base64) setLogo(d);
+      else setLogo(null);
+    } catch (e) { setLogo(null); }
   }
 
   async function loadColours() {
