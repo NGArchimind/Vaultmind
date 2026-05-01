@@ -736,7 +736,7 @@ function TransmittalTab({ projectId, isAdmin }) {
   });
 
   const COL_TITLE = 240;
-  const COL_NUMBER = 200;
+  const COL_NUMBER = 220;
   const COL_BF = 64;
   const COL_ISSUE = 52;
   const totalWidth = COL_TITLE + COL_NUMBER + COL_BF + (issues.length * COL_ISSUE) + 40;
@@ -751,6 +751,19 @@ function TransmittalTab({ projectId, isAdmin }) {
     ...cellBase,
     background: colours.header, color: colours.headerText, fontWeight: 600, fontSize: 10,
     letterSpacing: "0.05em", textTransform: "uppercase",
+  };
+
+  const thStyle = {
+    fontFamily: "Inter, Arial, sans-serif", fontSize: 10, fontWeight: 600,
+    letterSpacing: "0.05em", textTransform: "uppercase",
+    padding: "6px 8px", border: "1px solid rgba(255,255,255,0.1)",
+    verticalAlign: "middle",
+  };
+
+  const tdStyle = {
+    fontFamily: "Inter, Arial, sans-serif", fontSize: 12,
+    padding: "4px 8px", borderBottom: "1px solid #f0ede8",
+    verticalAlign: "middle", color: colours.bodyText,
   };
 
   function getBfValue(dn) {
@@ -858,195 +871,125 @@ function TransmittalTab({ projectId, isAdmin }) {
         </div>
       </div>
 
-      {/* Schedule table */}
-      <div style={{ overflowX: "auto", background: "#fff", border: "1px solid #e8e0d5" }}>
-        <div style={{ minWidth: totalWidth }}>
+      {/* Schedule table — uses a real <table> so position:sticky works on td/th */}
+      <div id="schedule-scroll" style={{ overflowX: "auto", background: "#fff", border: "1px solid #e8e0d5" }}>
 
-          {/* Header block: logo + job info */}
-          <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, background: "#faf8f5", minHeight: 88 }}>
-            <div style={{ width: 160, height: 72, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
-              {logo?.base64 ? (
-                <img
-                  src={`data:${logo.mimeType};base64,${logo.base64}`}
-                  alt="Practice logo"
-                  style={{ maxHeight: 72, maxWidth: 160, objectFit: "contain", display: "block" }}
-                />
-              ) : (
-                <div style={{ width: 160, height: 72, border: "1px dashed #ddd8d0", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ fontSize: 10, color: "#c0b8b0", textAlign: "center", lineHeight: 1.5 }}>Practice logo<br /><span style={{ fontSize: 9 }}>Upload in Admin</span></span>
-                </div>
-              )}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 16, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>{project?.name || ""}</div>
-              <div style={{ fontSize: 12, color: "#9a9088", marginTop: 4, display: "flex", gap: 16, flexWrap: "wrap" }}>
-                {project?.job_number && <span><strong>Job No.</strong> {project.job_number}</span>}
-                {project?.location && <span>{project.location}</span>}
-              </div>
-            </div>
-          </div>
-
-          {/* Notes — below job info, above column headers */}
-          <div style={{ borderBottom: "1px solid #e8e0d5", padding: "10px 16px", background: "#fffdf8", display: "flex", alignItems: "flex-start", gap: 12 }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em", paddingTop: 2, flexShrink: 0, minWidth: 44 }}>Notes</div>
-            <div style={{ flex: 1 }}>
-              {editingNotes ? (
-                <div>
-                  <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)} rows={2}
-                    style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "6px 8px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
-                  <div style={{ display: "flex", gap: 8, marginTop: 5 }}>
-                    <button className="btn" onClick={saveNotes} disabled={savingNotes}
-                      style={{ background: AD_GREEN, color: "#fff", padding: "4px 14px", fontSize: 11, fontWeight: 600, border: "none" }}>
-                      {savingNotes ? <Spinner size={10} /> : "Save"}
-                    </button>
-                    <button className="btn" onClick={() => setEditingNotes(false)}
-                      style={{ background: "none", color: "#9a9088", padding: "4px 10px", fontSize: 11, border: "1px solid #ddd8d0" }}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                  <p style={{ fontSize: 12, color: notes ? ARC_NAVY : "#b0a8a0", fontStyle: notes ? "normal" : "italic", margin: 0, lineHeight: 1.6, flex: 1 }}>
-                    {notes || (isAdmin ? "Click Edit to add notes…" : "—")}
-                  </p>
-                  {isAdmin && (
-                    <button className="btn" onClick={() => { setNotesDraft(notes); setEditingNotes(true); }}
-                      style={{ fontSize: 10, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "2px 8px", fontWeight: 600, flexShrink: 0 }}>
-                      Edit
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Column headers */}
-          <div style={{ display: "flex", borderBottom: "2px solid #e8e0d5" }}>
-            <div style={{ ...hdrCell, width: COL_TITLE, flexShrink: 0, position: "sticky", left: 0, zIndex: 3 }}>Drawing Title</div>
-            <div style={{ ...hdrCell, width: COL_NUMBER, flexShrink: 0, textAlign: "center", position: "sticky", left: COL_TITLE, zIndex: 3, boxShadow: "2px 0 6px rgba(0,0,0,0.15)", whiteSpace: "nowrap" }}>Drawing No.</div>
-            <div style={{ ...hdrCell, width: COL_BF, flexShrink: 0, textAlign: "center", background: colours.bforward, borderLeft: "2px solid rgba(255,255,255,0.3)" }}>
-              B' Fwd
-            </div>
-            {issues.map((issue, i) => {
-              const d = new Date(issue.issue_date);
-              const day = String(d.getUTCDate()).padStart(2, "0");
-              const month = String(d.getUTCMonth() + 1).padStart(2, "0");
-              const year = String(d.getUTCFullYear()).slice(2);
-              const isLatest = i === issues.length - 1;
-              const bg = isLatest ? colours.latestIssue : colours.header;
-              return (
-                <div key={issue.id} style={{
-                  ...hdrCell, width: COL_ISSUE, flexShrink: 0, textAlign: "center", lineHeight: 1.4,
-                  background: bg,
-                  borderLeft: "1px solid rgba(255,255,255,0.15)",
-                  position: "relative",
-                  paddingBottom: isAdmin ? 20 : undefined,
-                }}>
-                  <div>{day}</div><div>{month}</div><div>{year}</div>
-                  {isAdmin && (
-                    <button className="btn"
-                      onClick={() => setPendingDeleteIssue({ issueId: issue.id, issueDate: issue.issue_date })}
-                      title="Delete this issue column"
-                      style={{
-                        position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)",
-                        background: "rgba(255,255,255,0.12)", border: "none",
-                        color: "rgba(255,255,255,0.45)", fontSize: 9, lineHeight: 1,
-                        padding: "1px 5px", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif",
-                        whiteSpace: "nowrap",
-                      }}
-                      onMouseEnter={e => { e.currentTarget.style.background = "rgba(194,90,69,0.75)"; e.currentTarget.style.color = "#fff"; }}
-                      onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.45)"; }}
-                    >del</button>
-                  )}
-                </div>
-              );
-            })}
-            {issues.length === 0 && (
-              <div style={{ ...hdrCell, flex: 1, color: "rgba(255,255,255,0.5)", fontStyle: "italic", fontWeight: 400 }}>
-                No issues recorded yet — sync drawings via Archimind Sync
+        {/* Header block: logo + job info */}
+        <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, background: "#faf8f5", minHeight: 88, minWidth: totalWidth }}>
+          <div style={{ width: 160, height: 72, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
+            {logo?.base64 ? (
+              <img src={`data:${logo.mimeType};base64,${logo.base64}`} alt="Practice logo"
+                style={{ maxHeight: 72, maxWidth: 160, objectFit: "contain", display: "block" }} />
+            ) : (
+              <div style={{ width: 160, height: 72, border: "1px dashed #ccc", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ fontSize: 9, color: "#ccc" }}>Practice logo</span>
               </div>
             )}
           </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: colours.bodyText, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.2 }}>{project?.name || "—"}</div>
+            <div style={{ fontSize: 11, color: "#777", marginTop: 6 }}>
+              {project?.job_number && <><strong>Job No.</strong> {project.job_number}</>}
+              {project?.job_number && project?.location && " · "}
+              {project?.location || ""}
+            </div>
+          </div>
+          {(notes || isAdmin) && (
+            <div style={{ flex: 2 }}>
+              {isAdmin ? (
+                <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)} onBlur={saveNotes}
+                  placeholder="Transmittal notes (optional)…" rows={3}
+                  style={{ width: "100%", fontSize: 11, border: "1px solid #ddd8d0", padding: "6px 8px", fontFamily: "Inter, Arial, sans-serif", resize: "vertical", color: colours.bodyText, background: "#fff" }} />
+              ) : notes ? (
+                <div style={{ fontSize: 11, color: colours.bodyText, lineHeight: 1.6 }}>{notes}</div>
+              ) : null}
+            </div>
+          )}
+        </div>
 
-          {/* Drawing rows */}
-          {Object.entries(groups).map(([groupName, groupDrawings]) => (
-            <div key={groupName}>
-              <div style={{ display: "flex", background: colours.groupRow, borderBottom: "1px solid #e8e0d5" }}>
-                <div style={{ ...cellBase, flex: 1, fontWeight: 700, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", color: colours.bodyText, background: colours.groupRow, borderRight: "none" }}>
-                  {groupName}
-                </div>
-              </div>
-              {groupDrawings.map((d, idx) => {
-                const rowBg = idx % 2 === 0 ? colours.rowEven : colours.rowOdd;
-                const bfVal = getBfValue(d.drawing_number);
+        <table style={{ borderCollapse: "collapse", tableLayout: "fixed", minWidth: totalWidth, width: "100%" }}>
+          <colgroup>
+            <col style={{ width: COL_TITLE }} />
+            <col style={{ width: COL_NUMBER }} />
+            <col style={{ width: COL_BF }} />
+            {issues.map(issue => <col key={issue.id} style={{ width: COL_ISSUE }} />)}
+          </colgroup>
+          <thead>
+            <tr>
+              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left" }}>Drawing Title</th>
+              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: COL_TITLE, zIndex: 3, textAlign: "center", boxShadow: "3px 0 6px rgba(0,0,0,0.15)", borderRight: "2px solid rgba(255,255,255,0.2)", whiteSpace: "nowrap" }}>Drawing No.</th>
+              <th style={{ ...thStyle, background: colours.bforward, color: colours.headerText, textAlign: "center", borderLeft: "2px solid rgba(255,255,255,0.3)" }}>B' Fwd</th>
+              {issues.map((issue, i) => {
+                const dt = new Date(issue.issue_date);
+                const day   = String(dt.getUTCDate()).padStart(2, "0");
+                const month = String(dt.getUTCMonth() + 1).padStart(2, "0");
+                const year  = String(dt.getUTCFullYear()).slice(2);
+                const isLatest = i === issues.length - 1;
+                const bg = isLatest ? colours.latestIssue : colours.header;
                 return (
-                  <div key={d.id} style={{ display: "flex", background: rowBg }}>
-                    {/* Title */}
-                    <div style={{ ...cellBase, width: COL_TITLE, flexShrink: 0, background: rowBg, position: "sticky", left: 0, zIndex: 1 }}>{d.title}</div>
-                    {/* Drawing number — sticky so it stays visible when scrolling issue columns */}
-                    <div style={{ ...cellBase, width: COL_NUMBER, flexShrink: 0, textAlign: "center", fontWeight: 600, fontSize: 11, background: rowBg, position: "sticky", left: COL_TITLE, zIndex: 1, boxShadow: "2px 0 6px rgba(0,0,0,0.08)", whiteSpace: "nowrap" }}>
-                      {d.drawing_number || "—"}
-                    </div>
-                    {/* B' Forward — auto only, not editable */}
-                    <div style={{
-                      ...cellBase, width: COL_BF, flexShrink: 0, textAlign: "center", fontWeight: 700,
-                      background: blendHex(colours.bforward, "#ffffff", 0.88),
-                      borderLeft: `2px solid ${colours.bforward}55`,
-                    }}>
-                      {bfVal || "—"}
-                    </div>
-                    {/* Issue columns — all editable with warning */}
-                    {issues.map((issue, i) => {
-                      const rev = revMap[issue.id]?.[d.drawing_number] || "";
-                      const isLatest = i === issues.length - 1;
-                      const isEditing = editingCell?.issueId === issue.id && editingCell?.drawingNumber === d.drawing_number;
-                      return (
-                        <div key={issue.id} style={{
-                          ...cellBase, width: COL_ISSUE, flexShrink: 0, textAlign: "center",
-                          fontWeight: rev ? 700 : 400,
-                          background: isLatest ? colours.latestIssue + "22" : rowBg,
-                          color: rev ? colours.bodyText : "#c8c0b8",
-                          borderLeft: "1px solid #e8e0d5",
-                          padding: "2px 4px",
-                          position: "relative",
-                        }}>
-                          {isEditing ? (
-                            <input
-                              autoFocus
-                              value={cellDraft}
-                              onChange={e => setCellDraft(e.target.value)}
-                              onBlur={() => requestCellEdit(issue.id, issue.issue_date, d.drawing_number, d.title, cellDraft)}
-                              onKeyDown={e => {
-                                if (e.key === "Enter") requestCellEdit(issue.id, issue.issue_date, d.drawing_number, d.title, cellDraft);
-                                if (e.key === "Escape") setEditingCell(null);
-                              }}
-                              style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "2px 3px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", textAlign: "center", outline: "none", background: "#fff" }}
-                            />
-                          ) : (
-                            <span
-                              onClick={() => {
-                                if (isAdmin) {
-                                  setEditingCell({ issueId: issue.id, drawingNumber: d.drawing_number });
-                                  setCellDraft(rev);
-                                }
-                              }}
-                              title={isAdmin ? "Click to edit (use sparingly)" : rev}
-                              style={{ cursor: isAdmin ? "text" : "default", display: "block", lineHeight: "24px" }}
-                            >
-                              {rev || ""}
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {issues.length === 0 && <div style={{ ...cellBase, flex: 1, background: rowBg }} />}
-                  </div>
+                  <th key={issue.id} style={{ ...thStyle, background: bg, color: colours.headerText, textAlign: "center", lineHeight: 1.4, borderLeft: "1px solid rgba(255,255,255,0.15)", position: "relative", paddingBottom: isAdmin ? 20 : undefined }}>
+                    <div>{day}</div><div>{month}</div><div>{year}</div>
+                    {isAdmin && (
+                      <button className="btn"
+                        onClick={() => setPendingDeleteIssue({ issueId: issue.id, issueDate: issue.issue_date })}
+                        title="Delete this issue column"
+                        style={{ position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)", background: "rgba(255,255,255,0.12)", border: "none", color: "rgba(255,255,255,0.45)", fontSize: 9, lineHeight: 1, padding: "1px 5px", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif", whiteSpace: "nowrap" }}
+                        onMouseEnter={e => { e.currentTarget.style.background = "rgba(194,90,69,0.75)"; e.currentTarget.style.color = "#fff"; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.45)"; }}
+                      >del</button>
+                    )}
+                  </th>
                 );
               })}
-            </div>
-          ))}
-        </div>
+              {issues.length === 0 && (
+                <th style={{ ...thStyle, background: colours.header, color: "rgba(255,255,255,0.5)", fontStyle: "italic", fontWeight: 400 }}>
+                  No issues recorded yet — sync drawings via Archimind Sync
+                </th>
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {Object.entries(groups).map(([groupName, groupDrawings]) => (
+              <React.Fragment key={groupName}>
+                <tr>
+                  <td colSpan={3 + issues.length} style={{ background: colours.groupRow, color: colours.bodyText, fontWeight: 700, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 8px", borderBottom: "1px solid #e8e0d5" }}>{groupName}</td>
+                </tr>
+                {groupDrawings.map((d, idx) => {
+                  const rowBg = idx % 2 === 0 ? colours.rowEven : colours.rowOdd;
+                  const bfVal = getBfValue(d.drawing_number);
+                  return (
+                    <tr key={d.id} style={{ background: rowBg }}>
+                      <td style={{ ...tdStyle, background: rowBg, position: "sticky", left: 0, zIndex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.title}</td>
+                      <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: COL_TITLE, zIndex: 1, boxShadow: "3px 0 6px rgba(0,0,0,0.10)", borderRight: "2px solid #e8e0d5" }}>{d.drawing_number || "—"}</td>
+                      <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, background: blendHex(colours.bforward, "#ffffff", 0.88), borderLeft: `2px solid ${colours.bforward}55` }}>{bfVal || "—"}</td>
+                      {issues.map((issue, i) => {
+                        const rev = revMap[issue.id]?.[d.drawing_number] || "";
+                        const isLatest = i === issues.length - 1;
+                        const isEditing = editingCell?.issueId === issue.id && editingCell?.drawingNumber === d.drawing_number;
+                        return (
+                          <td key={issue.id} style={{ ...tdStyle, textAlign: "center", padding: "2px 4px", fontWeight: rev ? 700 : 400, background: isLatest ? colours.latestIssue + "22" : rowBg, color: rev ? colours.bodyText : "#c8c0b8", borderLeft: "1px solid #e8e0d5" }}>
+                            {isEditing ? (
+                              <input autoFocus value={cellDraft} onChange={e => setCellDraft(e.target.value)}
+                                onBlur={() => requestCellEdit(issue.id, issue.issue_date, d.drawing_number, d.title, cellDraft)}
+                                onKeyDown={e => { if (e.key === "Enter") requestCellEdit(issue.id, issue.issue_date, d.drawing_number, d.title, cellDraft); if (e.key === "Escape") setEditingCell(null); }}
+                                style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "2px 3px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", textAlign: "center", outline: "none", background: "#fff" }} />
+                            ) : (
+                              <span onClick={() => { if (isAdmin) { setEditingCell({ issueId: issue.id, drawingNumber: d.drawing_number }); setCellDraft(rev); } }}
+                                title={isAdmin ? "Click to edit (use sparingly)" : rev}
+                                style={{ cursor: isAdmin ? "text" : "default", display: "block", lineHeight: "24px" }}>
+                                {rev || ""}
+                              </span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {/* Legend */}
@@ -1208,32 +1151,62 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   tbody td { vertical-align: middle; }
 
   @media print {
-    html, body { width: 297mm; overflow: hidden; }
-    body { margin: 0; padding: 6mm; box-sizing: border-box; }
-    table { page-break-inside: auto; margin-left: var(--print-offset, 0px); }
+    html, body { margin: 0; padding: 0; overflow: hidden; }
+    table { page-break-inside: auto; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     thead { display: table-header-group; }
-    /* Prevent browser from scaling to fit — we want clipping not shrinking */
-    @page { size: A4 landscape; margin: 0; }
+    @page { size: A4 landscape; margin: 10mm; }
   }
 </style>
 <script>
-  // Before printing: shift the table left so the newest (rightmost) column
-  // aligns to the right edge of the page. Older columns clip off the left.
-  // Page width A4 landscape = 297mm ≈ 1122px at 96dpi. Subtract 12mm padding each side.
-  const PAGE_W_PX = 297 * 96 / 25.4 - (2 * 12 * 96 / 25.4);
+  // Before printing: measure how many issue columns fit on the page alongside
+  // the pinned columns (Drawing No. + Title + B'Fwd). Remove oldest columns
+  // that won't fit, keeping newest on the right. Restore all after printing.
+  var removedCols = [];
+
   window.addEventListener('beforeprint', function() {
-    const tbl = document.querySelector('table');
+    removedCols = [];
+    // A4 landscape at 96dpi = ~1122px. Subtract 20mm margins = ~1046px usable.
+    var PAGE_W = 1046;
+    var tbl = document.querySelector('table');
     if (!tbl) return;
-    const tblW = tbl.offsetWidth;
-    if (tblW > PAGE_W_PX) {
-      tbl.style.setProperty('--print-offset', '-' + (tblW - PAGE_W_PX) + 'px');
-      tbl.style.marginLeft = '-' + (tblW - PAGE_W_PX) + 'px';
+    // Pinned columns width
+    var pinned = tbl.querySelector('col:nth-child(1)').offsetWidth
+               + tbl.querySelector('col:nth-child(2)').offsetWidth
+               + tbl.querySelector('col:nth-child(3)').offsetWidth;
+    // Issue columns: th elements after the first 3
+    var issueThs = Array.from(tbl.querySelectorAll('thead th')).slice(3);
+    if (issueThs.length === 0) return;
+    var colW = issueThs[0].offsetWidth || 38;
+    var fitsCount = Math.floor((PAGE_W - pinned) / colW);
+    // How many to remove from the left (oldest)
+    var toRemove = issueThs.length - fitsCount;
+    if (toRemove <= 0) return;
+    // Remove oldest columns (first toRemove issue columns) from every row
+    var allRows = Array.from(tbl.querySelectorAll('tr'));
+    for (var r = 0; r < allRows.length; r++) {
+      var cells = allRows[r].querySelectorAll('td, th');
+      // Skip group rows (colspan = all cols)
+      if (cells.length <= 4) continue;
+      var rowRemoved = [];
+      for (var c = 3; c < 3 + toRemove && c < cells.length; c++) {
+        rowRemoved.push({ cell: cells[c], next: cells[c].nextSibling, parent: cells[c].parentNode });
+        cells[c].parentNode.removeChild(cells[c]);
+      }
+      removedCols.push(rowRemoved);
     }
   });
+
   window.addEventListener('afterprint', function() {
-    const tbl = document.querySelector('table');
-    if (tbl) tbl.style.marginLeft = '';
+    // Restore removed cells
+    for (var i = 0; i < removedCols.length; i++) {
+      var rowRemoved = removedCols[i];
+      for (var j = rowRemoved.length - 1; j >= 0; j--) {
+        var item = rowRemoved[j];
+        item.parent.insertBefore(item.cell, item.next);
+      }
+    }
+    removedCols = [];
   });
 </script>
 </head>
