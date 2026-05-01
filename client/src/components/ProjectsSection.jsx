@@ -350,29 +350,20 @@ function DocumentsTab({ projectId, isAdmin }) {
   }
 
   function toggleSelect(key) {
-    setSelectedKeys(prev => {
-      const n = new Set(prev);
-      n.has(key) ? n.delete(key) : n.add(key);
-      return n;
-    });
+    setSelectedKeys(prev => { const n = new Set(prev); n.has(key) ? n.delete(key) : n.add(key); return n; });
   }
 
   function toggleSelectAll() {
-    if (selectedKeys.size === files.length && files.length > 0) {
-      setSelectedKeys(new Set());
-    } else {
-      setSelectedKeys(new Set(files.map(f => f.key)));
-    }
+    if (selectedKeys.size === files.length && files.length > 0) setSelectedKeys(new Set());
+    else setSelectedKeys(new Set(files.map(f => f.key)));
   }
 
   async function deleteSelected() {
     if (!window.confirm(`Delete ${selectedKeys.size} snapshot${selectedKeys.size !== 1 ? "s" : ""}? This cannot be undone.`)) return;
     setDeleting(true);
     try {
-      await api(`/api/projects/${projectId}/transmittals/files`, {
-        method: "DELETE",
-        body: { keys: [...selectedKeys] },
-      });
+      const keysParam = [...selectedKeys].map(k => encodeURIComponent(k)).join(",");
+      await api(`/api/projects/${projectId}/transmittals/files?keys=${keysParam}`, { method: "DELETE" });
       setFiles(prev => prev.filter(f => !selectedKeys.has(f.key)));
       setSelectedKeys(new Set());
     } catch (e) { console.error(e); }
@@ -391,12 +382,8 @@ function DocumentsTab({ projectId, isAdmin }) {
   if (files.length === 0) return (
     <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
       <div style={{ fontSize: 36, marginBottom: 12 }}>📁</div>
-      <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>
-        No documents yet
-      </p>
-      <p style={{ fontSize: 12, color: "#9a9088" }}>
-        Use "Export PDF" in the Drawing Schedule tab to generate and store snapshots here.
-      </p>
+      <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>No documents yet</p>
+      <p style={{ fontSize: 12, color: "#9a9088" }}>Use "Save PDF Snapshot" in the Drawing Schedule tab to generate and store snapshots here.</p>
     </div>
   );
 
@@ -420,9 +407,8 @@ function DocumentsTab({ projectId, isAdmin }) {
         </div>
       </div>
 
-      {/* Select-all bar */}
       {isAdmin && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 16px", background: "#f5f3f0", border: "1px solid #e8e0d5", borderBottom: "none", marginBottom: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 16px", background: "#f5f3f0", border: "1px solid #e8e0d5", borderBottom: "none" }}>
           <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
             style={{ cursor: "pointer", width: 14, height: 14, accentColor: ARC_NAVY }} />
           <span style={{ fontSize: 11, color: "#9a9088" }}>
@@ -499,7 +485,7 @@ function TransmittalTab({ projectId, isAdmin }) {
   // pendingCell: { issueId, issueDate, drawingNumber, drawingTitle, oldValue, newValue } | null
   const [pendingCell, setPendingCell] = useState(null);
 
-  // Delete issue column — admin only, triggered from date cell
+  // Delete issue column confirmation
   const [pendingDeleteIssue, setPendingDeleteIssue] = useState(null);
 
   async function confirmDeleteIssue() {
@@ -508,13 +494,11 @@ function TransmittalTab({ projectId, isAdmin }) {
     setPendingDeleteIssue(null);
     try {
       await api(`/api/projects/${projectId}/transmittal/issues/${issueId}`, { method: "DELETE" });
-      // Remove from local state
       setData(prev => {
         if (!prev) return prev;
         const newIssues = prev.issues.filter(i => i.id !== issueId);
         const newRevMap = { ...prev.revMap };
         delete newRevMap[issueId];
-        // Recalculate autoBforward
         const newAutoBforward = {};
         for (const drawing of prev.drawings) {
           const dn = drawing.drawing_number;
@@ -715,8 +699,8 @@ function TransmittalTab({ projectId, isAdmin }) {
     fontFamily: "Inter, Arial, sans-serif", display: "flex", alignItems: "center", gap: 5,
   });
 
-  const COL_TITLE = 280;
-  const COL_NUMBER = 120;
+  const COL_TITLE = 240;
+  const COL_NUMBER = 200;
   const COL_BF = 64;
   const COL_ISSUE = 52;
   const totalWidth = COL_TITLE + COL_NUMBER + COL_BF + (issues.length * COL_ISSUE) + 40;
@@ -740,7 +724,7 @@ function TransmittalTab({ projectId, isAdmin }) {
 
   return (
     <div>
-      {/* Delete issue column confirmation dialog */}
+      {/* Delete issue column confirmation */}
       {pendingDeleteIssue && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: "#fff", width: 440, borderTop: `3px solid ${ARC_TERRACOTTA}`, padding: "28px 32px", fontFamily: "Inter, Arial, sans-serif" }}>
@@ -897,9 +881,9 @@ function TransmittalTab({ projectId, isAdmin }) {
           </div>
 
           {/* Column headers */}
-          <div style={{ display: "flex", borderBottom: "2px solid #e8e0d5", position: "sticky", top: 0, zIndex: 10 }}>
+          <div style={{ display: "flex", borderBottom: "2px solid #e8e0d5" }}>
             <div style={{ ...hdrCell, width: COL_TITLE, flexShrink: 0 }}>Drawing Title</div>
-            <div style={{ ...hdrCell, width: COL_NUMBER, flexShrink: 0, textAlign: "center", position: "sticky", left: COL_TITLE, zIndex: 2, boxShadow: "2px 0 4px rgba(0,0,0,0.08)" }}>Drawing No.</div>
+            <div style={{ ...hdrCell, width: COL_NUMBER, flexShrink: 0, textAlign: "center", position: "sticky", left: COL_TITLE, zIndex: 2, boxShadow: "2px 0 4px rgba(0,0,0,0.10)" }}>Drawing No.</div>
             <div style={{ ...hdrCell, width: COL_BF, flexShrink: 0, textAlign: "center", background: colours.bforward, borderLeft: "2px solid rgba(255,255,255,0.3)" }}>
               B' Fwd
             </div>
@@ -909,31 +893,30 @@ function TransmittalTab({ projectId, isAdmin }) {
               const month = String(d.getUTCMonth() + 1).padStart(2, "0");
               const year = String(d.getUTCFullYear()).slice(2);
               const isLatest = i === issues.length - 1;
+              const bg = isLatest ? colours.latestIssue : colours.header;
               return (
                 <div key={issue.id} style={{
                   ...hdrCell, width: COL_ISSUE, flexShrink: 0, textAlign: "center", lineHeight: 1.4,
-                  background: isLatest ? colours.latestIssue : colours.header,
+                  background: bg,
                   borderLeft: "1px solid rgba(255,255,255,0.15)",
                   position: "relative",
-                  paddingBottom: isAdmin ? 18 : hdrCell.padding,
+                  paddingBottom: isAdmin ? 20 : undefined,
                 }}>
                   <div>{day}</div><div>{month}</div><div>{year}</div>
                   {isAdmin && (
-                    <button
-                      className="btn"
+                    <button className="btn"
                       onClick={() => setPendingDeleteIssue({ issueId: issue.id, issueDate: issue.issue_date })}
                       title="Delete this issue column"
                       style={{
                         position: "absolute", bottom: 2, left: "50%", transform: "translateX(-50%)",
-                        background: "rgba(255,255,255,0.15)", border: "none", color: "rgba(255,255,255,0.5)",
-                        fontSize: 9, lineHeight: 1, padding: "1px 4px", cursor: "pointer",
-                        fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.02em",
+                        background: "rgba(255,255,255,0.12)", border: "none",
+                        color: "rgba(255,255,255,0.45)", fontSize: 9, lineHeight: 1,
+                        padding: "1px 5px", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif",
+                        whiteSpace: "nowrap",
                       }}
-                      onMouseEnter={e => { e.currentTarget.style.color = "#fff"; e.currentTarget.style.background = "rgba(194,90,69,0.7)"; }}
-                      onMouseLeave={e => { e.currentTarget.style.color = "rgba(255,255,255,0.5)"; e.currentTarget.style.background = "rgba(255,255,255,0.15)"; }}
-                    >
-                      ×
-                    </button>
+                      onMouseEnter={e => { e.currentTarget.style.background = "rgba(194,90,69,0.75)"; e.currentTarget.style.color = "#fff"; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,0.12)"; e.currentTarget.style.color = "rgba(255,255,255,0.45)"; }}
+                    >del</button>
                   )}
                 </div>
               );
@@ -960,7 +943,7 @@ function TransmittalTab({ projectId, isAdmin }) {
                   <div key={d.id} style={{ display: "flex", background: rowBg }}>
                     {/* Title */}
                     <div style={{ ...cellBase, width: COL_TITLE, flexShrink: 0, background: rowBg }}>{d.title}</div>
-                    {/* Drawing number */}
+                    {/* Drawing number — sticky so it stays visible when scrolling issue columns */}
                     <div style={{ ...cellBase, width: COL_NUMBER, flexShrink: 0, textAlign: "center", fontWeight: 600, fontSize: 11, background: rowBg, position: "sticky", left: COL_TITLE, zIndex: 1, boxShadow: "2px 0 4px rgba(0,0,0,0.06)" }}>
                       {d.drawing_number || "—"}
                     </div>
