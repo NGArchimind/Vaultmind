@@ -485,8 +485,41 @@ function TransmittalTab({ projectId, isAdmin }) {
   // pendingCell: { issueId, issueDate, drawingNumber, drawingTitle, oldValue, newValue } | null
   const [pendingCell, setPendingCell] = useState(null);
 
-  // Delete issue column confirmation
-  const [pendingDeleteIssue, setPendingDeleteIssue] = useState(null);
+  // ── TEST ONLY — inject fake issue columns into local state ──────────────────
+  const [testInjected, setTestInjected] = useState(false);
+  function injectTestIssues() {
+    setData(prev => {
+      if (!prev) return prev;
+      const revOptions = ["P01","P02","P03","P04","P05","C01","C02","T01","T02"];
+      const baseDate = new Date("2023-01-01");
+      const fakeIssues = Array.from({ length: 100 }, (_, i) => ({
+        id: `test-issue-${i}`,
+        project_id: projectId,
+        issue_date: new Date(baseDate.getTime() + i * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      }));
+      const fakeRevMap = {};
+      for (const issue of fakeIssues) {
+        fakeRevMap[issue.id] = {};
+        for (const drawing of prev.drawings) {
+          if (drawing.drawing_number && Math.random() > 0.3) {
+            fakeRevMap[issue.id][drawing.drawing_number] = revOptions[Math.floor(Math.random() * revOptions.length)];
+          }
+        }
+      }
+      return { ...prev, issues: [...prev.issues, ...fakeIssues], revMap: { ...prev.revMap, ...fakeRevMap } };
+    });
+    setTestInjected(true);
+  }
+  function clearTestIssues() {
+    setData(prev => {
+      if (!prev) return prev;
+      const realIssues = prev.issues.filter(i => !String(i.id).startsWith("test-issue-"));
+      const realRevMap = Object.fromEntries(Object.entries(prev.revMap).filter(([k]) => !k.startsWith("test-issue-")));
+      return { ...prev, issues: realIssues, revMap: realRevMap };
+    });
+    setTestInjected(false);
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 
   async function confirmDeleteIssue() {
     if (!pendingDeleteIssue) return;
@@ -810,6 +843,11 @@ function TransmittalTab({ projectId, isAdmin }) {
           <button className="btn" onClick={exportExcel} disabled={exportingExcel} style={btnSm(AD_GREEN)}>
             {exportingExcel ? <><Spinner size={10} /> Exporting…</> : "↓ Export Excel"}
           </button>
+          {/* ── TEST ONLY ── remove before go-live */}
+          {!testInjected
+            ? <button className="btn" onClick={injectTestIssues} style={{ fontSize: 10, color: "#fff", background: "#b06000", border: "none", padding: "4px 10px", letterSpacing: "0.04em" }}>⚗ Inject 100 test issues</button>
+            : <button className="btn" onClick={clearTestIssues} style={{ fontSize: 10, color: "#fff", background: "#7a0000", border: "none", padding: "4px 10px", letterSpacing: "0.04em" }}>⚗ Clear test issues</button>
+          }
           <button className="btn" onClick={load}
             style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 10px" }}>
             ↻
