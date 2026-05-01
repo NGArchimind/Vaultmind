@@ -1604,7 +1604,7 @@ app.get("/api/projects/:id/transmittal/export/excel", requireAuth, async (req, r
 
     // Fixed columns: Title (A), Drawing No (B), B'Forward (C), then issue date columns
     ws.getColumn(1).width = 48;
-    ws.getColumn(2).width = 18;
+    ws.getColumn(2).width = 28;
     ws.getColumn(3).width = 10;
     const issueStartCol = 4;
     const totalIssues = (issues || []).length;
@@ -1832,6 +1832,58 @@ app.post("/api/projects/:id/transmittals", requireAuth, async (req, res) => {
       .single();
     if (error) throw error;
     res.json({ transmittal: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/projects/:id/transmittal/issues/:issueId — delete an entire issue column
+// Admin only. Must be registered BEFORE the legacy transmittals/:tid route to avoid param collision.
+app.delete("/api/projects/:id/transmittal/issues/:issueId", requireAuth, requireAdmin, async (req, res) => {
+  const { id: projectId, issueId } = req.params;
+  try {
+    const { data: issue, error: issueError } = await supabase
+      .from("project_transmittal_issues")
+      .select("id, project_id, issue_date")
+      .eq("id", issueId)
+      .eq("project_id", projectId)
+      .single();
+    if (issueError || !issue) return res.status(404).json({ error: "Issue not found for this project" });
+
+    const { error: revError } = await supabase
+      .from("project_transmittal_revisions")
+      .delete()
+      .eq("issue_id", issueId);
+    if (revError) throw revError;
+
+    const { error: delError } = await supabase
+      .from("project_transmittal_issues")
+      .delete()
+      .eq("id", issueId)
+      .eq("project_id", projectId);
+    if (delError) throw delError;
+
+    res.json({ deleted: true, issue_date: issue.issue_date });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── DELETE /api/projects/:id/transmittals/files?keys=key1,key2 — batch delete R2 snapshots
+// Must be registered BEFORE transmittals/:tid to avoid "files" being matched as :tid.
+app.delete("/api/projects/:id/transmittals/files", requireAuth, requireAdmin, async (req, res) => {
+  const { keys: keysParam } = req.query;
+  if (!keysParam) return res.status(400).json({ error: "keys query param required" });
+  const keys = keysParam.split(",").map(k => decodeURIComponent(k.trim())).filter(Boolean);
+  if (keys.length === 0) return res.status(400).json({ error: "No keys provided" });
+  const expectedPrefix = transmittalPrefix(req.params.id);
+  const invalid = keys.filter(k => !k.startsWith(expectedPrefix));
+  if (invalid.length > 0) return res.status(403).json({ error: "Forbidden — keys outside project transmittals folder" });
+  try {
+    for (const key of keys) {
+      await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
+    }
+    res.json({ deleted: keys.length });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2331,58 +2383,6 @@ app.get("/api/projects/:id/transmittals/download", requireAuth, async (req, res)
   }
 });
 
-
-// ── DELETE /api/projects/:id/transmittal/issues/:issueId — delete an entire issue column
-// Admin only. Deletes the issue record and all its revision rows.
-app.delete("/api/projects/:id/transmittal/issues/:issueId", requireAuth, requireAdmin, async (req, res) => {
-  const { id: projectId, issueId } = req.params;
-  try {
-    const { data: issue, error: issueError } = await supabase
-      .from("project_transmittal_issues")
-      .select("id, project_id, issue_date")
-      .eq("id", issueId)
-      .eq("project_id", projectId)
-      .single();
-    if (issueError || !issue) return res.status(404).json({ error: "Issue not found for this project" });
-
-    const { error: revError } = await supabase
-      .from("project_transmittal_revisions")
-      .delete()
-      .eq("issue_id", issueId);
-    if (revError) throw revError;
-
-    const { error: delError } = await supabase
-      .from("project_transmittal_issues")
-      .delete()
-      .eq("id", issueId)
-      .eq("project_id", projectId);
-    if (delError) throw delError;
-
-    res.json({ deleted: true, issue_date: issue.issue_date });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ── DELETE /api/projects/:id/transmittals/files?keys=key1,key2 — batch delete R2 snapshots
-// Keys passed as comma-separated query param to avoid body-on-DELETE issues.
-app.delete("/api/projects/:id/transmittals/files", requireAuth, requireAdmin, async (req, res) => {
-  const { keys: keysParam } = req.query;
-  if (!keysParam) return res.status(400).json({ error: "keys query param required" });
-  const keys = keysParam.split(",").map(k => k.trim()).filter(Boolean);
-  if (keys.length === 0) return res.status(400).json({ error: "No keys provided" });
-  const expectedPrefix = transmittalPrefix(req.params.id);
-  const invalid = keys.filter(k => !k.startsWith(expectedPrefix));
-  if (invalid.length > 0) return res.status(403).json({ error: "Forbidden — keys outside project transmittals folder" });
-  try {
-    for (const key of keys) {
-      await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
-    }
-    res.json({ deleted: keys.length });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ── ArchiSync connection config — admin only ──────────────────────────────────
 // Returns the values needed to build a connection code in the admin UI.
