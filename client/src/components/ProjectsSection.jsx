@@ -553,9 +553,10 @@ function TransmittalTab({ projectId, isAdmin }) {
 
   // Measure title column width for sticky Drawing No. offset
   const titleColRef = useRef(null);
-  const [titleColW, setTitleColW] = useState(COL_TITLE);
+  const [titleColW, setTitleColW] = useState(0);
   useEffect(() => {
     if (!titleColRef.current) return;
+    setTitleColW(titleColRef.current.offsetWidth);
     const obs = new ResizeObserver(() => {
       if (titleColRef.current) setTitleColW(titleColRef.current.offsetWidth);
     });
