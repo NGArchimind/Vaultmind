@@ -59,6 +59,11 @@ export default function AdminSection() {
   const [savingColours, setSavingColours] = useState(false);
   const [coloursMsg, setColoursMsg] = useState(null);
 
+  // ArchiSync connection code
+  const [archisyncCode, setArchisyncCode] = useState(null);
+  const [archisyncLoading, setArchisyncLoading] = useState(false);
+  const [archisyncCopied, setArchisyncCopied] = useState(false);
+
   function showMsg(setter, type, text) {
     setter({ type, text });
     setTimeout(() => setter(null), 6000);
@@ -181,6 +186,32 @@ export default function AdminSection() {
 
   function resetColours() {
     setColoursDraft({ ...DEFAULT_COLOURS });
+  }
+
+  // ── ArchiSync ──────────────────────────────────────────────────────────────
+  async function generateArchisyncCode() {
+    setArchisyncLoading(true);
+    setArchisyncCode(null);
+    try {
+      const data = await api("/api/admin/archisync-config");
+      const payload = JSON.stringify({
+        apiUrl: data.apiUrl,
+        supabaseUrl: data.supabaseUrl,
+        supabaseAnonKey: data.supabaseAnonKey
+      });
+      const code = "ARCH-" + btoa(payload);
+      setArchisyncCode(code);
+    } catch (e) {
+      alert("Failed to generate connection code: " + e.message);
+    }
+    setArchisyncLoading(false);
+  }
+
+  async function copyArchisyncCode() {
+    if (!archisyncCode) return;
+    await navigator.clipboard.writeText(archisyncCode);
+    setArchisyncCopied(true);
+    setTimeout(() => setArchisyncCopied(false), 2500);
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -417,6 +448,74 @@ export default function AdminSection() {
                 Edit Colours
               </button>
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── ArchiSync Connection ──────────────────────────────────────────── */}
+      <div style={{ marginBottom: 48 }}>
+        {sectionHeader("ArchiSync Connection", "Generate a connection code to link the ArchiSync desktop tool to this Archimind deployment.")}
+        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${ARC_NAVY}`, padding: "24px 28px", maxWidth: 560 }}>
+
+          <p style={{ fontSize: 13, color: "#6a6058", lineHeight: 1.7, marginBottom: 20 }}>
+            Share this code with anyone who needs to connect ArchiSync to this Archimind instance.
+            The code contains the API and authentication details needed to connect — keep it private.
+            Codes do not expire but you can generate a new one at any time.
+          </p>
+
+          {archisyncCode ? (
+            <div>
+              <p style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+                Connection Code
+              </p>
+              <div style={{
+                background: "#f5f3f0",
+                border: "1px solid #e0dbd4",
+                padding: "12px 16px",
+                fontFamily: "monospace",
+                fontSize: 11,
+                color: ARC_NAVY,
+                wordBreak: "break-all",
+                letterSpacing: "0.02em",
+                marginBottom: 14,
+                lineHeight: 1.6
+              }}>
+                {archisyncCode}
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <button
+                  onClick={copyArchisyncCode}
+                  style={{
+                    background: archisyncCopied ? AD_GREEN : ARC_NAVY,
+                    color: "#fff", border: "none", padding: "9px 20px",
+                    fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
+                    textTransform: "uppercase", cursor: "pointer",
+                    fontFamily: "Inter, Arial, sans-serif", transition: "background 0.2s"
+                  }}>
+                  {archisyncCopied ? "✓ Copied" : "Copy Code"}
+                </button>
+                <button
+                  onClick={() => { setArchisyncCode(null); setArchisyncCopied(false); }}
+                  style={{ background: "none", color: "#9a9088", border: "1px solid #ddd8d0", padding: "8px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={generateArchisyncCode}
+              disabled={archisyncLoading}
+              style={{
+                background: ARC_NAVY, color: "#fff", border: "none",
+                padding: "10px 24px", fontSize: 11, fontWeight: 600,
+                letterSpacing: "0.06em", textTransform: "uppercase",
+                cursor: archisyncLoading ? "not-allowed" : "pointer",
+                opacity: archisyncLoading ? 0.6 : 1,
+                display: "flex", alignItems: "center", gap: 8,
+                fontFamily: "Inter, Arial, sans-serif"
+              }}>
+              {archisyncLoading ? <><Spinner size={11} /> Generating…</> : "Generate Connection Code"}
+            </button>
           )}
         </div>
       </div>

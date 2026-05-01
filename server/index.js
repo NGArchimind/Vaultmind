@@ -2331,6 +2331,24 @@ app.get("/api/projects/:id/transmittals/download", requireAuth, async (req, res)
   }
 });
 
+
+// ── ArchiSync connection config — admin only ──────────────────────────────────
+// Returns the values needed to build a connection code in the admin UI.
+// SUPABASE_ANON_KEY must be set in Railway environment variables.
+app.get("/api/admin/archisync-config", requireAuth, requireAdmin, (req, res) => {
+  const apiUrl = process.env.RAILWAY_PUBLIC_DOMAIN
+    ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+    : process.env.API_URL || "";
+  const supabaseUrl = process.env.SUPABASE_URL || "";
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY || "";
+
+  if (!supabaseAnonKey) {
+    return res.status(500).json({ error: "SUPABASE_ANON_KEY is not set on the server. Add it to your Railway environment variables." });
+  }
+
+  res.json({ apiUrl, supabaseUrl, supabaseAnonKey });
+});
+
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 
