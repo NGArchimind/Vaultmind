@@ -661,7 +661,7 @@ function TransmittalTab({ projectId, isAdmin }) {
     setPdfMsg(null);
     try {
       const PAGE_W = 1048;
-      const PINNED_W = 520;
+      const PINNED_W = 560;
       const ISSUE_COL_W = 38;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
       const slicedIssues = data.issues.length > maxIssueCols
@@ -697,7 +697,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       // Pinned columns: Drawing No (1%) + Title (auto) + B'Fwd (1%) ≈ estimate 520px
       // Each issue column is 38px wide in the print HTML
       const PAGE_W = 1048;
-      const PINNED_W = 520;
+      const PINNED_W = 560;
       const ISSUE_COL_W = 38;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
       const slicedIssues = data.issues.length > maxIssueCols
