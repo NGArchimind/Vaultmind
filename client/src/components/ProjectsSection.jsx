@@ -661,8 +661,8 @@ function TransmittalTab({ projectId, isAdmin }) {
     setPdfMsg(null);
     try {
       const PAGE_W = 1048;
-      const PINNED_W = 560;
-      const ISSUE_COL_W = 38;
+      const PINNED_W = 580;
+      const ISSUE_COL_W = 32;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
       const slicedIssues = data.issues.length > maxIssueCols
         ? data.issues.slice(data.issues.length - maxIssueCols)
@@ -697,8 +697,8 @@ function TransmittalTab({ projectId, isAdmin }) {
       // Pinned columns: Drawing No (1%) + Title (auto) + B'Fwd (1%) ≈ estimate 520px
       // Each issue column is 38px wide in the print HTML
       const PAGE_W = 1048;
-      const PINNED_W = 560;
-      const ISSUE_COL_W = 38;
+      const PINNED_W = 580;
+      const ISSUE_COL_W = 32;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
       const slicedIssues = data.issues.length > maxIssueCols
         ? data.issues.slice(data.issues.length - maxIssueCols)
@@ -1074,7 +1074,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     const year  = String(dt.getUTCFullYear()).slice(2);
     const isLatest = i === issues.length - 1;
     const bg = isLatest ? c.latestIssue : c.header;
-    return `<th class="issue-col" style="background:${bg};color:${c.headerText};width:38px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
+    return `<th class="issue-col" style="background:${bg};color:${c.headerText};width:32px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
   }).join("");
 
   const rowsHtml = Object.entries(groups).map(([grpName, grpDrawings]) => {
@@ -1087,7 +1087,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
         const rev = revMap[issue.id]?.[d.drawing_number] || "";
         const isLatest = i === issues.length - 1;
         const bg = isLatest ? blendHex(c.latestIssue, "#ffffff", 0.80) : rowBg;
-        return `<td class="issue-col" style="background:${bg};width:38px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
+        return `<td class="issue-col" style="background:${bg};width:32px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
       }).join("");
       return `<tr>
         <td class="pin" style="background:${rowBg};color:${c.bodyText};text-align:center;font-weight:600;padding:3px 6px;border:1px solid #e0e0e0;font-size:7.5pt;white-space:nowrap;width:1%">${d.drawing_number || "—"}</td>
@@ -1138,7 +1138,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     color: ${c.bodyText};
     background: #fff;
     /* Body padding substitutes for @page margins */
-    padding: 10mm 12mm 10mm 12mm;
+    padding: 8mm 14mm 8mm 14mm;
     width: 297mm;
     margin: 0;
   }
