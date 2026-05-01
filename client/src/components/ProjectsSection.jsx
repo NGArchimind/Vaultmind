@@ -445,9 +445,8 @@ function TransmittalTab({ projectId, isAdmin }) {
   async function loadLogo() {
     try {
       const d = await api("/api/logo");
-      if (d.base64) setLogo(d);
-      else setLogo(null);
-    } catch (e) { setLogo(null); }
+      if (d.logo) setLogo(d);
+    } catch (e) {}
   }
 
   async function loadColours() {
@@ -688,29 +687,29 @@ function TransmittalTab({ projectId, isAdmin }) {
         <div style={{ minWidth: totalWidth }}>
 
           {/* Header block: logo + job info */}
-          <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, background: "#faf8f5", minHeight: 88 }}>
-            <div style={{ width: 160, height: 72, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
-              {logo?.base64 ? (
-                <img
-                  src={`data:${logo.mimeType};base64,${logo.base64}`}
-                  alt="Practice logo"
-                  style={{ maxHeight: 72, maxWidth: 160, objectFit: "contain", display: "block" }}
-                />
-              ) : (
-                <div style={{ width: 160, height: 72, border: "1px dashed #ddd8d0", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                  <span style={{ fontSize: 10, color: "#c0b8b0", textAlign: "center", lineHeight: 1.5 }}>Practice logo<br /><span style={{ fontSize: 9 }}>Upload in Admin</span></span>
-                </div>
-              )}
-            </div>
+          <div style={{ borderBottom: "2px solid #e8e0d5", padding: "14px 16px", display: "flex", alignItems: "flex-start", gap: 20, background: "#faf8f5", minHeight: 64 }}>
+            {logo?.base64 && (
+              <img
+                src={`data:${logo.mimeType};base64,${logo.base64}`}
+                alt="Practice logo"
+                style={{ maxHeight: 56, maxWidth: 140, objectFit: "contain", flexShrink: 0 }}
+              />
+            )}
+            {!logo?.base64 && (
+              <div style={{ width: 100, height: 48, border: "1px dashed #ddd8d0", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <span style={{ fontSize: 9, color: "#c0b8b0", textAlign: "center", lineHeight: 1.4 }}>Logo<br />here</span>
+              </div>
+            )}
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 16, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>
+              <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>
                 {project?.name || ""}
               </div>
-              <div style={{ fontSize: 12, color: "#9a9088", marginTop: 4, display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 11, color: "#9a9088", marginTop: 3, display: "flex", gap: 16, flexWrap: "wrap" }}>
                 {project?.job_number && <span><strong>Job No.</strong> {project.job_number}</span>}
                 {project?.location && <span>{project.location}</span>}
               </div>
             </div>
+            {/* Notes: below job info, above drawings — rendered here inside header block */}
           </div>
 
           {/* Notes section — below job info, above column headers */}
@@ -872,10 +871,22 @@ function TransmittalTab({ projectId, isAdmin }) {
   );
 }
 
+// ── blendHex — mix two hex colours (ratio 0=colA, 1=colB) ───────────────────
+function blendHex(hexA, hexB, ratio) {
+  try {
+    const parse = h => { const n = parseInt(h.replace("#",""), 16); return [(n>>16)&255,(n>>8)&255,n&255]; };
+    const [r1,g1,b1] = parse(hexA);
+    const [r2,g2,b2] = parse(hexB);
+    const r = Math.round(r1+(r2-r1)*ratio);
+    const g = Math.round(g1+(g2-g1)*ratio);
+    const b = Math.round(b1+(b2-b1)*ratio);
+    return `#${[r,g,b].map(x=>x.toString(16).padStart(2,"0")).join("")}`;
+  } catch (_) { return hexA; }
+}
+
 // ── buildPrintHtml — generates self-contained A4 print HTML ──────────────────
 function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   const { project, drawings, issues, revMap, autoBforward } = data;
-
   const c = { ...DEFAULT_COLOURS, ...(colours || {}) };
 
   function getBf(dn) {
@@ -890,7 +901,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     groups[grp].push(d);
   }
 
-  // Issue date header cells
+  // All colours as inline styles — required for print-color-adjust to work reliably
   const issueDateHeaders = issues.map((issue, i) => {
     const dt = new Date(issue.issue_date);
     const day   = String(dt.getUTCDate()).padStart(2, "0");
@@ -898,25 +909,25 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     const year  = String(dt.getUTCFullYear()).slice(2);
     const isLatest = i === issues.length - 1;
     const bg = isLatest ? c.latestIssue : c.header;
-    return `<th class="issue-col" style="background:${bg}">${day}<br>${month}<br>${year}</th>`;
+    return `<th style="background:${bg};color:${c.headerText};width:38px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
   }).join("");
 
-  // Drawing rows
   const rowsHtml = Object.entries(groups).map(([grpName, grpDrawings]) => {
-    const grpRow = `<tr><td colspan="${3 + issues.length}" class="group-row">${grpName}</td></tr>`;
+    const grpRow = `<tr><td colspan="${3 + issues.length}" style="background:${c.groupRow};color:${c.bodyText};font-weight:700;font-size:7pt;text-transform:uppercase;letter-spacing:0.07em;padding:4px 6px;border:1px solid #bbb">${grpName}</td></tr>`;
     const dRows = grpDrawings.map((d, idx) => {
       const rowBg = idx % 2 === 0 ? c.rowEven : c.rowOdd;
       const bfVal = getBf(d.drawing_number);
+      const bfBg = blendHex(c.bforward, "#ffffff", 0.82);
       const issueCells = issues.map((issue, i) => {
         const rev = revMap[issue.id]?.[d.drawing_number] || "";
         const isLatest = i === issues.length - 1;
-        const bg = isLatest ? c.latestIssue + "33" : rowBg;
-        return `<td class="issue-cell" style="background:${bg};font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"}">${rev}</td>`;
+        const bg = isLatest ? blendHex(c.latestIssue, "#ffffff", 0.80) : rowBg;
+        return `<td style="background:${bg};width:38px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
       }).join("");
-      return `<tr style="background:${rowBg}">
-        <td class="title-cell" style="background:${rowBg}">${d.title || ""}</td>
-        <td class="num-cell" style="background:${rowBg}">${d.drawing_number || "—"}</td>
-        <td class="bf-cell" style="background:${rowBg}">${bfVal || "—"}</td>
+      return `<tr>
+        <td style="background:${rowBg};color:${c.bodyText};padding:3px 6px;border:1px solid #e0e0e0;font-size:8pt;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.title || ""}</td>
+        <td style="background:${rowBg};color:${c.bodyText};width:110px;text-align:center;font-weight:600;padding:3px 4px;border:1px solid #e0e0e0;font-size:8pt;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${d.drawing_number || "—"}</td>
+        <td style="background:${bfBg};color:${c.bodyText};width:52px;text-align:center;font-weight:700;padding:3px 4px;border:1px solid #ccc;border-left:2px solid ${c.bforward};font-size:8pt">${bfVal || "—"}</td>
         ${issueCells}
       </tr>`;
     }).join("");
@@ -924,11 +935,11 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   }).join("");
 
   const logoHtml = logo?.base64
-    ? `<img src="data:${logo.mimeType};base64,${logo.base64}" style="max-height:72px;max-width:160px;object-fit:contain;display:block" />`
-    : `<div style="width:160px;height:72px;border:1px dashed #ddd;display:flex;align-items:center;justify-content:center;flex-shrink:0"><span style="font-size:8pt;color:#ccc;text-align:center">Practice logo</span></div>`;
+    ? `<img src="data:${logo.mimeType};base64,${logo.base64}" style="max-height:72px;max-width:160px;object-fit:contain;display:block">`
+    : `<div style="width:160px;height:72px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center"><span style="font-size:7pt;color:#ccc">Practice logo</span></div>`;
 
   const notesHtml = notes
-    ? `<div class="notes-row"><span class="notes-label">Notes</span><span class="notes-text">${notes.replace(/</g, "&lt;")}</span></div>`
+    ? `<div style="display:flex;gap:12px;padding:5px 0 5px;border-bottom:1px solid #ccc;margin-bottom:4px;font-size:8pt"><span style="font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:#888;font-size:7pt;padding-top:1px;min-width:40px;flex-shrink:0">Notes</span><span style="color:${c.bodyText};line-height:1.5">${notes.replace(/</g,"&lt;")}</span></div>`
     : "";
 
   const now = new Date();
@@ -940,71 +951,101 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
 <meta charset="utf-8">
 <title>Drawing Schedule — ${(project?.name || "").replace(/</g,"&lt;")}</title>
 <style>
-  @page { size: A4 landscape; margin: 12mm; }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; font-size: 8pt; color: ${c.bodyText}; background: #fff; }
-  .no-print { display: none !important; }
+  /* Zero @page margins removes all browser-added headers/footers */
+  @page { size: A4 landscape; margin: 0; }
 
-  /* Header */
-  .hdr { display: flex; align-items: center; gap: 24px; padding: 12px 0 10px; border-bottom: 2px solid #ddd; margin-bottom: 0; min-height: 88px; }
+  /* Force colour/background printing in all browsers */
+  *, *::before, *::after {
+    box-sizing: border-box;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  html {
+    width: 297mm;
+    background: #fff;
+  }
+
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 8pt;
+    color: ${c.bodyText};
+    background: #fff;
+    /* Body padding substitutes for @page margins */
+    padding: 10mm 12mm 10mm 12mm;
+    width: 297mm;
+    margin: 0;
+  }
+
+  .hdr {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #333;
+    margin-bottom: 6px;
+    min-height: 80px;
+  }
+  .hdr-logo { width: 160px; flex-shrink: 0; }
   .hdr-info { flex: 1; }
-  .hdr-name { font-size: 13pt; font-weight: 600; color: ${c.bodyText}; }
-  .hdr-meta { font-size: 8pt; color: #777; margin-top: 3px; }
-  .generated { font-size: 7pt; color: #aaa; margin-top: 2px; }
+  .hdr-name { font-size: 14pt; font-weight: 700; color: ${c.bodyText}; line-height: 1.2; }
+  .hdr-meta { font-size: 8.5pt; color: #555; margin-top: 5px; }
+  .hdr-generated { font-size: 7pt; color: #aaa; margin-top: 3px; }
 
-  /* Notes */
-  .notes-row { display: flex; gap: 12px; padding: 6px 0; border-bottom: 1px solid #ddd; font-size: 8pt; }
-  .notes-label { font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: #888; font-size: 7pt; padding-top: 1px; min-width: 36px; flex-shrink: 0; }
-  .notes-text { color: ${c.bodyText}; line-height: 1.5; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    margin-top: 4px;
+  }
+  thead th {
+    background: ${c.header};
+    color: ${c.headerText};
+    font-size: 7pt;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 600;
+    border: 1px solid #999;
+    padding: 4px 5px;
+    vertical-align: middle;
+  }
+  tbody td { vertical-align: middle; }
 
-  /* Table */
-  table { width: 100%; border-collapse: collapse; margin-top: 0; table-layout: fixed; }
-  th, td { border: 1px solid #ddd; padding: 3px 5px; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  thead th { background: ${c.header}; color: ${c.headerText}; font-size: 7pt; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
-  .th-bf { background: ${c.bforward} !important; border-left: 2px solid rgba(255,255,255,0.4) !important; }
-  .issue-col { width: 38px; text-align: center; line-height: 1.3; }
-  .group-row { background: ${c.groupRow}; font-weight: 700; font-size: 7pt; text-transform: uppercase; letter-spacing: 0.06em; color: ${c.bodyText}; }
-  .title-cell { width: auto; }
-  .num-cell { width: 100px; text-align: center; font-weight: 600; }
-  .bf-cell { width: 52px; text-align: center; font-weight: 700; border-left: 2px solid ${c.bforward}55; }
-  .issue-cell { width: 38px; text-align: center; }
-
-  /* Pagination */
   @media print {
+    html, body { width: 297mm; }
     table { page-break-inside: auto; }
-    tr { page-break-inside: avoid; }
-    .no-print { display: none !important; }
-    /* No yellow highlight on print — overrides are plain */
-    .bf-cell { background: inherit !important; }
+    tr { page-break-inside: avoid; page-break-after: auto; }
+    thead { display: table-header-group; }
   }
 </style>
 </head>
 <body>
 <div class="hdr">
-  ${logoHtml}
+  <div class="hdr-logo">${logoHtml}</div>
   <div class="hdr-info">
     <div class="hdr-name">${(project?.name || "").replace(/</g,"&lt;")}</div>
     <div class="hdr-meta">
       ${project?.job_number ? `<strong>Job No.</strong> ${project.job_number}` : ""}
-      ${project?.job_number && project?.location ? " &nbsp;·&nbsp; " : ""}
+      ${project?.job_number && project?.location ? " &nbsp;&middot;&nbsp; " : ""}
       ${project?.location || ""}
     </div>
-    <div class="generated">Generated by Archimind · ${dateStr}</div>
+    <div class="hdr-generated">Generated by Archimind &middot; ${dateStr}</div>
   </div>
 </div>
 ${notesHtml}
 <table>
   <colgroup>
     <col style="width:auto">
-    <col style="width:100px">
+    <col style="width:110px">
     <col style="width:52px">
     ${issues.map(() => `<col style="width:38px">`).join("")}
   </colgroup>
   <thead>
     <tr>
-      <th>Drawing Title</th>
-      <th class="num-cell">Drawing No.</th>
-      <th class="bf-cell th-bf">B' Fwd</th>
+      <th style="text-align:left;padding:4px 6px">Drawing Title</th>
+      <th style="width:110px;text-align:center">Drawing No.</th>
+      <th style="width:52px;text-align:center;background:${c.bforward};color:${c.headerText};border-left:2px solid rgba(255,255,255,0.4)">B' Fwd</th>
       ${issueDateHeaders}
     </tr>
   </thead>
