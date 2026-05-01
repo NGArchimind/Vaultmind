@@ -641,14 +641,22 @@ function TransmittalTab({ projectId, isAdmin }) {
     return pa.num - pb.num;
   }
 
-  // "Save PDF Snapshot" — generates PDF, opens print dialog, saves to R2 via /transmittal/issue
+  // "Save PDF Snapshot" — generates PDF, saves to R2, opens print dialog
   async function savePdfSnapshot() {
     if (!data || savingPdf) return;
     setSavingPdf(true);
     setPdfMsg(null);
     try {
-      const html = buildPrintHtml(data, logo, colours, bfOverrides, notes);
-      // Save to R2 via the issue route (no column created — just file storage)
+      const PAGE_W = 1048;
+      const PINNED_W = 520;
+      const ISSUE_COL_W = 38;
+      const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
+      const slicedIssues = data.issues.length > maxIssueCols
+        ? data.issues.slice(data.issues.length - maxIssueCols)
+        : data.issues;
+      const printData = { ...data, issues: slicedIssues };
+      const html = buildPrintHtml(printData, logo, colours, bfOverrides, notes);
+      // Save to R2
       await api(`/api/projects/${projectId}/transmittal/issue`, {
         method: "POST", body: { html },
       });
@@ -666,12 +674,24 @@ function TransmittalTab({ projectId, isAdmin }) {
     setTimeout(() => setPdfMsg(null), 6000);
   }
 
-  // "Export PDF" — opens print dialog only, no R2 save
+  // "Export PDF" — calculates which issue columns fit on A4 landscape, slices
+  // to keep newest N columns, builds clean HTML, opens and prints immediately.
   async function exportPdf() {
     if (!data || exportingPdf) return;
     setExportingPdf(true);
     try {
-      const html = buildPrintHtml(data, logo, colours, bfOverrides, notes);
+      // A4 landscape usable width at 96dpi, 10mm margins each side ≈ 1048px
+      // Pinned columns: Drawing No (1%) + Title (auto) + B'Fwd (1%) ≈ estimate 520px
+      // Each issue column is 38px wide in the print HTML
+      const PAGE_W = 1048;
+      const PINNED_W = 520;
+      const ISSUE_COL_W = 38;
+      const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
+      const slicedIssues = data.issues.length > maxIssueCols
+        ? data.issues.slice(data.issues.length - maxIssueCols)
+        : data.issues;
+      const printData = { ...data, issues: slicedIssues };
+      const html = buildPrintHtml(printData, logo, colours, bfOverrides, notes);
       const blob = new Blob([html], { type: "text/html" });
       const url = URL.createObjectURL(blob);
       const win = window.open(url, "_blank");
@@ -1151,64 +1171,13 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   tbody td { vertical-align: middle; }
 
   @media print {
-    html, body { margin: 0; padding: 0; overflow: hidden; }
+    html, body { margin: 0; padding: 0; }
     table { page-break-inside: auto; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     thead { display: table-header-group; }
     @page { size: A4 landscape; margin: 10mm; }
   }
 </style>
-<script>
-  // Before printing: measure how many issue columns fit on the page alongside
-  // the pinned columns (Drawing No. + Title + B'Fwd). Remove oldest columns
-  // that won't fit, keeping newest on the right. Restore all after printing.
-  var removedCols = [];
-
-  window.addEventListener('beforeprint', function() {
-    removedCols = [];
-    // A4 landscape at 96dpi = ~1122px. Subtract 20mm margins = ~1046px usable.
-    var PAGE_W = 1046;
-    var tbl = document.querySelector('table');
-    if (!tbl) return;
-    // Pinned columns width
-    var pinned = tbl.querySelector('col:nth-child(1)').offsetWidth
-               + tbl.querySelector('col:nth-child(2)').offsetWidth
-               + tbl.querySelector('col:nth-child(3)').offsetWidth;
-    // Issue columns: th elements after the first 3
-    var issueThs = Array.from(tbl.querySelectorAll('thead th')).slice(3);
-    if (issueThs.length === 0) return;
-    var colW = issueThs[0].offsetWidth || 38;
-    var fitsCount = Math.floor((PAGE_W - pinned) / colW);
-    // How many to remove from the left (oldest)
-    var toRemove = issueThs.length - fitsCount;
-    if (toRemove <= 0) return;
-    // Remove oldest columns (first toRemove issue columns) from every row
-    var allRows = Array.from(tbl.querySelectorAll('tr'));
-    for (var r = 0; r < allRows.length; r++) {
-      var cells = allRows[r].querySelectorAll('td, th');
-      // Skip group rows (colspan = all cols)
-      if (cells.length <= 4) continue;
-      var rowRemoved = [];
-      for (var c = 3; c < 3 + toRemove && c < cells.length; c++) {
-        rowRemoved.push({ cell: cells[c], next: cells[c].nextSibling, parent: cells[c].parentNode });
-        cells[c].parentNode.removeChild(cells[c]);
-      }
-      removedCols.push(rowRemoved);
-    }
-  });
-
-  window.addEventListener('afterprint', function() {
-    // Restore removed cells
-    for (var i = 0; i < removedCols.length; i++) {
-      var rowRemoved = removedCols[i];
-      for (var j = rowRemoved.length - 1; j >= 0; j--) {
-        var item = rowRemoved[j];
-        item.parent.insertBefore(item.cell, item.next);
-      }
-    }
-    removedCols = [];
-  });
-</script>
 </head>
 <body>
 <div class="hdr">
