@@ -551,6 +551,18 @@ function TransmittalTab({ projectId, isAdmin }) {
     } catch (e) { console.error(e); }
   }
 
+  // Measure title column width for sticky Drawing No. offset
+  const titleColRef = useRef(null);
+  const [titleColW, setTitleColW] = useState(COL_TITLE);
+  useEffect(() => {
+    if (!titleColRef.current) return;
+    const obs = new ResizeObserver(() => {
+      if (titleColRef.current) setTitleColW(titleColRef.current.offsetWidth);
+    });
+    obs.observe(titleColRef.current);
+    return () => obs.disconnect();
+  }, []);
+
   useEffect(() => { load(); loadLogo(); loadColours(); }, [projectId]);
 
   async function load() {
@@ -894,8 +906,8 @@ function TransmittalTab({ projectId, isAdmin }) {
       {/* Schedule table — uses a real <table> so position:sticky works on td/th */}
       <div id="schedule-scroll" style={{ overflowX: "auto", background: "#fff", border: "1px solid #e8e0d5" }}>
 
-        {/* Header block: logo + job info */}
-        <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, background: "#faf8f5", minHeight: 88, minWidth: totalWidth }}>
+        {/* Header block: logo + job info — not inside the table so it doesn't scroll */}
+        <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, background: "#faf8f5", minHeight: 88 }}>
           <div style={{ width: 160, height: 72, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
             {logo?.base64 ? (
               <img src={`data:${logo.mimeType};base64,${logo.base64}`} alt="Practice logo"
@@ -914,30 +926,26 @@ function TransmittalTab({ projectId, isAdmin }) {
               {project?.location || ""}
             </div>
           </div>
-          {(notes || isAdmin) && (
-            <div style={{ flex: 2 }}>
-              {isAdmin ? (
-                <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)} onBlur={saveNotes}
-                  placeholder="Transmittal notes (optional)…" rows={3}
-                  style={{ width: "100%", fontSize: 11, border: "1px solid #ddd8d0", padding: "6px 8px", fontFamily: "Inter, Arial, sans-serif", resize: "vertical", color: colours.bodyText, background: "#fff" }} />
-              ) : notes ? (
-                <div style={{ fontSize: 11, color: colours.bodyText, lineHeight: 1.6 }}>{notes}</div>
-              ) : null}
-            </div>
-          )}
         </div>
 
-        <table style={{ borderCollapse: "collapse", tableLayout: "fixed", minWidth: totalWidth, width: "100%" }}>
-          <colgroup>
-            <col style={{ width: COL_TITLE }} />
-            <col style={{ width: COL_NUMBER }} />
-            <col style={{ width: COL_BF }} />
-            {issues.map(issue => <col key={issue.id} style={{ width: COL_ISSUE }} />)}
-          </colgroup>
+        {/* Notes row — always visible, pinned above the scrolling table */}
+        {(notes || isAdmin) && (
+          <div style={{ borderBottom: "1px solid #e8e0d5", padding: "8px 16px", background: "#faf8f5" }}>
+            {isAdmin ? (
+              <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)} onBlur={saveNotes}
+                placeholder="Transmittal notes (optional)…" rows={2}
+                style={{ width: "100%", fontSize: 11, border: "1px solid #ddd8d0", padding: "6px 8px", fontFamily: "Inter, Arial, sans-serif", resize: "vertical", color: colours.bodyText, background: "#fff", boxSizing: "border-box" }} />
+            ) : (
+              <div style={{ fontSize: 11, color: colours.bodyText, lineHeight: 1.6 }}>{notes}</div>
+            )}
+          </div>
+        )}
+
+        <table style={{ borderCollapse: "collapse", tableLayout: "auto" }}>
           <thead>
             <tr>
-              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left" }}>Drawing Title</th>
-              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: COL_TITLE, zIndex: 3, textAlign: "center", boxShadow: "3px 0 6px rgba(0,0,0,0.15)", borderRight: "2px solid rgba(255,255,255,0.2)", whiteSpace: "nowrap" }}>Drawing No.</th>
+              <th ref={titleColRef} style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left", whiteSpace: "nowrap" }}>Drawing Title</th>
+              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: titleColW, zIndex: 3, textAlign: "center", boxShadow: "3px 0 6px rgba(0,0,0,0.15)", borderRight: "2px solid rgba(255,255,255,0.2)", whiteSpace: "nowrap" }}>Drawing No.</th>
               <th style={{ ...thStyle, background: colours.bforward, color: colours.headerText, textAlign: "center", borderLeft: "2px solid rgba(255,255,255,0.3)" }}>B' Fwd</th>
               {issues.map((issue, i) => {
                 const dt = new Date(issue.issue_date);
@@ -980,7 +988,7 @@ function TransmittalTab({ projectId, isAdmin }) {
                   return (
                     <tr key={d.id} style={{ background: rowBg }}>
                       <td style={{ ...tdStyle, background: rowBg, position: "sticky", left: 0, zIndex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.title}</td>
-                      <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: COL_TITLE, zIndex: 1, boxShadow: "3px 0 6px rgba(0,0,0,0.10)", borderRight: "2px solid #e8e0d5" }}>{d.drawing_number || "—"}</td>
+                      <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: titleColW, zIndex: 1, boxShadow: "3px 0 6px rgba(0,0,0,0.10)", borderRight: "2px solid #e8e0d5" }}>{d.drawing_number || "—"}</td>
                       <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, background: blendHex(colours.bforward, "#ffffff", 0.88), borderLeft: `2px solid ${colours.bforward}55` }}>{bfVal || "—"}</td>
                       {issues.map((issue, i) => {
                         const rev = revMap[issue.id]?.[d.drawing_number] || "";
