@@ -1074,8 +1074,8 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
         return `<td style="background:${bg};width:38px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
       }).join("");
       return `<tr>
-        <td style="background:${rowBg};color:${c.bodyText};padding:3px 6px;border:1px solid #e0e0e0;font-size:8pt">${d.title || ""}</td>
         <td style="background:${rowBg};color:${c.bodyText};text-align:center;font-weight:600;padding:3px 6px;border:1px solid #e0e0e0;font-size:7.5pt;white-space:nowrap">${d.drawing_number || "—"}</td>
+        <td style="background:${rowBg};color:${c.bodyText};padding:3px 6px;border:1px solid #e0e0e0;font-size:8pt">${d.title || ""}</td>
         <td style="background:${bfBg};color:${c.bodyText};text-align:center;font-weight:700;padding:3px 6px;border:1px solid #ccc;border-left:2px solid ${c.bforward};font-size:8pt;white-space:nowrap">${bfVal || "—"}</td>
         ${issueCells}
       </tr>`;
@@ -1186,8 +1186,8 @@ ${notesHtml}
 <table>
   <thead>
     <tr>
+      <th style="text-align:center;white-space:nowrap;padding:4px 6px">Drawing No.</th>
       <th style="text-align:left;padding:4px 6px">Drawing Title</th>
-      <th style="text-align:center;white-space:nowrap">Drawing No.</th>
       <th style="text-align:center;white-space:nowrap;background:${c.bforward};color:${c.headerText};border-left:2px solid rgba(255,255,255,0.4)">B' Fwd</th>
       ${issueDateHeaders}
     </tr>
