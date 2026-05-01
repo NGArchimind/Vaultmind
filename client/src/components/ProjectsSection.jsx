@@ -923,8 +923,8 @@ function TransmittalTab({ projectId, isAdmin }) {
 
           {/* Column headers */}
           <div style={{ display: "flex", borderBottom: "2px solid #e8e0d5" }}>
-            <div style={{ ...hdrCell, width: COL_TITLE, flexShrink: 0 }}>Drawing Title</div>
-            <div style={{ ...hdrCell, width: COL_NUMBER, flexShrink: 0, textAlign: "center", position: "sticky", left: COL_TITLE, zIndex: 2, boxShadow: "2px 0 4px rgba(0,0,0,0.10)" }}>Drawing No.</div>
+            <div style={{ ...hdrCell, width: COL_TITLE, flexShrink: 0, position: "sticky", left: 0, zIndex: 3 }}>Drawing Title</div>
+            <div style={{ ...hdrCell, width: COL_NUMBER, flexShrink: 0, textAlign: "center", position: "sticky", left: COL_TITLE, zIndex: 3, boxShadow: "2px 0 6px rgba(0,0,0,0.15)", whiteSpace: "nowrap" }}>Drawing No.</div>
             <div style={{ ...hdrCell, width: COL_BF, flexShrink: 0, textAlign: "center", background: colours.bforward, borderLeft: "2px solid rgba(255,255,255,0.3)" }}>
               B' Fwd
             </div>
@@ -983,9 +983,9 @@ function TransmittalTab({ projectId, isAdmin }) {
                 return (
                   <div key={d.id} style={{ display: "flex", background: rowBg }}>
                     {/* Title */}
-                    <div style={{ ...cellBase, width: COL_TITLE, flexShrink: 0, background: rowBg }}>{d.title}</div>
+                    <div style={{ ...cellBase, width: COL_TITLE, flexShrink: 0, background: rowBg, position: "sticky", left: 0, zIndex: 1 }}>{d.title}</div>
                     {/* Drawing number — sticky so it stays visible when scrolling issue columns */}
-                    <div style={{ ...cellBase, width: COL_NUMBER, flexShrink: 0, textAlign: "center", fontWeight: 600, fontSize: 11, background: rowBg, position: "sticky", left: COL_TITLE, zIndex: 1, boxShadow: "2px 0 4px rgba(0,0,0,0.06)" }}>
+                    <div style={{ ...cellBase, width: COL_NUMBER, flexShrink: 0, textAlign: "center", fontWeight: 600, fontSize: 11, background: rowBg, position: "sticky", left: COL_TITLE, zIndex: 1, boxShadow: "2px 0 6px rgba(0,0,0,0.08)", whiteSpace: "nowrap" }}>
                       {d.drawing_number || "—"}
                     </div>
                     {/* B' Forward — auto only, not editable */}
@@ -1092,10 +1092,9 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   }
 
   // All colours as inline styles — required for print-color-adjust to work reliably
-  // For print: issue columns are first in HTML, title/number last.
-  // direction:rtl on table means browser anchors the rightmost HTML column (newest issue)
-  // to the right page edge, and oldest issues overflow off the left — clipped behind title/number.
-  // Each cell gets direction:ltr so text reads correctly.
+  // Print HTML uses normal ltr column order: Drawing No | Title | B'Fwd | oldest→newest issues
+  // A beforeprint script shifts the table left so the newest (rightmost) column aligns to the
+  // right page edge, and oldest columns overflow off the left — clipped, not scaled.
   const issueDateHeaders = issues.map((issue, i) => {
     const dt = new Date(issue.issue_date);
     const day   = String(dt.getUTCDate()).padStart(2, "0");
@@ -1103,11 +1102,11 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     const year  = String(dt.getUTCFullYear()).slice(2);
     const isLatest = i === issues.length - 1;
     const bg = isLatest ? c.latestIssue : c.header;
-    return `<th style="direction:ltr;background:${bg};color:${c.headerText};width:38px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
+    return `<th class="issue-col" style="background:${bg};color:${c.headerText};width:38px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
   }).join("");
 
   const rowsHtml = Object.entries(groups).map(([grpName, grpDrawings]) => {
-    const grpRow = `<tr><td colspan="${3 + issues.length}" style="direction:ltr;background:${c.groupRow};color:${c.bodyText};font-weight:700;font-size:7pt;text-transform:uppercase;letter-spacing:0.07em;padding:4px 6px;border:1px solid #bbb">${grpName}</td></tr>`;
+    const grpRow = `<tr><td colspan="${3 + issues.length}" style="background:${c.groupRow};color:${c.bodyText};font-weight:700;font-size:7pt;text-transform:uppercase;letter-spacing:0.07em;padding:4px 6px;border:1px solid #bbb">${grpName}</td></tr>`;
     const dRows = grpDrawings.map((d, idx) => {
       const rowBg = idx % 2 === 0 ? c.rowEven : c.rowOdd;
       const bfVal = getBf(d.drawing_number);
@@ -1116,14 +1115,13 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
         const rev = revMap[issue.id]?.[d.drawing_number] || "";
         const isLatest = i === issues.length - 1;
         const bg = isLatest ? blendHex(c.latestIssue, "#ffffff", 0.80) : rowBg;
-        return `<td style="direction:ltr;background:${bg};width:38px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
+        return `<td class="issue-col" style="background:${bg};width:38px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
       }).join("");
-      // Issue cells first in HTML, then title/number last — rtl flips rendering so title appears on left
       return `<tr>
+        <td class="pin" style="background:${rowBg};color:${c.bodyText};text-align:center;font-weight:600;padding:3px 6px;border:1px solid #e0e0e0;font-size:7.5pt;white-space:nowrap;width:1%">${d.drawing_number || "—"}</td>
+        <td class="pin" style="background:${rowBg};color:${c.bodyText};padding:3px 6px;border:1px solid #e0e0e0;font-size:8pt">${d.title || ""}</td>
+        <td class="pin" style="background:${bfBg};color:${c.bodyText};text-align:center;font-weight:700;padding:3px 6px;border:1px solid #ccc;border-left:2px solid ${c.bforward};font-size:8pt;white-space:nowrap;width:1%">${bfVal || "—"}</td>
         ${issueCells}
-        <td style="direction:ltr;background:${bfBg};color:${c.bodyText};text-align:center;font-weight:700;padding:3px 6px;border:1px solid #ccc;border-right:2px solid ${c.bforward};font-size:8pt;white-space:nowrap;width:1%">${bfVal || "—"}</td>
-        <td style="direction:ltr;background:${rowBg};color:${c.bodyText};padding:3px 6px;border:1px solid #e0e0e0;font-size:8pt">${d.title || ""}</td>
-        <td style="direction:ltr;background:${rowBg};color:${c.bodyText};text-align:center;font-weight:600;padding:3px 6px;border:1px solid #e0e0e0;font-size:7.5pt;white-space:nowrap;width:1%">${d.drawing_number || "—"}</td>
       </tr>`;
     }).join("");
     return grpRow + dRows;
@@ -1195,6 +1193,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     table-layout: auto;
     margin-top: 4px;
   }
+  .pin { position: sticky; background: inherit; }
   thead th {
     background: ${c.header};
     color: ${c.headerText};
@@ -1209,12 +1208,34 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   tbody td { vertical-align: middle; }
 
   @media print {
-    html, body { width: 297mm; }
-    table { page-break-inside: auto; }
+    html, body { width: 297mm; overflow: hidden; }
+    body { margin: 0; padding: 6mm; box-sizing: border-box; }
+    table { page-break-inside: auto; margin-left: var(--print-offset, 0px); }
     tr { page-break-inside: avoid; page-break-after: auto; }
     thead { display: table-header-group; }
+    /* Prevent browser from scaling to fit — we want clipping not shrinking */
+    @page { size: A4 landscape; margin: 0; }
   }
 </style>
+<script>
+  // Before printing: shift the table left so the newest (rightmost) column
+  // aligns to the right edge of the page. Older columns clip off the left.
+  // Page width A4 landscape = 297mm ≈ 1122px at 96dpi. Subtract 12mm padding each side.
+  const PAGE_W_PX = 297 * 96 / 25.4 - (2 * 12 * 96 / 25.4);
+  window.addEventListener('beforeprint', function() {
+    const tbl = document.querySelector('table');
+    if (!tbl) return;
+    const tblW = tbl.offsetWidth;
+    if (tblW > PAGE_W_PX) {
+      tbl.style.setProperty('--print-offset', '-' + (tblW - PAGE_W_PX) + 'px');
+      tbl.style.marginLeft = '-' + (tblW - PAGE_W_PX) + 'px';
+    }
+  });
+  window.addEventListener('afterprint', function() {
+    const tbl = document.querySelector('table');
+    if (tbl) tbl.style.marginLeft = '';
+  });
+</script>
 </head>
 <body>
 <div class="hdr">
@@ -1230,13 +1251,13 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   </div>
 </div>
 ${notesHtml}
-<table style="direction:rtl">
+<table>
   <thead>
     <tr>
+      <th style="text-align:center;white-space:nowrap;padding:4px 6px;width:1%">Drawing No.</th>
+      <th style="text-align:left;padding:4px 6px">Drawing Title</th>
+      <th style="text-align:center;white-space:nowrap;width:1%;background:${c.bforward};color:${c.headerText};border-left:2px solid rgba(255,255,255,0.4)">B' Fwd</th>
       ${issueDateHeaders}
-      <th style="direction:ltr;text-align:center;white-space:nowrap;width:1%;background:${c.bforward};color:${c.headerText};border-right:2px solid rgba(255,255,255,0.4)">B' Fwd</th>
-      <th style="direction:ltr;text-align:left;padding:4px 6px">Drawing Title</th>
-      <th style="direction:ltr;text-align:center;white-space:nowrap;padding:4px 6px;width:1%">Drawing No.</th>
     </tr>
   </thead>
   <tbody>
