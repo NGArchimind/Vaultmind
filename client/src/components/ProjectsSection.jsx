@@ -1051,6 +1051,10 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   }
 
   // All colours as inline styles — required for print-color-adjust to work reliably
+  // For print: issue columns are first in HTML, title/number last.
+  // direction:rtl on table means browser anchors the rightmost HTML column (newest issue)
+  // to the right page edge, and oldest issues overflow off the left — clipped behind title/number.
+  // Each cell gets direction:ltr so text reads correctly.
   const issueDateHeaders = issues.map((issue, i) => {
     const dt = new Date(issue.issue_date);
     const day   = String(dt.getUTCDate()).padStart(2, "0");
@@ -1058,11 +1062,11 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     const year  = String(dt.getUTCFullYear()).slice(2);
     const isLatest = i === issues.length - 1;
     const bg = isLatest ? c.latestIssue : c.header;
-    return `<th style="background:${bg};color:${c.headerText};width:38px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
+    return `<th style="direction:ltr;background:${bg};color:${c.headerText};width:38px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
   }).join("");
 
   const rowsHtml = Object.entries(groups).map(([grpName, grpDrawings]) => {
-    const grpRow = `<tr><td colspan="${3 + issues.length}" style="background:${c.groupRow};color:${c.bodyText};font-weight:700;font-size:7pt;text-transform:uppercase;letter-spacing:0.07em;padding:4px 6px;border:1px solid #bbb">${grpName}</td></tr>`;
+    const grpRow = `<tr><td colspan="${3 + issues.length}" style="direction:ltr;background:${c.groupRow};color:${c.bodyText};font-weight:700;font-size:7pt;text-transform:uppercase;letter-spacing:0.07em;padding:4px 6px;border:1px solid #bbb">${grpName}</td></tr>`;
     const dRows = grpDrawings.map((d, idx) => {
       const rowBg = idx % 2 === 0 ? c.rowEven : c.rowOdd;
       const bfVal = getBf(d.drawing_number);
@@ -1071,13 +1075,14 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
         const rev = revMap[issue.id]?.[d.drawing_number] || "";
         const isLatest = i === issues.length - 1;
         const bg = isLatest ? blendHex(c.latestIssue, "#ffffff", 0.80) : rowBg;
-        return `<td style="background:${bg};width:38px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
+        return `<td style="direction:ltr;background:${bg};width:38px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
       }).join("");
+      // Issue cells first in HTML, then title/number last — rtl flips rendering so title appears on left
       return `<tr>
-        <td style="background:${rowBg};color:${c.bodyText};text-align:center;font-weight:600;padding:3px 6px;border:1px solid #e0e0e0;font-size:7.5pt;white-space:nowrap;width:1%">${d.drawing_number || "—"}</td>
-        <td style="background:${rowBg};color:${c.bodyText};padding:3px 6px;border:1px solid #e0e0e0;font-size:8pt">${d.title || ""}</td>
-        <td style="background:${bfBg};color:${c.bodyText};text-align:center;font-weight:700;padding:3px 6px;border:1px solid #ccc;border-left:2px solid ${c.bforward};font-size:8pt;white-space:nowrap;width:1%">${bfVal || "—"}</td>
         ${issueCells}
+        <td style="direction:ltr;background:${bfBg};color:${c.bodyText};text-align:center;font-weight:700;padding:3px 6px;border:1px solid #ccc;border-right:2px solid ${c.bforward};font-size:8pt;white-space:nowrap;width:1%">${bfVal || "—"}</td>
+        <td style="direction:ltr;background:${rowBg};color:${c.bodyText};padding:3px 6px;border:1px solid #e0e0e0;font-size:8pt">${d.title || ""}</td>
+        <td style="direction:ltr;background:${rowBg};color:${c.bodyText};text-align:center;font-weight:600;padding:3px 6px;border:1px solid #e0e0e0;font-size:7.5pt;white-space:nowrap;width:1%">${d.drawing_number || "—"}</td>
       </tr>`;
     }).join("");
     return grpRow + dRows;
@@ -1143,7 +1148,8 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   .hdr-generated { font-size: 7pt; color: #aaa; margin-top: 3px; }
 
   table {
-    width: 100%;
+    width: max-content;
+    min-width: 100%;
     border-collapse: collapse;
     table-layout: auto;
     margin-top: 4px;
@@ -1183,13 +1189,13 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   </div>
 </div>
 ${notesHtml}
-<table>
+<table style="direction:rtl">
   <thead>
     <tr>
-      <th style="text-align:center;white-space:nowrap;padding:4px 6px;width:1%">Drawing No.</th>
-      <th style="text-align:left;padding:4px 6px">Drawing Title</th>
-      <th style="text-align:center;white-space:nowrap;width:1%;background:${c.bforward};color:${c.headerText};border-left:2px solid rgba(255,255,255,0.4)">B' Fwd</th>
       ${issueDateHeaders}
+      <th style="direction:ltr;text-align:center;white-space:nowrap;width:1%;background:${c.bforward};color:${c.headerText};border-right:2px solid rgba(255,255,255,0.4)">B' Fwd</th>
+      <th style="direction:ltr;text-align:left;padding:4px 6px">Drawing Title</th>
+      <th style="direction:ltr;text-align:center;white-space:nowrap;padding:4px 6px;width:1%">Drawing No.</th>
     </tr>
   </thead>
   <tbody>
