@@ -1436,21 +1436,60 @@ app.get("/api/projects/:id/transmittal", requireAuth, async (req, res) => {
   }
 });
 
-// ── POST /api/projects/:id/transmittal/issue — manually record a new issue
+// ── POST /api/projects/:id/transmittal/issue — save PDF snapshot to R2
+// Does NOT create a new issue column — columns are only created by ArchiSync.
 app.post("/api/projects/:id/transmittal/issue", requireAuth, async (req, res) => {
+  const { html } = req.body;
+  if (!html) return res.status(400).json({ error: "html required" });
   try {
-    const { data: drawings } = await supabase
-      .from("project_drawings")
-      .select("drawing_number")
-      .eq("project_id", req.params.id);
-
-    const allAsChanged = (drawings || []).map(d => ({
-      drawing_number: d.drawing_number,
-      action: "updated",
+    const prefix = `projects/${req.params.id}/documents/transmittals/`;
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const baseKey = `${prefix}schedule_${dateStr}`;
+    const existingKeys = await listAllKeys(prefix);
+    let key = `${baseKey}.html`;
+    if (existingKeys.includes(key)) {
+      let n = 2;
+      while (existingKeys.includes(`${baseKey}_${n}.html`)) n++;
+      key = `${baseKey}_${n}.html`;
+    }
+    await r2.send(new PutObjectCommand({
+      Bucket: BUCKET, Key: key,
+      Body: Buffer.from(html, "utf-8"),
+      ContentType: "text/html",
     }));
+    res.json({ saved: true, key });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
-    await recordTransmittalIssue(req.params.id, allAsChanged);
-    res.json({ recorded: true });
+// ── PATCH /api/projects/:id/transmittal/revisions — edit a single revision cell
+// Body: { issue_id, drawing_number, revision }
+// This is the emergency correction path — all cells editable with client-side warning.
+app.patch("/api/projects/:id/transmittal/revisions", requireAuth, async (req, res) => {
+  const { issue_id, drawing_number, revision } = req.body;
+  if (!issue_id || !drawing_number) return res.status(400).json({ error: "issue_id and drawing_number required" });
+  try {
+    // Verify the issue belongs to this project
+    const { data: issue, error: issueError } = await supabase
+      .from("project_transmittal_issues")
+      .select("id, project_id")
+      .eq("id", issue_id)
+      .eq("project_id", req.params.id)
+      .single();
+    if (issueError || !issue) return res.status(404).json({ error: "Issue not found for this project" });
+
+    // Upsert the revision row
+    const { data, error } = await supabase
+      .from("project_transmittal_revisions")
+      .upsert(
+        { issue_id, drawing_number, revision: revision || "" },
+        { onConflict: "issue_id,drawing_number" }
+      )
+      .select()
+      .single();
+    if (error) throw error;
+    res.json({ revision: data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

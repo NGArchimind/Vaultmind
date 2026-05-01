@@ -418,15 +418,22 @@ function TransmittalTab({ projectId, isAdmin }) {
   const [notesDraft, setNotesDraft] = useState("");
   const [editingNotes, setEditingNotes] = useState(false);
   const [savingNotes, setSavingNotes] = useState(false);
-  const [recordingIssue, setRecordingIssue] = useState(false);
-  const [issueMsg, setIssueMsg] = useState(null);
+  const [savingPdf, setSavingPdf] = useState(false);
+  const [pdfMsg, setPdfMsg] = useState(null);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+
+  // B' Forward overrides
   const [bfOverrides, setBfOverrides] = useState({});
-  const [editingBf, setEditingBf] = useState(null);
-  const [bfDraft, setBfDraft] = useState("");
-  // Warning dialog before saving a B' Forward override
-  const [pendingOverride, setPendingOverride] = useState(null); // { drawingNumber, value }
+
+  // Cell editing — any revision cell in any issue column
+  // editingCell: { issueId, drawingNumber } | null
+  const [editingCell, setEditingCell] = useState(null);
+  const [cellDraft, setCellDraft] = useState("");
+
+  // Warning dialog before saving any cell change
+  // pendingCell: { issueId, issueDate, drawingNumber, drawingTitle, oldValue, newValue } | null
+  const [pendingCell, setPendingCell] = useState(null);
 
   useEffect(() => { load(); loadLogo(); loadColours(); }, [projectId]);
 
@@ -461,8 +468,7 @@ function TransmittalTab({ projectId, isAdmin }) {
     setSavingNotes(true);
     try {
       await api(`/api/projects/${projectId}/transmittal/settings`, {
-        method: "PATCH",
-        body: { notes: notesDraft },
+        method: "PATCH", body: { notes: notesDraft },
       });
       setNotes(notesDraft);
       setEditingNotes(false);
@@ -470,47 +476,93 @@ function TransmittalTab({ projectId, isAdmin }) {
     setSavingNotes(false);
   }
 
+  // Called when user finishes editing any revision cell
+  function requestCellEdit(issueId, issueDate, drawingNumber, drawingTitle, newValue) {
+    const oldValue = data?.revMap?.[issueId]?.[drawingNumber] || "";
+    setEditingCell(null);
+    if (newValue === oldValue) return; // no change
+    setPendingCell({ issueId, issueDate, drawingNumber, drawingTitle, oldValue, newValue });
+  }
+
   // Called when user confirms the warning dialog
-  async function confirmBfOverride() {
-    if (!pendingOverride) return;
-    const { drawingNumber, value } = pendingOverride;
-    setPendingOverride(null);
-    const isAuto = data?.autoBforward?.[drawingNumber] === value;
-    const newOverrides = {
-      ...bfOverrides,
-      [drawingNumber]: { value, manual: !isAuto },
-    };
-    setBfOverrides(newOverrides);
-    setEditingBf(null);
+  async function confirmCellEdit() {
+    if (!pendingCell) return;
+    const { issueId, drawingNumber, newValue } = pendingCell;
+    setPendingCell(null);
     try {
-      await api(`/api/projects/${projectId}/transmittal/settings`, {
+      await api(`/api/projects/${projectId}/transmittal/revisions`, {
         method: "PATCH",
-        body: { bforward_overrides: newOverrides },
+        body: { issue_id: issueId, drawing_number: drawingNumber, revision: newValue },
+      });
+      // Update local revMap immediately without full reload
+      setData(prev => {
+        if (!prev) return prev;
+        const newRevMap = { ...prev.revMap };
+        if (!newRevMap[issueId]) newRevMap[issueId] = {};
+        newRevMap[issueId] = { ...newRevMap[issueId], [drawingNumber]: newValue };
+        // Recalculate autoBforward
+        const newAutoBforward = { ...prev.autoBforward };
+        let highest = null;
+        for (const issue of prev.issues) {
+          const rev = newRevMap[issue.id]?.[drawingNumber];
+          if (rev && (!highest || compareRevStr(rev, highest) > 0)) highest = rev;
+        }
+        newAutoBforward[drawingNumber] = highest || "";
+        return { ...prev, revMap: newRevMap, autoBforward: newAutoBforward };
       });
     } catch (e) { console.error(e); }
   }
 
-  // Called when user finishes editing a B' Forward cell — shows warning first
-  function requestBfOverride(drawingNumber, value) {
-    setEditingBf(null);
-    const currentVal = getBfValue(drawingNumber);
-    if (value === currentVal) return; // no change
-    setPendingOverride({ drawingNumber, value });
+  // Simple revision string comparison: stage letter order P<T<C then number
+  function compareRevStr(a, b) {
+    const parse = s => { const m = String(s).match(/^([A-Za-z]+)(\d+)$/); return m ? { stage: m[1].toUpperCase(), num: parseInt(m[2], 10) } : null; };
+    const stageOrder = ["P","T","C"];
+    const pa = parse(a); const pb = parse(b);
+    if (!pa || !pb) return 0;
+    const ia = stageOrder.indexOf(pa.stage); const ib = stageOrder.indexOf(pb.stage);
+    const sa = ia === -1 ? 999 : ia; const sb = ib === -1 ? 999 : ib;
+    if (sa !== sb) return sa - sb;
+    return pa.num - pb.num;
   }
 
-  async function recordIssue() {
-    if (recordingIssue) return;
-    setRecordingIssue(true);
-    setIssueMsg(null);
+  // "Save PDF Snapshot" — generates PDF, opens print dialog, saves to R2 via /transmittal/issue
+  async function savePdfSnapshot() {
+    if (!data || savingPdf) return;
+    setSavingPdf(true);
+    setPdfMsg(null);
     try {
-      await api(`/api/projects/${projectId}/transmittal/issue`, { method: "POST" });
-      setIssueMsg({ type: "ok", text: "Issue recorded — drawing schedule updated." });
-      await load();
+      const html = buildPrintHtml(data, logo, colours, bfOverrides, notes);
+      // Save to R2 via the issue route (no column created — just file storage)
+      await api(`/api/projects/${projectId}/transmittal/issue`, {
+        method: "POST", body: { html },
+      });
+      setPdfMsg({ type: "ok", text: "Snapshot saved to Documents." });
+      // Open print dialog
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, "_blank");
+      if (win) win.onload = () => setTimeout(() => { try { win.print(); } catch (_) {} }, 400);
+      setTimeout(() => URL.revokeObjectURL(url), 20000);
     } catch (e) {
-      setIssueMsg({ type: "err", text: "Failed to record issue: " + e.message });
+      setPdfMsg({ type: "err", text: "Failed: " + e.message });
     }
-    setRecordingIssue(false);
-    setTimeout(() => setIssueMsg(null), 6000);
+    setSavingPdf(false);
+    setTimeout(() => setPdfMsg(null), 6000);
+  }
+
+  // "Export PDF" — opens print dialog only, no R2 save
+  async function exportPdf() {
+    if (!data || exportingPdf) return;
+    setExportingPdf(true);
+    try {
+      const html = buildPrintHtml(data, logo, colours, bfOverrides, notes);
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, "_blank");
+      if (win) win.onload = () => setTimeout(() => { try { win.print(); } catch (_) {} }, 400);
+      setTimeout(() => URL.revokeObjectURL(url), 20000);
+    } catch (e) { console.error(e); }
+    setExportingPdf(false);
   }
 
   async function exportExcel() {
@@ -529,33 +581,6 @@ function TransmittalTab({ projectId, isAdmin }) {
       document.body.removeChild(a); URL.revokeObjectURL(url);
     } catch (e) { console.error(e); }
     setExportingExcel(false);
-  }
-
-  async function exportPdf() {
-    if (!data || exportingPdf) return;
-    setExportingPdf(true);
-    try {
-      const html = buildPrintHtml(data, logo, colours, bfOverrides, notes);
-      // Save to R2 for Documents tab
-      try {
-        await api(`/api/projects/${projectId}/transmittal/pdf`, {
-          method: "POST",
-          body: { html },
-        });
-      } catch (e) { console.warn("PDF save to R2 failed (non-fatal):", e.message); }
-      // Open in new tab with auto-print
-      const blob = new Blob([html], { type: "text/html" });
-      const url = URL.createObjectURL(blob);
-      const win = window.open(url, "_blank");
-      // Auto-trigger print dialog after page loads
-      if (win) {
-        win.onload = () => {
-          setTimeout(() => { try { win.print(); } catch (_) {} }, 400);
-        };
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 20000);
-    } catch (e) { console.error(e); }
-    setExportingPdf(false);
   }
 
   if (loading) return (
@@ -580,7 +605,6 @@ function TransmittalTab({ projectId, isAdmin }) {
     </div>
   );
 
-  // Group drawings by drawing_type
   const groups = {};
   for (const d of drawings) {
     const grp = (d.drawing_type || "Other").trim();
@@ -614,33 +638,40 @@ function TransmittalTab({ projectId, isAdmin }) {
   };
 
   function getBfValue(dn) {
-    const override = bfOverrides[dn];
-    return override ? override.value : (autoBforward[dn] || "");
-  }
-
-  function isBfManual(dn) {
-    return bfOverrides[dn]?.manual === true;
+    // B' Forward = always the latest revision across all issues (auto only)
+    return autoBforward[dn] || "";
   }
 
   return (
     <div>
-      {/* Warning dialog */}
-      {pendingOverride && (
+      {/* Warning dialog for cell edits */}
+      {pendingCell && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", width: 440, borderTop: `3px solid ${ARC_TERRACOTTA}`, padding: "28px 32px", fontFamily: "Inter, Arial, sans-serif" }}>
-            <h3 style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 10 }}>Override B' Forward?</h3>
-            <p style={{ fontSize: 13, color: "#5a5048", lineHeight: 1.6, marginBottom: 8 }}>
-              You are manually changing the B' Forward value for <strong>{pendingOverride.drawingNumber}</strong> to <strong>{pendingOverride.value}</strong>.
+          <div style={{ background: "#fff", width: 480, borderTop: `3px solid ${ARC_TERRACOTTA}`, padding: "28px 32px", fontFamily: "Inter, Arial, sans-serif" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 12 }}>⚠ Edit Issue Record?</h3>
+            <p style={{ fontSize: 13, color: "#5a5048", lineHeight: 1.7, marginBottom: 8 }}>
+              You are changing the revision for <strong>{pendingCell.drawingTitle || pendingCell.drawingNumber}</strong> in the issue dated <strong>{new Date(pendingCell.issueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</strong>.
             </p>
+            <div style={{ display: "flex", gap: 16, marginBottom: 16, padding: "10px 14px", background: "#faf8f5", border: "1px solid #e8e0d5" }}>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 10, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Current</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: ARC_NAVY }}>{pendingCell.oldValue || "—"}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", fontSize: 16, color: "#9a9088" }}>→</div>
+              <div style={{ textAlign: "center" }}>
+                <div style={{ fontSize: 10, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>New</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: ARC_TERRACOTTA }}>{pendingCell.newValue || "—"}</div>
+              </div>
+            </div>
             <p style={{ fontSize: 12, color: ARC_TERRACOTTA, lineHeight: 1.6, marginBottom: 24 }}>
-              ⚠ Changes to B' Forward history can cause coordination problems. Only proceed if you are sure this is correct.
+              Editing the issue history is a permanent change and can cause coordination problems. Only proceed if you are certain this is correct.
             </p>
             <div style={{ display: "flex", gap: 10 }}>
-              <button className="btn" onClick={confirmBfOverride}
+              <button className="btn" onClick={confirmCellEdit}
                 style={{ background: ARC_TERRACOTTA, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>
-                Yes, Override
+                Yes, Save Change
               </button>
-              <button className="btn" onClick={() => setPendingOverride(null)}
+              <button className="btn" onClick={() => setPendingCell(null)}
                 style={{ background: "none", color: "#9a9088", border: "1px solid #ddd8d0", padding: "9px 16px", fontSize: 11, cursor: "pointer" }}>
                 Cancel
               </button>
@@ -655,19 +686,17 @@ function TransmittalTab({ projectId, isAdmin }) {
           Drawing Schedule
         </h3>
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          {issueMsg && (
+          {pdfMsg && (
             <span style={{
               fontSize: 12, padding: "4px 10px",
-              background: issueMsg.type === "ok" ? "#eef6ee" : "#fdf0f0",
-              border: `1px solid ${issueMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`,
-              color: issueMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA,
-            }}>
-              {issueMsg.text}
-            </span>
+              background: pdfMsg.type === "ok" ? "#eef6ee" : "#fdf0f0",
+              border: `1px solid ${pdfMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`,
+              color: pdfMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA,
+            }}>{pdfMsg.text}</span>
           )}
           {isAdmin && (
-            <button className="btn" onClick={recordIssue} disabled={recordingIssue} style={btnSm(ARC_TERRACOTTA)}>
-              {recordingIssue ? <><Spinner size={10} /> Recording…</> : "+ Record Issue"}
+            <button className="btn" onClick={savePdfSnapshot} disabled={savingPdf} style={btnSm(ARC_TERRACOTTA)}>
+              {savingPdf ? <><Spinner size={10} /> Saving…</> : "↓ Save PDF Snapshot"}
             </button>
           )}
           <button className="btn" onClick={exportPdf} disabled={exportingPdf} style={btnSm(ARC_NAVY)}>
@@ -688,46 +717,40 @@ function TransmittalTab({ projectId, isAdmin }) {
         <div style={{ minWidth: totalWidth }}>
 
           {/* Header block: logo + job info */}
-          <div style={{ borderBottom: "2px solid #e8e0d5", padding: "14px 16px", display: "flex", alignItems: "flex-start", gap: 20, background: "#faf8f5", minHeight: 64 }}>
-            {logo?.base64 && (
-              <img
-                src={`data:${logo.mimeType};base64,${logo.base64}`}
-                alt="Practice logo"
-                style={{ maxHeight: 56, maxWidth: 140, objectFit: "contain", flexShrink: 0 }}
-              />
-            )}
-            {!logo?.base64 && (
-              <div style={{ width: 100, height: 48, border: "1px dashed #ddd8d0", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <span style={{ fontSize: 9, color: "#c0b8b0", textAlign: "center", lineHeight: 1.4 }}>Logo<br />here</span>
-              </div>
-            )}
+          <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, background: "#faf8f5", minHeight: 88 }}>
+            <div style={{ width: 160, height: 72, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
+              {logo?.base64 ? (
+                <img
+                  src={`data:${logo.mimeType};base64,${logo.base64}`}
+                  alt="Practice logo"
+                  style={{ maxHeight: 72, maxWidth: 160, objectFit: "contain", display: "block" }}
+                />
+              ) : (
+                <div style={{ width: 160, height: 72, border: "1px dashed #ddd8d0", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <span style={{ fontSize: 10, color: "#c0b8b0", textAlign: "center", lineHeight: 1.5 }}>Practice logo<br /><span style={{ fontSize: 9 }}>Upload in Admin</span></span>
+                </div>
+              )}
+            </div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>
-                {project?.name || ""}
-              </div>
-              <div style={{ fontSize: 11, color: "#9a9088", marginTop: 3, display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 16, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>{project?.name || ""}</div>
+              <div style={{ fontSize: 12, color: "#9a9088", marginTop: 4, display: "flex", gap: 16, flexWrap: "wrap" }}>
                 {project?.job_number && <span><strong>Job No.</strong> {project.job_number}</span>}
                 {project?.location && <span>{project.location}</span>}
               </div>
             </div>
-            {/* Notes: below job info, above drawings — rendered here inside header block */}
           </div>
 
-          {/* Notes section — below job info, above column headers */}
+          {/* Notes — below job info, above column headers */}
           <div style={{ borderBottom: "1px solid #e8e0d5", padding: "10px 16px", background: "#fffdf8", display: "flex", alignItems: "flex-start", gap: 12 }}>
             <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em", paddingTop: 2, flexShrink: 0, minWidth: 44 }}>Notes</div>
             <div style={{ flex: 1 }}>
               {editingNotes ? (
                 <div>
-                  <textarea
-                    value={notesDraft}
-                    onChange={e => setNotesDraft(e.target.value)}
-                    rows={2}
-                    style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "6px 8px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", resize: "vertical", boxSizing: "border-box" }}
-                  />
+                  <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)} rows={2}
+                    style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "6px 8px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", resize: "vertical", boxSizing: "border-box" }} />
                   <div style={{ display: "flex", gap: 8, marginTop: 5 }}>
                     <button className="btn" onClick={saveNotes} disabled={savingNotes}
-                      style={{ background: AD_GREEN, color: "#fff", padding: "4px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", border: "none" }}>
+                      style={{ background: AD_GREEN, color: "#fff", padding: "4px 14px", fontSize: 11, fontWeight: 600, border: "none" }}>
                       {savingNotes ? <Spinner size={10} /> : "Save"}
                     </button>
                     <button className="btn" onClick={() => setEditingNotes(false)}
@@ -771,20 +794,18 @@ function TransmittalTab({ projectId, isAdmin }) {
                   background: isLatest ? colours.latestIssue : colours.header,
                   borderLeft: "1px solid rgba(255,255,255,0.15)",
                 }}>
-                  <div>{day}</div>
-                  <div>{month}</div>
-                  <div>{year}</div>
+                  <div>{day}</div><div>{month}</div><div>{year}</div>
                 </div>
               );
             })}
             {issues.length === 0 && (
               <div style={{ ...hdrCell, flex: 1, color: "rgba(255,255,255,0.5)", fontStyle: "italic", fontWeight: 400 }}>
-                No issues recorded yet
+                No issues recorded yet — sync drawings via Archimind Sync
               </div>
             )}
           </div>
 
-          {/* Drawing rows grouped */}
+          {/* Drawing rows */}
           {Object.entries(groups).map(([groupName, groupDrawings]) => (
             <div key={groupName}>
               <div style={{ display: "flex", background: colours.groupRow, borderBottom: "1px solid #e8e0d5" }}>
@@ -795,50 +816,27 @@ function TransmittalTab({ projectId, isAdmin }) {
               {groupDrawings.map((d, idx) => {
                 const rowBg = idx % 2 === 0 ? colours.rowEven : colours.rowOdd;
                 const bfVal = getBfValue(d.drawing_number);
-                const bfManual = isBfManual(d.drawing_number);
-                const isEditingThis = editingBf === d.drawing_number;
                 return (
                   <div key={d.id} style={{ display: "flex", background: rowBg }}>
+                    {/* Title */}
                     <div style={{ ...cellBase, width: COL_TITLE, flexShrink: 0, background: rowBg }}>{d.title}</div>
+                    {/* Drawing number */}
                     <div style={{ ...cellBase, width: COL_NUMBER, flexShrink: 0, textAlign: "center", fontWeight: 600, fontSize: 11, background: rowBg }}>
                       {d.drawing_number || "—"}
                     </div>
-                    {/* B' Forward — highlight on screen only, not in PDF */}
+                    {/* B' Forward — auto only, not editable */}
                     <div style={{
                       ...cellBase, width: COL_BF, flexShrink: 0, textAlign: "center", fontWeight: 700,
-                      background: bfManual ? "#fff3cc" : rowBg,
-                      borderLeft: `2px solid ${colours.bforward}44`,
-                      position: "relative",
-                    }}
-                      className="bf-cell"
-                    >
-                      {isEditingThis ? (
-                        <input
-                          autoFocus
-                          value={bfDraft}
-                          onChange={e => setBfDraft(e.target.value)}
-                          onBlur={() => { if (bfDraft !== bfVal) requestBfOverride(d.drawing_number, bfDraft); else setEditingBf(null); }}
-                          onKeyDown={e => {
-                            if (e.key === "Enter") requestBfOverride(d.drawing_number, bfDraft);
-                            if (e.key === "Escape") setEditingBf(null);
-                          }}
-                          style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "2px 4px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", textAlign: "center", outline: "none" }}
-                        />
-                      ) : (
-                        <span
-                          onClick={() => { if (isAdmin) { setEditingBf(d.drawing_number); setBfDraft(bfVal); } }}
-                          title={isAdmin ? (bfManual ? "Manually overridden — click to edit" : "Auto-calculated — click to override") : bfVal}
-                          style={{ cursor: isAdmin ? "text" : "default", display: "block" }}
-                        >
-                          {bfVal || "—"}
-                          {bfManual && <span style={{ color: ARC_TERRACOTTA, marginLeft: 2, fontSize: 9 }}>✎</span>}
-                        </span>
-                      )}
+                      background: blendHex(colours.bforward, "#ffffff", 0.88),
+                      borderLeft: `2px solid ${colours.bforward}55`,
+                    }}>
+                      {bfVal || "—"}
                     </div>
-                    {/* Issue columns */}
+                    {/* Issue columns — all editable with warning */}
                     {issues.map((issue, i) => {
                       const rev = revMap[issue.id]?.[d.drawing_number] || "";
                       const isLatest = i === issues.length - 1;
+                      const isEditing = editingCell?.issueId === issue.id && editingCell?.drawingNumber === d.drawing_number;
                       return (
                         <div key={issue.id} style={{
                           ...cellBase, width: COL_ISSUE, flexShrink: 0, textAlign: "center",
@@ -846,8 +844,35 @@ function TransmittalTab({ projectId, isAdmin }) {
                           background: isLatest ? colours.latestIssue + "22" : rowBg,
                           color: rev ? colours.bodyText : "#c8c0b8",
                           borderLeft: "1px solid #e8e0d5",
+                          padding: "2px 4px",
+                          position: "relative",
                         }}>
-                          {rev || ""}
+                          {isEditing ? (
+                            <input
+                              autoFocus
+                              value={cellDraft}
+                              onChange={e => setCellDraft(e.target.value)}
+                              onBlur={() => requestCellEdit(issue.id, issue.issue_date, d.drawing_number, d.title, cellDraft)}
+                              onKeyDown={e => {
+                                if (e.key === "Enter") requestCellEdit(issue.id, issue.issue_date, d.drawing_number, d.title, cellDraft);
+                                if (e.key === "Escape") setEditingCell(null);
+                              }}
+                              style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "2px 3px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", textAlign: "center", outline: "none", background: "#fff" }}
+                            />
+                          ) : (
+                            <span
+                              onClick={() => {
+                                if (isAdmin) {
+                                  setEditingCell({ issueId: issue.id, drawingNumber: d.drawing_number });
+                                  setCellDraft(rev);
+                                }
+                              }}
+                              title={isAdmin ? "Click to edit (use sparingly)" : rev}
+                              style={{ cursor: isAdmin ? "text" : "default", display: "block", lineHeight: "24px" }}
+                            >
+                              {rev || ""}
+                            </span>
+                          )}
                         </div>
                       );
                     })}
@@ -863,9 +888,9 @@ function TransmittalTab({ projectId, isAdmin }) {
       {/* Legend */}
       {isAdmin && (
         <p style={{ fontSize: 11, color: "#b0a8a0", marginTop: 8, fontStyle: "italic" }}>
-          B' Forward is auto-calculated. Click any value to override —
-          <span style={{ background: "#fff3cc", padding: "0 4px", marginLeft: 4 }}>yellow highlight</span> indicates a manual override (screen only, not shown on export).
-          Use "+ Record Issue" to snapshot the current register as a new dated column.
+          New issue columns are added automatically when drawings are synced via Archimind Sync.
+          Revision cells are editable — click any cell to correct it. Changes are permanent and flagged with a warning.
+          B' Forward is auto-calculated and shows the latest revision across all issues.
         </p>
       )}
     </div>
