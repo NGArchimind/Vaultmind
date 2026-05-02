@@ -488,51 +488,6 @@ function TransmittalTab({ projectId, isAdmin }) {
   // Delete issue column confirmation
   const [pendingDeleteIssue, setPendingDeleteIssue] = useState(null);
 
-  // ── TEST ONLY — inject fake issue columns into local state ──────────────────
-  const [testInjected, setTestInjected] = useState(false);
-  function injectTestIssues() {
-    setData(prev => {
-      if (!prev) return prev;
-      const revOptions = ["P01","P02","P03","P04","P05","C01","C02","T01","T02"];
-      const baseDate = new Date("2023-01-01");
-      const fakeIssues = Array.from({ length: 100 }, (_, i) => ({
-        id: `test-issue-${i}`,
-        project_id: projectId,
-        issue_date: new Date(baseDate.getTime() + i * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-      }));
-      // 100 fake drawings across 5 groups
-      const fakeGroups = ["GA","FLOOR PLAN","SECTION","ELEVATION","DETAIL"];
-      const fakeDrawings = Array.from({ length: 100 }, (_, i) => ({
-        id: `test-drawing-${i}`,
-        title: `Test Drawing ${String(i + 1).padStart(3, "0")}`,
-        drawing_number: `TEST-BA-${String(i + 1).padStart(2, "0")}-DR-A-${String(i + 1).padStart(5, "0")}`,
-        drawing_type: fakeGroups[Math.floor(i / 20)],
-      }));
-      const allDrawings = [...prev.drawings, ...fakeDrawings];
-      const allIssues = [...prev.issues, ...fakeIssues];
-      const fakeRevMap = {};
-      for (const issue of fakeIssues) {
-        fakeRevMap[issue.id] = {};
-        for (const drawing of allDrawings) {
-          if (drawing.drawing_number && Math.random() > 0.3) {
-            fakeRevMap[issue.id][drawing.drawing_number] = revOptions[Math.floor(Math.random() * revOptions.length)];
-          }
-        }
-      }
-      return { ...prev, drawings: allDrawings, issues: allIssues, revMap: { ...prev.revMap, ...fakeRevMap } };
-    });
-    setTestInjected(true);
-  }
-  function clearTestIssues() {
-    setData(prev => {
-      if (!prev) return prev;
-      const realIssues = prev.issues.filter(i => !String(i.id).startsWith("test-issue-"));
-      const realDrawings = prev.drawings.filter(d => !String(d.id).startsWith("test-drawing-"));
-      const realRevMap = Object.fromEntries(Object.entries(prev.revMap).filter(([k]) => !k.startsWith("test-issue-")));
-      return { ...prev, issues: realIssues, drawings: realDrawings, revMap: realRevMap };
-    });
-    setTestInjected(false);
-  }
   // ────────────────────────────────────────────────────────────────────────────
 
   async function confirmDeleteIssue() {
@@ -951,11 +906,6 @@ function TransmittalTab({ projectId, isAdmin }) {
           <button className="btn" onClick={exportExcel} disabled={exportingExcel} style={btnSm(AD_GREEN)}>
             {exportingExcel ? <><Spinner size={10} /> Exporting…</> : "↓ Export Excel"}
           </button>
-          {/* ── TEST ONLY ── remove before go-live */}
-          {!testInjected
-            ? <button className="btn" onClick={injectTestIssues} style={{ fontSize: 10, color: "#fff", background: "#b06000", border: "none", padding: "4px 10px", letterSpacing: "0.04em" }}>⚗ Inject 100 issues + 100 rows</button>
-            : <button className="btn" onClick={clearTestIssues} style={{ fontSize: 10, color: "#fff", background: "#7a0000", border: "none", padding: "4px 10px", letterSpacing: "0.04em" }}>⚗ Clear test issues</button>
-          }
           <button className="btn" onClick={load}
             style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 10px" }}>
             ↻
@@ -1003,8 +953,8 @@ function TransmittalTab({ projectId, isAdmin }) {
         <table style={{ borderCollapse: "collapse", tableLayout: "auto", background: "#fff" }}>
           <thead>
             <tr>
-              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left", whiteSpace: "nowrap", minWidth: W_TITLE, maxWidth: W_TITLE, width: W_TITLE, overflow: "hidden", textOverflow: "ellipsis", willChange: "transform" }}>Drawing Title</th>
-              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: W_TITLE, zIndex: 3, textAlign: "center", whiteSpace: "nowrap", minWidth: W_DRAWNO, width: W_DRAWNO, willChange: "transform" }}>Drawing No.</th>
+              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left", whiteSpace: "nowrap", minWidth: W_TITLE, maxWidth: W_TITLE, width: W_TITLE, overflow: "hidden", textOverflow: "ellipsis" }}>Drawing Title</th>
+              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: W_TITLE, zIndex: 3, textAlign: "center", whiteSpace: "nowrap", minWidth: W_DRAWNO, width: W_DRAWNO }}>Drawing No.</th>
               <th style={{ ...thStyle, background: colours.bforward, color: colours.headerText, position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 3, textAlign: "center", width: W_BFWD, minWidth: W_BFWD, boxShadow: "4px 0 0 0 #e8e0d5, 6px 0 8px rgba(0,0,0,0.12)", borderRight: "2px solid #e8e0d5" }}>B' Fwd</th>
               {issues.map((issue, i) => {
                 const dt = new Date(issue.issue_date);
@@ -1049,8 +999,8 @@ function TransmittalTab({ projectId, isAdmin }) {
                   const bfVal = getBfValue(d.drawing_number);
                   return (
                     <tr key={d.id} style={{ background: rowBg }}>
-                      <td style={{ ...tdStyle, background: rowBg, position: "sticky", left: 0, zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: W_TITLE, minWidth: W_TITLE, maxWidth: W_TITLE, willChange: "transform" }}>{d.title}</td>
-                      <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: W_TITLE, zIndex: 1, width: W_DRAWNO, minWidth: W_DRAWNO, willChange: "transform" }}>{d.drawing_number || "—"}</td>
+                      <td style={{ ...tdStyle, background: rowBg, position: "sticky", left: 0, zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: W_TITLE, minWidth: W_TITLE, maxWidth: W_TITLE, borderRight: "1px solid #e8e0d5" }}>{d.title}</td>
+                      <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: W_TITLE, zIndex: 1, width: W_DRAWNO, minWidth: W_DRAWNO, borderRight: "1px solid #e8e0d5" }}>{d.drawing_number || "—"}</td>
                       <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, background: blendHex(colours.bforward, "#ffffff", 0.88), position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 1, width: W_BFWD, minWidth: W_BFWD, boxShadow: "4px 0 0 0 #e8e0d5, 6px 0 8px rgba(0,0,0,0.12)", borderRight: "2px solid #e8e0d5" }}>{bfVal || "—"}</td>
                       {issues.map((issue, i) => {
                         const rev = revMap[issue.id]?.[d.drawing_number] || "";
