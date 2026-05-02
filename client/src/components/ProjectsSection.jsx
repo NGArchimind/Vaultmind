@@ -1284,16 +1284,9 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
 <script>
   window.addEventListener('DOMContentLoaded', function() {
     var hdr = document.getElementById('page-hdr');
-    var thead = document.querySelector('thead');
     var hdrH = hdr.offsetHeight + 2;
-    var theadH = thead ? thead.offsetHeight : 0;
-    var totalH = hdrH + theadH;
     var style = document.createElement('style');
-    style.textContent = [
-      '@page { size: A4 landscape; margin: ' + totalH + 'px 7mm 6mm 7mm; }',
-      'body { padding-top: ' + totalH + 'px; }',
-      'thead { position: fixed; top: ' + hdrH + 'px; left: 7mm; right: 7mm; background: #fff; }'
-    ].join(' ');
+    style.textContent = '@page { size: A4 landscape; margin: ' + hdrH + 'px 7mm 6mm 7mm; } body { padding-top: ' + hdrH + 'px; }';
     document.head.appendChild(style);
   });
 </script>
