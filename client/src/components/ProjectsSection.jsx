@@ -1135,7 +1135,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     const year  = String(dt.getUTCFullYear()).slice(2);
     const isLatest = i === issues.length - 1;
     const bg = isLatest ? c.latestIssue : c.header;
-    return `<th class="issue-col" style="background:${bg};color:${c.headerText};width:18px;max-width:38px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
+    return `<th class="issue-col" style="background:${bg};color:${c.headerText};text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:0;letter-spacing:0.02em"><div style="width:28px;margin:0 auto;padding:3px 2px">${day}<br>${month}<br>${year}</div></th>`;
   }).join("");
 
   const rowsHtml = Object.entries(groups).map(([grpName, grpDrawings]) => {
@@ -1148,7 +1148,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
         const rev = revMap[issue.id]?.[d.drawing_number] || "";
         const isLatest = i === issues.length - 1;
         const bg = isLatest ? blendHex(c.latestIssue, "#ffffff", 0.80) : rowBg;
-        return `<td class="issue-col" style="background:${bg};width:18px;max-width:38px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
+        return `<td class="issue-col" style="background:${bg};text-align:center;border:1px solid #ddd;padding:0"><div style="width:28px;margin:0 auto;padding:3px 2px;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};font-size:8pt">${rev}</div></td>`;
       }).join("");
       return `<tr>
         <td class="pin" style="background:${rowBg};color:${c.bodyText};text-align:center;font-weight:600;padding:3px 6px;border:1px solid #e0e0e0;font-size:7.5pt;white-space:nowrap;width:1%">${d.drawing_number || "—"}</td>
