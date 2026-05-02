@@ -472,6 +472,7 @@ function TransmittalTab({ projectId, isAdmin }) {
   const [pdfMsg, setPdfMsg] = useState(null);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
+  const [printSlicedIssues, setPrintSlicedIssues] = useState(null);
 
   // B' Forward overrides
   const [bfOverrides, setBfOverrides] = useState({});
@@ -718,25 +719,60 @@ function TransmittalTab({ projectId, isAdmin }) {
     if (!data || exportingPdf) return;
     setExportingPdf(true);
     try {
-      // A4 landscape usable width at 96dpi, 10mm margins each side ≈ 1048px
-      // Pinned columns: Drawing No (1%) + Title (auto) + B'Fwd (1%) ≈ estimate 520px
-      // Each issue column is 38px wide in the print HTML
-      const PAGE_W = 1048 - 53; // subtract 7mm*2 side padding
-      const PINNED_W = 580;
-      const ISSUE_COL_W = 18;
-      const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
-      const slicedIssues = data.issues.length > maxIssueCols
+      // Calculate which issue columns fit on A4 landscape
+      // Pinned cols: W_TITLE(220) + W_DRAWNO(230) + W_BFWD(52) = 502px
+      // Each issue col: 52px. Usable page width ~995px (A4 landscape 297mm at 96dpi minus margins)
+      const USABLE_W = 995;
+      const PINNED_W = 502;
+      const ISSUE_COL_W = 52;
+      const maxIssueCols = Math.floor((USABLE_W - PINNED_W) / ISSUE_COL_W);
+      const sliced = data.issues.length > maxIssueCols
         ? data.issues.slice(data.issues.length - maxIssueCols)
         : data.issues;
-      const printData = { ...data, issues: slicedIssues };
-      const html = buildPrintHtml(printData, logo, colours, bfOverrides, notes);
-      const blob = new Blob([html], { type: "text/html" });
-      const url = URL.createObjectURL(blob);
-      const win = window.open(url, "_blank");
-      if (win) win.onload = () => setTimeout(() => { try { win.print(); } catch (_) {} }, 400);
-      setTimeout(() => URL.revokeObjectURL(url), 20000);
-    } catch (e) { console.error(e); }
-    setExportingPdf(false);
+
+      // Inject print stylesheet
+      const styleId = "archimind-print-style";
+      let styleEl = document.getElementById(styleId);
+      if (!styleEl) {
+        styleEl = document.createElement("style");
+        styleEl.id = styleId;
+        document.head.appendChild(styleEl);
+      }
+      styleEl.textContent = `
+        @media print {
+          @page { size: A4 landscape; margin: 8mm 10mm; }
+          body * { visibility: hidden; }
+          #archimind-transmittal-print, #archimind-transmittal-print * { visibility: visible; }
+          #archimind-transmittal-print { position: fixed; top: 0; left: 0; width: 100%; }
+          #archimind-transmittal-print table { table-layout: auto; width: auto; }
+          #archimind-transmittal-print th,
+          #archimind-transmittal-print td { position: static !important; }
+          #archimind-transmittal-print #schedule-scroll { overflow: visible !important; }
+          -webkit-print-color-adjust: exact;
+          print-color-adjust: exact;
+        }
+      `;
+
+      // Set sliced issues so table renders only fitting columns
+      setPrintSlicedIssues(sliced);
+
+      // Wait for React to re-render, then print
+      setTimeout(() => {
+        window.print();
+        // Clean up after print dialog closes
+        const cleanup = () => {
+          setPrintSlicedIssues(null);
+          if (styleEl) styleEl.textContent = "";
+          setExportingPdf(false);
+          window.removeEventListener("afterprint", cleanup);
+        };
+        window.addEventListener("afterprint", cleanup);
+      }, 150);
+
+    } catch (e) {
+      console.error(e);
+      setExportingPdf(false);
+    }
   }
 
   async function exportExcel() {
@@ -963,6 +999,9 @@ function TransmittalTab({ projectId, isAdmin }) {
         </div>
       </div>
 
+      {/* Header block + schedule — wrapped for print targeting */}
+      <div id="archimind-transmittal-print">
+
       {/* Header block — outside scroll container so it never moves */}
       <div style={{ border: "1px solid #e8e0d5", borderBottom: "none", background: "#faf8f5" }}>
         <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, minHeight: 88 }}>
@@ -1006,17 +1045,17 @@ function TransmittalTab({ projectId, isAdmin }) {
               <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left", whiteSpace: "nowrap", minWidth: W_TITLE, maxWidth: W_TITLE, width: W_TITLE, overflow: "hidden", textOverflow: "ellipsis" }}>Drawing Title</th>
               <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: W_TITLE, zIndex: 3, textAlign: "center", whiteSpace: "nowrap", minWidth: W_DRAWNO, width: W_DRAWNO }}>Drawing No.</th>
               <th style={{ ...thStyle, background: colours.bforward, color: colours.headerText, position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 3, textAlign: "center", width: W_BFWD, minWidth: W_BFWD, boxShadow: "4px 0 0 0 #e8e0d5, 6px 0 8px rgba(0,0,0,0.12)", borderRight: "2px solid #e8e0d5" }}>B' Fwd</th>
-              {issues.map((issue, i) => {
+              {(printSlicedIssues ?? issues).map((issue, i) => {
                 const dt = new Date(issue.issue_date);
                 const day   = String(dt.getUTCDate()).padStart(2, "0");
                 const month = String(dt.getUTCMonth() + 1).padStart(2, "0");
                 const year  = String(dt.getUTCFullYear()).slice(2);
-                const isLatest = i === issues.length - 1;
+                const isLatest = i === (printSlicedIssues ?? issues).length - 1;
                 const bg = isLatest ? colours.latestIssue : colours.header;
                 return (
                   <th key={issue.id} style={{ ...thStyle, background: bg, color: colours.headerText, textAlign: "center", lineHeight: 1.4, borderLeft: "1px solid rgba(255,255,255,0.15)", position: "relative", paddingBottom: isAdmin ? 20 : undefined }}>
                     <div>{day}</div><div>{month}</div><div>{year}</div>
-                    {isAdmin && (
+                    {isAdmin && !printSlicedIssues && (
                       <button className="btn"
                         onClick={() => setPendingDeleteIssue({ issueId: issue.id, issueDate: issue.issue_date })}
                         title="Delete this issue column"
@@ -1052,9 +1091,9 @@ function TransmittalTab({ projectId, isAdmin }) {
                       <td style={{ ...tdStyle, background: rowBg, position: "sticky", left: 0, zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: W_TITLE, minWidth: W_TITLE, maxWidth: W_TITLE, borderRight: "1px solid #e8e0d5" }}>{d.title}</td>
                       <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: W_TITLE, zIndex: 1, width: W_DRAWNO, minWidth: W_DRAWNO, borderRight: "1px solid #e8e0d5" }}>{d.drawing_number || "—"}</td>
                       <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, background: blendHex(colours.bforward, "#ffffff", 0.88), position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 1, width: W_BFWD, minWidth: W_BFWD, boxShadow: "4px 0 0 0 #e8e0d5, 6px 0 8px rgba(0,0,0,0.12)", borderRight: "2px solid #e8e0d5" }}>{bfVal || "—"}</td>
-                      {issues.map((issue, i) => {
+                      {(printSlicedIssues ?? issues).map((issue, i) => {
                         const rev = revMap[issue.id]?.[d.drawing_number] || "";
-                        const isLatest = i === issues.length - 1;
+                        const isLatest = i === (printSlicedIssues ?? issues).length - 1;
                         const isEditing = editingCell?.issueId === issue.id && editingCell?.drawingNumber === d.drawing_number;
                         return (
                           <td key={issue.id} style={{ ...tdStyle, textAlign: "center", padding: "2px 4px", fontWeight: rev ? 700 : 400, background: isLatest ? colours.latestIssue + "22" : rowBg, color: rev ? colours.bodyText : "#c8c0b8", borderLeft: "1px solid #e8e0d5" }}>
@@ -1090,6 +1129,8 @@ function TransmittalTab({ projectId, isAdmin }) {
           B' Forward is auto-calculated and shows the latest revision across all issues.
         </p>
       )}
+
+      </div>{/* end #archimind-transmittal-print */}
     </div>
   );
 }
