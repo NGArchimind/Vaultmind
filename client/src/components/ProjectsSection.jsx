@@ -578,7 +578,7 @@ function TransmittalTab({ projectId, isAdmin }) {
     measure();
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [data, issues]);
+  }, [data]);
 
   useEffect(() => { load(); loadLogo(); loadColours(); }, [projectId]);
 
