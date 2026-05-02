@@ -1174,20 +1174,22 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   }
   tbody td { vertical-align: middle; }
 
-  /* Add top spacing when thead repeats on pages 2+ */
-  thead tr:first-child td { padding-top: 0; }
+  .page-spacer { display: none; }
   @media print {
     html, body { margin: 0; }
     table { page-break-inside: auto; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     thead { display: table-header-group; }
-    thead tr:first-child td { padding-top: 6mm; }
+    .page-spacer { display: table-row; height: 6mm; }
+    .page-spacer td { border: none; background: #fff; padding: 0; height: 6mm; }
   }
 </style>
 </head>
 <body>
 <table>
   <thead>
+    <!-- Spacer row: invisible on screen, gives top margin on pages 2+ when thead repeats -->
+    <tr class="page-spacer"><td colspan="${3 + issues.length}"></td></tr>
     <!-- Header row: logo + title + notes — repeats on every page via thead -->
     <tr>
       <td colspan="${3 + issues.length}" style="padding:0 0 4px 0;border:none;background:#fff;white-space:normal">
