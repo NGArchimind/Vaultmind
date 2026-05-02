@@ -814,7 +814,7 @@ function TransmittalTab({ projectId, isAdmin }) {
   const thStyle = {
     fontFamily: "Inter, Arial, sans-serif", fontSize: 10, fontWeight: 600,
     letterSpacing: "0.05em", textTransform: "uppercase",
-    padding: "6px 8px", border: "1px solid rgba(255,255,255,0.1)",
+    padding: "6px 8px", border: "none", outline: "1px solid rgba(255,255,255,0.15)",
     verticalAlign: "middle",
   };
 
@@ -1000,11 +1000,11 @@ function TransmittalTab({ projectId, isAdmin }) {
 
       {/* Schedule table — scroll container starts here, header above never scrolls */}
       <div id="schedule-scroll" style={{ overflowX: "auto", background: "#fff", border: "1px solid #e8e0d5" }}>
-        <table style={{ borderCollapse: "collapse", tableLayout: "auto" }}>
+        <table style={{ borderCollapse: "collapse", tableLayout: "auto", background: "#fff" }}>
           <thead>
             <tr>
-              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left", whiteSpace: "nowrap", minWidth: W_TITLE, maxWidth: W_TITLE, width: W_TITLE, overflow: "hidden", textOverflow: "ellipsis", borderRight: "1px solid rgba(255,255,255,0.15)" }}>Drawing Title</th>
-              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: W_TITLE, zIndex: 3, textAlign: "center", whiteSpace: "nowrap", minWidth: W_DRAWNO, width: W_DRAWNO, borderRight: "1px solid rgba(255,255,255,0.15)" }}>Drawing No.</th>
+              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left", whiteSpace: "nowrap", minWidth: W_TITLE, maxWidth: W_TITLE, width: W_TITLE, overflow: "hidden", textOverflow: "ellipsis", willChange: "transform" }}>Drawing Title</th>
+              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: W_TITLE, zIndex: 3, textAlign: "center", whiteSpace: "nowrap", minWidth: W_DRAWNO, width: W_DRAWNO, willChange: "transform" }}>Drawing No.</th>
               <th style={{ ...thStyle, background: colours.bforward, color: colours.headerText, position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 3, textAlign: "center", width: W_BFWD, minWidth: W_BFWD, boxShadow: "4px 0 0 0 #e8e0d5, 6px 0 8px rgba(0,0,0,0.12)", borderRight: "2px solid #e8e0d5" }}>B' Fwd</th>
               {issues.map((issue, i) => {
                 const dt = new Date(issue.issue_date);
@@ -1049,8 +1049,8 @@ function TransmittalTab({ projectId, isAdmin }) {
                   const bfVal = getBfValue(d.drawing_number);
                   return (
                     <tr key={d.id} style={{ background: rowBg }}>
-                      <td style={{ ...tdStyle, background: rowBg, position: "sticky", left: 0, zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: W_TITLE, minWidth: W_TITLE, maxWidth: W_TITLE, borderRight: "1px solid #e8e0d5" }}>{d.title}</td>
-                      <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: W_TITLE, zIndex: 1, width: W_DRAWNO, minWidth: W_DRAWNO, borderRight: "1px solid #e8e0d5" }}>{d.drawing_number || "—"}</td>
+                      <td style={{ ...tdStyle, background: rowBg, position: "sticky", left: 0, zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: W_TITLE, minWidth: W_TITLE, maxWidth: W_TITLE, willChange: "transform" }}>{d.title}</td>
+                      <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: W_TITLE, zIndex: 1, width: W_DRAWNO, minWidth: W_DRAWNO, willChange: "transform" }}>{d.drawing_number || "—"}</td>
                       <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, background: blendHex(colours.bforward, "#ffffff", 0.88), position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 1, width: W_BFWD, minWidth: W_BFWD, boxShadow: "4px 0 0 0 #e8e0d5, 6px 0 8px rgba(0,0,0,0.12)", borderRight: "2px solid #e8e0d5" }}>{bfVal || "—"}</td>
                       {issues.map((issue, i) => {
                         const rev = revMap[issue.id]?.[d.drawing_number] || "";
