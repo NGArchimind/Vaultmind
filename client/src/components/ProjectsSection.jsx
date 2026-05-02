@@ -1182,6 +1182,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     thead { display: table-header-group; }
     .page-spacer { display: table-row; height: 6mm; }
     .page-spacer td { border: none; background: #fff; padding: 0; height: 6mm; }
+    @page :first { margin-top: -6mm; }
   }
 </style>
 </head>
