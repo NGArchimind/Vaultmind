@@ -565,6 +565,9 @@ function TransmittalTab({ projectId, isAdmin }) {
   // Measure title column width for sticky Drawing No. offset
   const titleColRef = useRef(null);
   const [titleColW, setTitleColW] = useState(0);
+  const drawingNoColRef = useRef(null);
+  const [drawingNoColW, setDrawingNoColW] = useState(0);
+
   useEffect(() => {
     if (!titleColRef.current) return;
     setTitleColW(titleColRef.current.offsetWidth);
@@ -572,6 +575,16 @@ function TransmittalTab({ projectId, isAdmin }) {
       if (titleColRef.current) setTitleColW(titleColRef.current.offsetWidth);
     });
     obs.observe(titleColRef.current);
+    return () => obs.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!drawingNoColRef.current) return;
+    setDrawingNoColW(drawingNoColRef.current.offsetWidth);
+    const obs = new ResizeObserver(() => {
+      if (drawingNoColRef.current) setDrawingNoColW(drawingNoColRef.current.offsetWidth);
+    });
+    obs.observe(drawingNoColRef.current);
     return () => obs.disconnect();
   }, []);
 
@@ -957,8 +970,8 @@ function TransmittalTab({ projectId, isAdmin }) {
           <thead>
             <tr>
               <th ref={titleColRef} style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left", whiteSpace: "nowrap" }}>Drawing Title</th>
-              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: titleColW, zIndex: 3, textAlign: "center", boxShadow: "3px 0 6px rgba(0,0,0,0.15)", borderRight: "2px solid rgba(255,255,255,0.2)", whiteSpace: "nowrap" }}>Drawing No.</th>
-              <th style={{ ...thStyle, background: colours.bforward, color: colours.headerText, textAlign: "center", borderLeft: "2px solid rgba(255,255,255,0.3)" }}>B' Fwd</th>
+              <th ref={drawingNoColRef} style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: titleColW, zIndex: 3, textAlign: "center", whiteSpace: "nowrap" }}>Drawing No.</th>
+              <th style={{ ...thStyle, background: colours.bforward, color: colours.headerText, position: "sticky", left: titleColW + drawingNoColW, zIndex: 3, textAlign: "center", boxShadow: "3px 0 6px rgba(0,0,0,0.15)", borderRight: "2px solid rgba(255,255,255,0.2)", borderLeft: "2px solid rgba(255,255,255,0.3)" }}>B' Fwd</th>
               {issues.map((issue, i) => {
                 const dt = new Date(issue.issue_date);
                 const day   = String(dt.getUTCDate()).padStart(2, "0");
@@ -1000,8 +1013,8 @@ function TransmittalTab({ projectId, isAdmin }) {
                   return (
                     <tr key={d.id} style={{ background: rowBg }}>
                       <td style={{ ...tdStyle, background: rowBg, position: "sticky", left: 0, zIndex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.title}</td>
-                      <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: titleColW, zIndex: 1, boxShadow: "3px 0 6px rgba(0,0,0,0.10)", borderRight: "2px solid #e8e0d5" }}>{d.drawing_number || "—"}</td>
-                      <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, background: blendHex(colours.bforward, "#ffffff", 0.88), borderLeft: `2px solid ${colours.bforward}55` }}>{bfVal || "—"}</td>
+                      <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: titleColW, zIndex: 1 }}>{d.drawing_number || "—"}</td>
+                      <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, background: blendHex(colours.bforward, "#ffffff", 0.88), position: "sticky", left: titleColW + drawingNoColW, zIndex: 1, boxShadow: "3px 0 6px rgba(0,0,0,0.10)", borderRight: "2px solid #e8e0d5" }}>{bfVal || "—"}</td>
                       {issues.map((issue, i) => {
                         const rev = revMap[issue.id]?.[d.drawing_number] || "";
                         const isLatest = i === issues.length - 1;
@@ -1127,8 +1140,8 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
 <meta charset="utf-8">
 <title>Drawing Schedule — ${(project?.name || "").replace(/</g,"&lt;")}</title>
 <style>
-  /* Zero @page margins removes all browser-added headers/footers */
-  @page { size: A4 landscape; margin: 0; }
+  /* @page margins give us the white border on all sides */
+  @page { size: A4 landscape; margin: 12mm 14mm; }
 
   /* Force colour/background printing in all browsers */
   *, *::before, *::after {
@@ -1138,20 +1151,32 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     color-adjust: exact !important;
   }
 
-  html {
-    width: 297mm;
-    background: #fff;
-  }
+  html { background: #fff; }
 
   body {
     font-family: Arial, Helvetica, sans-serif;
     font-size: 8pt;
     color: ${c.bodyText};
     background: #fff;
-    padding: 8mm 14mm 8mm 14mm;
-    box-sizing: border-box;
-    width: 297mm;
     margin: 0;
+    padding: 0;
+  }
+
+  /* Repeating page header — appears on every printed page */
+  .page-hdr {
+    display: block;
+    width: 100%;
+  }
+  @media print {
+    .page-hdr {
+      position: running(pageHeader);
+      display: block;
+    }
+    @page {
+      size: A4 landscape;
+      margin: 12mm 14mm;
+      @top-center { content: element(pageHeader); }
+    }
   }
 
   .hdr {
@@ -1160,23 +1185,29 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     gap: 20px;
     padding-bottom: 8px;
     border-bottom: 2px solid #333;
-    margin-bottom: 6px;
-    min-height: 80px;
+    margin-bottom: 4px;
+    min-height: 72px;
   }
-  .hdr-logo { width: 160px; flex-shrink: 0; }
+  .hdr-logo { width: 140px; flex-shrink: 0; }
   .hdr-info { flex: 1; }
-  .hdr-name { font-size: 14pt; font-weight: 700; color: ${c.bodyText}; line-height: 1.2; }
-  .hdr-meta { font-size: 8.5pt; color: #555; margin-top: 5px; }
-  .hdr-generated { font-size: 7pt; color: #aaa; margin-top: 3px; }
+  .hdr-name { font-size: 13pt; font-weight: 700; color: ${c.bodyText}; line-height: 1.2; }
+  .hdr-meta { font-size: 8pt; color: #555; margin-top: 4px; }
+  .hdr-generated { font-size: 7pt; color: #aaa; margin-top: 2px; }
+
+  .notes-row {
+    font-size: 8pt;
+    color: ${c.bodyText};
+    padding: 4px 0 6px 0;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 6px;
+  }
 
   table {
-    width: max-content;
-    min-width: 100%;
+    width: 100%;
     border-collapse: collapse;
     table-layout: auto;
     margin-top: 4px;
   }
-  .pin { position: sticky; background: inherit; }
   thead th {
     background: ${c.header};
     color: ${c.headerText};
@@ -1195,24 +1226,25 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     table { page-break-inside: auto; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     thead { display: table-header-group; }
-    @page { size: A4 landscape; margin: 0; }
   }
 </style>
 </head>
 <body>
-<div class="hdr">
-  <div class="hdr-logo">${logoHtml}</div>
-  <div class="hdr-info">
-    <div class="hdr-name">${(project?.name || "").replace(/</g,"&lt;")}</div>
-    <div class="hdr-meta">
-      ${project?.job_number ? `<strong>Job No.</strong> ${project.job_number}` : ""}
-      ${project?.job_number && project?.location ? " &nbsp;&middot;&nbsp; " : ""}
-      ${project?.location || ""}
+<div class="page-hdr">
+  <div class="hdr">
+    <div class="hdr-logo">${logoHtml}</div>
+    <div class="hdr-info">
+      <div class="hdr-name">${(project?.name || "").replace(/</g,"&lt;")}</div>
+      <div class="hdr-meta">
+        ${project?.job_number ? `<strong>Job No.</strong> ${project.job_number}` : ""}
+        ${project?.job_number && project?.location ? " &nbsp;&middot;&nbsp; " : ""}
+        ${project?.location || ""}
+      </div>
+      <div class="hdr-generated">Generated by Archimind &middot; ${dateStr}</div>
     </div>
-    <div class="hdr-generated">Generated by Archimind &middot; ${dateStr}</div>
   </div>
+  ${notesHtml}
 </div>
-${notesHtml}
 <table>
   <thead>
     <tr>
