@@ -562,23 +562,11 @@ function TransmittalTab({ projectId, isAdmin }) {
     } catch (e) { console.error(e); }
   }
 
-  // Measure title column width for sticky Drawing No. offset
-  // Use refs to measure actual cell offsetLeft positions for sticky columns
-  const titleThRef = useRef(null);
-  const drawingNoThRef = useRef(null);
-  const bfwdThRef = useRef(null);
-  const [stickyOffsets, setStickyOffsets] = useState({ drawingNo: 200, bfwd: 400 });
-
-  useEffect(() => {
-    function measure() {
-      const drawingNo = drawingNoThRef.current?.offsetLeft ?? 200;
-      const bfwd = bfwdThRef.current?.offsetLeft ?? 400;
-      setStickyOffsets({ drawingNo, bfwd });
-    }
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [data]);
+  // Fixed widths for sticky pinned columns — sized to content
+  // Drawing title: ~220px, Drawing No: ~230px, B'Fwd: ~52px
+  const W_TITLE = 220;
+  const W_DRAWNO = 230;
+  const W_BFWD = 52;
 
   useEffect(() => { load(); loadLogo(); loadColours(); }, [projectId]);
 
@@ -961,9 +949,9 @@ function TransmittalTab({ projectId, isAdmin }) {
         <table style={{ borderCollapse: "collapse", tableLayout: "auto" }}>
           <thead>
             <tr>
-              <th ref={titleThRef} style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left", whiteSpace: "nowrap" }}>Drawing Title</th>
-              <th ref={drawingNoThRef} style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: stickyOffsets.drawingNo, zIndex: 3, textAlign: "center", whiteSpace: "nowrap" }}>Drawing No.</th>
-              <th ref={bfwdThRef} style={{ ...thStyle, background: colours.bforward, color: colours.headerText, position: "sticky", left: stickyOffsets.bfwd, zIndex: 3, textAlign: "center", boxShadow: "3px 0 6px rgba(0,0,0,0.15)", borderRight: "2px solid rgba(255,255,255,0.2)", borderLeft: "2px solid rgba(255,255,255,0.3)" }}>B' Fwd</th>
+              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left", whiteSpace: "nowrap", minWidth: W_TITLE, maxWidth: W_TITLE, width: W_TITLE, overflow: "hidden", textOverflow: "ellipsis" }}>Drawing Title</th>
+              <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: W_TITLE, zIndex: 3, textAlign: "center", whiteSpace: "nowrap", minWidth: W_DRAWNO, width: W_DRAWNO }}>Drawing No.</th>
+              <th style={{ ...thStyle, background: colours.bforward, color: colours.headerText, position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 3, textAlign: "center", width: W_BFWD, minWidth: W_BFWD, boxShadow: "3px 0 6px rgba(0,0,0,0.15)", borderRight: "2px solid rgba(255,255,255,0.2)", borderLeft: "2px solid rgba(255,255,255,0.3)" }}>B' Fwd</th>
               {issues.map((issue, i) => {
                 const dt = new Date(issue.issue_date);
                 const day   = String(dt.getUTCDate()).padStart(2, "0");
@@ -1004,9 +992,9 @@ function TransmittalTab({ projectId, isAdmin }) {
                   const bfVal = getBfValue(d.drawing_number);
                   return (
                     <tr key={d.id} style={{ background: rowBg }}>
-                      <td style={{ ...tdStyle, background: rowBg, position: "sticky", left: 0, zIndex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.title}</td>
-                      <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: stickyOffsets.drawingNo, zIndex: 1 }}>{d.drawing_number || "—"}</td>
-                      <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, background: blendHex(colours.bforward, "#ffffff", 0.88), position: "sticky", left: stickyOffsets.bfwd, zIndex: 1, boxShadow: "3px 0 6px rgba(0,0,0,0.10)", borderRight: "2px solid #e8e0d5" }}>{bfVal || "—"}</td>
+                      <td style={{ ...tdStyle, background: rowBg, position: "sticky", left: 0, zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: W_TITLE, minWidth: W_TITLE, maxWidth: W_TITLE }}>{d.title}</td>
+                      <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: W_TITLE, zIndex: 1, width: W_DRAWNO, minWidth: W_DRAWNO }}>{d.drawing_number || "—"}</td>
+                      <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, background: blendHex(colours.bforward, "#ffffff", 0.88), position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 1, width: W_BFWD, minWidth: W_BFWD, boxShadow: "3px 0 6px rgba(0,0,0,0.10)", borderRight: "2px solid #e8e0d5" }}>{bfVal || "—"}</td>
                       {issues.map((issue, i) => {
                         const rev = revMap[issue.id]?.[d.drawing_number] || "";
                         const isLatest = i === issues.length - 1;
@@ -1162,7 +1150,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     margin-bottom: 4px;
     min-height: 64px;
   }
-  .hdr-logo { width: 120px; flex-shrink: 0; }
+  .hdr-logo { width: 160px; height: 60px; flex-shrink: 0; display: flex; align-items: center; }
   .hdr-info { flex: 1; }
   .hdr-name { font-size: 13pt; font-weight: 700; color: ${c.bodyText}; line-height: 1.2; }
   .hdr-meta { font-size: 8pt; color: #555; margin-top: 4px; }
@@ -1200,7 +1188,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   <thead>
     <!-- Header row: logo + title + notes — repeats on every page via thead -->
     <tr>
-      <td colspan="${3 + issues.length}" style="padding:0;border:none;background:#fff">
+      <td colspan="${3 + issues.length}" style="padding:0 0 4px 0;border:none;background:#fff;white-space:normal">
         <div class="hdr">
           <div class="hdr-logo">${logoHtml}</div>
           <div class="hdr-info">
