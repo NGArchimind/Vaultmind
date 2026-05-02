@@ -1039,7 +1039,10 @@ function TransmittalTab({ projectId, isAdmin }) {
             {Object.entries(groups).map(([groupName, groupDrawings]) => (
               <React.Fragment key={groupName}>
                 <tr>
-                  <td colSpan={3 + issues.length} style={{ background: colours.groupRow, color: colours.bodyText, fontWeight: 700, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 8px", borderBottom: "1px solid #e8e0d5", position: "sticky", left: 0 }}>{groupName}</td>
+                  <td style={{ background: colours.groupRow, color: colours.bodyText, fontWeight: 700, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 8px", borderBottom: "1px solid #e8e0d5", position: "sticky", left: 0, zIndex: 2, width: W_TITLE, minWidth: W_TITLE }}>{groupName}</td>
+                  <td style={{ background: colours.groupRow, position: "sticky", left: W_TITLE, zIndex: 2, width: W_DRAWNO, minWidth: W_DRAWNO, borderBottom: "1px solid #e8e0d5" }} />
+                  <td style={{ background: colours.groupRow, position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 2, width: W_BFWD, minWidth: W_BFWD, borderBottom: "1px solid #e8e0d5" }} />
+                  {issues.length > 0 && <td colSpan={issues.length} style={{ background: colours.groupRow, borderBottom: "1px solid #e8e0d5" }} />}
                 </tr>
                 {groupDrawings.map((d, idx) => {
                   const rowBg = idx % 2 === 0 ? colours.rowEven : colours.rowOdd;
