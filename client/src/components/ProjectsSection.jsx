@@ -1245,14 +1245,14 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   @media print {
     html, body { margin: 0; }
     #page-hdr { position: fixed; top: 0; left: 0; right: 0; }
+    thead { display: table-header-group; }
     table { page-break-inside: auto; }
     tr { page-break-inside: avoid; page-break-after: auto; }
-    thead { display: table-header-group; }
   }
 </style>
 </head>
 <body>
-<!-- Fixed header: prints at top of every page via position:fixed -->
+<!-- Fixed header: logo + notes only — repeats via position:fixed -->
 <div id="page-hdr">
   <div class="hdr">
     <div class="hdr-logo">${logoHtml}</div>
@@ -1267,29 +1267,33 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     </div>
   </div>
   ${notesHtml}
-  <!-- Column headers sit inside the fixed div so they repeat on every page -->
-  <table id="hdr-cols" style="width:100%;border-collapse:collapse;table-layout:auto;margin-top:3px">
-    <tr>
-      <th style="text-align:center;white-space:nowrap;padding:4px 6px;width:1%;background:${c.header};color:${c.headerText};font-size:7pt;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;border:1px solid #999">Drawing No.</th>
-      <th style="text-align:left;padding:4px 6px;white-space:nowrap;width:1%;background:${c.header};color:${c.headerText};font-size:7pt;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;border:1px solid #999">Drawing Title</th>
-      <th style="text-align:center;white-space:nowrap;width:1%;background:${c.bforward};color:${c.headerText};border-left:2px solid rgba(255,255,255,0.4);font-size:7pt;text-transform:uppercase;letter-spacing:0.05em;font-weight:600;padding:4px 5px;border:1px solid #999">B' Fwd</th>
-      ${issueDateHeaders}
-    </tr>
-  </table>
 </div>
 <table>
+  <thead>
+    <tr>
+      <th style="text-align:center;white-space:nowrap;padding:4px 6px;width:1%">Drawing No.</th>
+      <th style="text-align:left;padding:4px 6px;white-space:nowrap;width:1%">Drawing Title</th>
+      <th style="text-align:center;white-space:nowrap;width:1%;background:${c.bforward};color:${c.headerText};border-left:2px solid rgba(255,255,255,0.4)">B' Fwd</th>
+      ${issueDateHeaders}
+    </tr>
+  </thead>
   <tbody>
     ${rowsHtml}
   </tbody>
 </table>
 <script>
-  // Measure fixed header height and set @page margin-top + body padding-top to match
-  // Also match the col widths of the header table to the body table
   window.addEventListener('DOMContentLoaded', function() {
     var hdr = document.getElementById('page-hdr');
-    var h = hdr.offsetHeight + 2;
+    var thead = document.querySelector('thead');
+    var hdrH = hdr.offsetHeight + 2;
+    var theadH = thead ? thead.offsetHeight : 0;
+    var totalH = hdrH + theadH;
     var style = document.createElement('style');
-    style.textContent = '@page { size: A4 landscape; margin: ' + h + 'px 7mm 6mm 7mm; } body { padding-top: ' + (h + 2) + 'px; }';
+    style.textContent = [
+      '@page { size: A4 landscape; margin: ' + totalH + 'px 7mm 6mm 7mm; }',
+      'body { padding-top: ' + totalH + 'px; }',
+      'thead { position: fixed; top: ' + hdrH + 'px; left: 7mm; right: 7mm; background: #fff; }'
+    ].join(' ');
     document.head.appendChild(style);
   });
 </script>
