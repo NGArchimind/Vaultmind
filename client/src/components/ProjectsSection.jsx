@@ -687,7 +687,7 @@ function TransmittalTab({ projectId, isAdmin }) {
     try {
       const PAGE_W = 1048 - 53; // subtract 7mm*2 side padding
       const PINNED_W = 580;
-      const ISSUE_COL_W = 32;
+      const ISSUE_COL_W = 26;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
       const slicedIssues = data.issues.length > maxIssueCols
         ? data.issues.slice(data.issues.length - maxIssueCols)
@@ -723,7 +723,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       // Each issue column is 38px wide in the print HTML
       const PAGE_W = 1048 - 53; // subtract 7mm*2 side padding
       const PINNED_W = 580;
-      const ISSUE_COL_W = 32;
+      const ISSUE_COL_W = 26;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
       const slicedIssues = data.issues.length > maxIssueCols
         ? data.issues.slice(data.issues.length - maxIssueCols)
@@ -1135,7 +1135,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     const year  = String(dt.getUTCFullYear()).slice(2);
     const isLatest = i === issues.length - 1;
     const bg = isLatest ? c.latestIssue : c.header;
-    return `<th class="issue-col" style="background:${bg};color:${c.headerText};width:32px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
+    return `<th class="issue-col" style="background:${bg};color:${c.headerText};width:26px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
   }).join("");
 
   const rowsHtml = Object.entries(groups).map(([grpName, grpDrawings]) => {
@@ -1148,7 +1148,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
         const rev = revMap[issue.id]?.[d.drawing_number] || "";
         const isLatest = i === issues.length - 1;
         const bg = isLatest ? blendHex(c.latestIssue, "#ffffff", 0.80) : rowBg;
-        return `<td class="issue-col" style="background:${bg};width:32px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
+        return `<td class="issue-col" style="background:${bg};width:26px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
       }).join("");
       return `<tr>
         <td class="pin" style="background:${rowBg};color:${c.bodyText};text-align:center;font-weight:600;padding:3px 6px;border:1px solid #e0e0e0;font-size:7.5pt;white-space:nowrap;width:1%">${d.drawing_number || "—"}</td>
@@ -1284,9 +1284,13 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
 <script>
   window.addEventListener('DOMContentLoaded', function() {
     var hdr = document.getElementById('page-hdr');
+    var thead = document.querySelector('thead');
     var hdrH = hdr.offsetHeight + 2;
+    var theadH = thead ? thead.offsetHeight : 0;
     var style = document.createElement('style');
-    style.textContent = '@page { size: A4 landscape; margin: ' + hdrH + 'px 7mm 6mm 7mm; } body { padding-top: ' + hdrH + 'px; }';
+    // @page margin-top must cover both the fixed #page-hdr AND the repeating thead
+    // so that body content starts below both on every page
+    style.textContent = '@page { size: A4 landscape; margin: ' + (hdrH + theadH) + 'px 7mm 6mm 7mm; } body { padding-top: ' + (hdrH + theadH) + 'px; }';
     document.head.appendChild(style);
   });
 </script>
