@@ -488,6 +488,51 @@ function TransmittalTab({ projectId, isAdmin }) {
   // Delete issue column confirmation
   const [pendingDeleteIssue, setPendingDeleteIssue] = useState(null);
 
+  // ── TEST ONLY — inject fake issue columns into local state ──────────────────
+  const [testInjected, setTestInjected] = useState(false);
+  function injectTestIssues() {
+    setData(prev => {
+      if (!prev) return prev;
+      const revOptions = ["P01","P02","P03","P04","P05","C01","C02","T01","T02"];
+      const baseDate = new Date("2023-01-01");
+      const fakeIssues = Array.from({ length: 100 }, (_, i) => ({
+        id: `test-issue-${i}`,
+        project_id: projectId,
+        issue_date: new Date(baseDate.getTime() + i * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      }));
+      // 100 fake drawings across 5 groups
+      const fakeGroups = ["GA","FLOOR PLAN","SECTION","ELEVATION","DETAIL"];
+      const fakeDrawings = Array.from({ length: 100 }, (_, i) => ({
+        id: `test-drawing-${i}`,
+        title: `Test Drawing ${String(i + 1).padStart(3, "0")}`,
+        drawing_number: `TEST-BA-${String(i + 1).padStart(2, "0")}-DR-A-${String(i + 1).padStart(5, "0")}`,
+        drawing_type: fakeGroups[Math.floor(i / 20)],
+      }));
+      const allDrawings = [...prev.drawings, ...fakeDrawings];
+      const allIssues = [...prev.issues, ...fakeIssues];
+      const fakeRevMap = {};
+      for (const issue of fakeIssues) {
+        fakeRevMap[issue.id] = {};
+        for (const drawing of allDrawings) {
+          if (drawing.drawing_number && Math.random() > 0.3) {
+            fakeRevMap[issue.id][drawing.drawing_number] = revOptions[Math.floor(Math.random() * revOptions.length)];
+          }
+        }
+      }
+      return { ...prev, drawings: allDrawings, issues: allIssues, revMap: { ...prev.revMap, ...fakeRevMap } };
+    });
+    setTestInjected(true);
+  }
+  function clearTestIssues() {
+    setData(prev => {
+      if (!prev) return prev;
+      const realIssues = prev.issues.filter(i => !String(i.id).startsWith("test-issue-"));
+      const realDrawings = prev.drawings.filter(d => !String(d.id).startsWith("test-drawing-"));
+      const realRevMap = Object.fromEntries(Object.entries(prev.revMap).filter(([k]) => !k.startsWith("test-issue-")));
+      return { ...prev, issues: realIssues, drawings: realDrawings, revMap: realRevMap };
+    });
+    setTestInjected(false);
+  }
   // ────────────────────────────────────────────────────────────────────────────
 
   async function confirmDeleteIssue() {
@@ -906,6 +951,11 @@ function TransmittalTab({ projectId, isAdmin }) {
           <button className="btn" onClick={exportExcel} disabled={exportingExcel} style={btnSm(AD_GREEN)}>
             {exportingExcel ? <><Spinner size={10} /> Exporting…</> : "↓ Export Excel"}
           </button>
+          {/* ── TEST ONLY ── remove before go-live */}
+          {!testInjected
+            ? <button className="btn" onClick={injectTestIssues} style={{ fontSize: 10, color: "#fff", background: "#b06000", border: "none", padding: "4px 10px", letterSpacing: "0.04em" }}>⚗ Inject 100 issues + 100 rows</button>
+            : <button className="btn" onClick={clearTestIssues} style={{ fontSize: 10, color: "#fff", background: "#7a0000", border: "none", padding: "4px 10px", letterSpacing: "0.04em" }}>⚗ Clear test issues</button>
+          }
           <button className="btn" onClick={load}
             style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 10px" }}>
             ↻
@@ -1085,7 +1135,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     const year  = String(dt.getUTCFullYear()).slice(2);
     const isLatest = i === issues.length - 1;
     const bg = isLatest ? c.latestIssue : c.header;
-    return `<th class="issue-col" style="background:${bg};color:${c.headerText};width:18px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
+    return `<th class="issue-col" style="background:${bg};color:${c.headerText};width:18px;max-width:38px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
   }).join("");
 
   const rowsHtml = Object.entries(groups).map(([grpName, grpDrawings]) => {
@@ -1098,7 +1148,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
         const rev = revMap[issue.id]?.[d.drawing_number] || "";
         const isLatest = i === issues.length - 1;
         const bg = isLatest ? blendHex(c.latestIssue, "#ffffff", 0.80) : rowBg;
-        return `<td class="issue-col" style="background:${bg};width:18px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
+        return `<td class="issue-col" style="background:${bg};width:18px;max-width:38px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
       }).join("");
       return `<tr>
         <td class="pin" style="background:${rowBg};color:${c.bodyText};text-align:center;font-weight:600;padding:3px 6px;border:1px solid #e0e0e0;font-size:7.5pt;white-space:nowrap;width:1%">${d.drawing_number || "—"}</td>
@@ -1163,7 +1213,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   .hdr-generated { font-size: 7pt; color: #aaa; margin-top: 2px; }
 
   table {
-    width: auto;
+    width: 100%;
     border-collapse: collapse;
     table-layout: auto;
     margin-top: 0;
