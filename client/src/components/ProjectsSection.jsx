@@ -1231,14 +1231,15 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
 
   .page-spacer { display: none; }
   @media print {
-    html, body { margin: 0; }
+    html { margin: 0; }
+    body { margin: 0; padding: 6mm 7mm 0 7mm; }
     table { page-break-inside: auto; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     thead { display: table-header-group; }
     @page { size: A4 landscape; margin: 0; }
-    /* Give the repeating thead header cell top padding so pages 2+ match page 1 */
+    /* Pages 2+ get top padding via the repeating thead header td */
     thead tr:first-child td { padding-top: 6mm !important; }
-    /* But page 1 already has body padding, so cancel it for the first occurrence */
+    /* Page 1 already has body padding — cancel thead padding to avoid doubling */
     body > table > thead tr:first-child td { padding-top: 0 !important; }
   }
 </style>
