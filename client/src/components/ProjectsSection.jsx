@@ -687,7 +687,7 @@ function TransmittalTab({ projectId, isAdmin }) {
     try {
       const PAGE_W = 1048 - 53; // subtract 7mm*2 side padding
       const PINNED_W = 580;
-      const ISSUE_COL_W = 26;
+      const ISSUE_COL_W = 18;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
       const slicedIssues = data.issues.length > maxIssueCols
         ? data.issues.slice(data.issues.length - maxIssueCols)
@@ -723,7 +723,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       // Each issue column is 38px wide in the print HTML
       const PAGE_W = 1048 - 53; // subtract 7mm*2 side padding
       const PINNED_W = 580;
-      const ISSUE_COL_W = 26;
+      const ISSUE_COL_W = 18;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
       const slicedIssues = data.issues.length > maxIssueCols
         ? data.issues.slice(data.issues.length - maxIssueCols)
@@ -1005,7 +1005,7 @@ function TransmittalTab({ projectId, isAdmin }) {
             <tr>
               <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left", whiteSpace: "nowrap", minWidth: W_TITLE, maxWidth: W_TITLE, width: W_TITLE, overflow: "hidden", textOverflow: "ellipsis" }}>Drawing Title</th>
               <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: W_TITLE, zIndex: 3, textAlign: "center", whiteSpace: "nowrap", minWidth: W_DRAWNO, width: W_DRAWNO }}>Drawing No.</th>
-              <th style={{ ...thStyle, background: colours.bforward, color: colours.headerText, position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 3, textAlign: "center", width: W_BFWD, minWidth: W_BFWD, boxShadow: "3px 0 6px rgba(0,0,0,0.15)", borderRight: "2px solid rgba(255,255,255,0.2)", borderLeft: "2px solid rgba(255,255,255,0.3)" }}>B' Fwd</th>
+              <th style={{ ...thStyle, background: colours.bforward, color: colours.headerText, position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 3, textAlign: "center", width: W_BFWD, minWidth: W_BFWD, boxShadow: "4px 0 0 0 #e8e0d5, 6px 0 8px rgba(0,0,0,0.12)", borderRight: "2px solid #e8e0d5" }}>B' Fwd</th>
               {issues.map((issue, i) => {
                 const dt = new Date(issue.issue_date);
                 const day   = String(dt.getUTCDate()).padStart(2, "0");
@@ -1041,7 +1041,7 @@ function TransmittalTab({ projectId, isAdmin }) {
                 <tr>
                   <td style={{ background: colours.groupRow, color: colours.bodyText, fontWeight: 700, fontSize: 10, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 8px", borderBottom: "1px solid #e8e0d5", position: "sticky", left: 0, zIndex: 2, width: W_TITLE, minWidth: W_TITLE }}>{groupName}</td>
                   <td style={{ background: colours.groupRow, position: "sticky", left: W_TITLE, zIndex: 2, width: W_DRAWNO, minWidth: W_DRAWNO, borderBottom: "1px solid #e8e0d5" }} />
-                  <td style={{ background: colours.groupRow, position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 2, width: W_BFWD, minWidth: W_BFWD, borderBottom: "1px solid #e8e0d5" }} />
+                  <td style={{ background: colours.groupRow, position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 2, width: W_BFWD, minWidth: W_BFWD, borderBottom: "1px solid #e8e0d5", boxShadow: "4px 0 0 0 #e8e0d5, 6px 0 8px rgba(0,0,0,0.12)" }} />
                   {issues.length > 0 && <td colSpan={issues.length} style={{ background: colours.groupRow, borderBottom: "1px solid #e8e0d5" }} />}
                 </tr>
                 {groupDrawings.map((d, idx) => {
@@ -1051,7 +1051,7 @@ function TransmittalTab({ projectId, isAdmin }) {
                     <tr key={d.id} style={{ background: rowBg }}>
                       <td style={{ ...tdStyle, background: rowBg, position: "sticky", left: 0, zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: W_TITLE, minWidth: W_TITLE, maxWidth: W_TITLE }}>{d.title}</td>
                       <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: W_TITLE, zIndex: 1, width: W_DRAWNO, minWidth: W_DRAWNO }}>{d.drawing_number || "—"}</td>
-                      <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, background: blendHex(colours.bforward, "#ffffff", 0.88), position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 1, width: W_BFWD, minWidth: W_BFWD, boxShadow: "3px 0 6px rgba(0,0,0,0.10)", borderRight: "2px solid #e8e0d5" }}>{bfVal || "—"}</td>
+                      <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, background: blendHex(colours.bforward, "#ffffff", 0.88), position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 1, width: W_BFWD, minWidth: W_BFWD, boxShadow: "4px 0 0 0 #e8e0d5, 6px 0 8px rgba(0,0,0,0.12)", borderRight: "2px solid #e8e0d5" }}>{bfVal || "—"}</td>
                       {issues.map((issue, i) => {
                         const rev = revMap[issue.id]?.[d.drawing_number] || "";
                         const isLatest = i === issues.length - 1;
@@ -1135,7 +1135,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     const year  = String(dt.getUTCFullYear()).slice(2);
     const isLatest = i === issues.length - 1;
     const bg = isLatest ? c.latestIssue : c.header;
-    return `<th class="issue-col" style="background:${bg};color:${c.headerText};width:26px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
+    return `<th class="issue-col" style="background:${bg};color:${c.headerText};width:18px;text-align:center;line-height:1.5;font-size:7pt;font-weight:600;border:1px solid #999;padding:3px 2px;letter-spacing:0.02em">${day}<br>${month}<br>${year}</th>`;
   }).join("");
 
   const rowsHtml = Object.entries(groups).map(([grpName, grpDrawings]) => {
@@ -1148,7 +1148,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
         const rev = revMap[issue.id]?.[d.drawing_number] || "";
         const isLatest = i === issues.length - 1;
         const bg = isLatest ? blendHex(c.latestIssue, "#ffffff", 0.80) : rowBg;
-        return `<td class="issue-col" style="background:${bg};width:26px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
+        return `<td class="issue-col" style="background:${bg};width:18px;text-align:center;font-weight:${rev ? 700 : 400};color:${rev ? c.bodyText : "#ccc"};border:1px solid #ddd;padding:3px 2px;font-size:8pt">${rev}</td>`;
       }).join("");
       return `<tr>
         <td class="pin" style="background:${rowBg};color:${c.bodyText};text-align:center;font-weight:600;padding:3px 6px;border:1px solid #e0e0e0;font-size:7.5pt;white-space:nowrap;width:1%">${d.drawing_number || "—"}</td>
