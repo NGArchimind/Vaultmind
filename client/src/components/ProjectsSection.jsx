@@ -908,11 +908,9 @@ function TransmittalTab({ projectId, isAdmin }) {
         </div>
       </div>
 
-      {/* Schedule table — uses a real <table> so position:sticky works on td/th */}
-      <div id="schedule-scroll" style={{ overflowX: "auto", background: "#fff", border: "1px solid #e8e0d5" }}>
-
-        {/* Header block: logo + job info — not inside the table so it doesn't scroll */}
-        <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, background: "#faf8f5", minHeight: 88 }}>
+      {/* Header block — outside scroll container so it never moves */}
+      <div style={{ border: "1px solid #e8e0d5", borderBottom: "none", background: "#faf8f5" }}>
+        <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, minHeight: 88 }}>
           <div style={{ width: 160, height: 72, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
             {logo?.base64 ? (
               <img src={`data:${logo.mimeType};base64,${logo.base64}`} alt="Practice logo"
@@ -932,10 +930,8 @@ function TransmittalTab({ projectId, isAdmin }) {
             </div>
           </div>
         </div>
-
-        {/* Notes row — always visible, pinned above the scrolling table */}
         {(notes || isAdmin) && (
-          <div style={{ borderBottom: "1px solid #e8e0d5", padding: "8px 16px", background: "#faf8f5" }}>
+          <div style={{ padding: "8px 16px", background: "#faf8f5", borderBottom: "1px solid #e8e0d5" }}>
             {isAdmin ? (
               <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)} onBlur={saveNotes}
                 placeholder="Transmittal notes (optional)…" rows={2}
@@ -945,7 +941,10 @@ function TransmittalTab({ projectId, isAdmin }) {
             )}
           </div>
         )}
+      </div>
 
+      {/* Schedule table — scroll container starts here, header above never scrolls */}
+      <div id="schedule-scroll" style={{ overflowX: "auto", background: "#fff", border: "1px solid #e8e0d5" }}>
         <table style={{ borderCollapse: "collapse", tableLayout: "auto" }}>
           <thead>
             <tr>
@@ -1175,11 +1174,14 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
   }
   tbody td { vertical-align: middle; }
 
+  /* Add top spacing when thead repeats on pages 2+ */
+  thead tr:first-child td { padding-top: 0; }
   @media print {
     html, body { margin: 0; }
     table { page-break-inside: auto; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     thead { display: table-header-group; }
+    thead tr:first-child td { padding-top: 6mm; }
   }
 </style>
 </head>
