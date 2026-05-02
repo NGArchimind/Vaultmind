@@ -500,16 +500,26 @@ function TransmittalTab({ projectId, isAdmin }) {
         project_id: projectId,
         issue_date: new Date(baseDate.getTime() + i * 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
       }));
+      // 100 fake drawings across 5 groups
+      const fakeGroups = ["GA","FLOOR PLAN","SECTION","ELEVATION","DETAIL"];
+      const fakeDrawings = Array.from({ length: 100 }, (_, i) => ({
+        id: `test-drawing-${i}`,
+        title: `Test Drawing ${String(i + 1).padStart(3, "0")}`,
+        drawing_number: `TEST-BA-${String(i + 1).padStart(2, "0")}-DR-A-${String(i + 1).padStart(5, "0")}`,
+        drawing_type: fakeGroups[Math.floor(i / 20)],
+      }));
+      const allDrawings = [...prev.drawings, ...fakeDrawings];
+      const allIssues = [...prev.issues, ...fakeIssues];
       const fakeRevMap = {};
       for (const issue of fakeIssues) {
         fakeRevMap[issue.id] = {};
-        for (const drawing of prev.drawings) {
+        for (const drawing of allDrawings) {
           if (drawing.drawing_number && Math.random() > 0.3) {
             fakeRevMap[issue.id][drawing.drawing_number] = revOptions[Math.floor(Math.random() * revOptions.length)];
           }
         }
       }
-      return { ...prev, issues: [...prev.issues, ...fakeIssues], revMap: { ...prev.revMap, ...fakeRevMap } };
+      return { ...prev, drawings: allDrawings, issues: allIssues, revMap: { ...prev.revMap, ...fakeRevMap } };
     });
     setTestInjected(true);
   }
@@ -517,8 +527,9 @@ function TransmittalTab({ projectId, isAdmin }) {
     setData(prev => {
       if (!prev) return prev;
       const realIssues = prev.issues.filter(i => !String(i.id).startsWith("test-issue-"));
+      const realDrawings = prev.drawings.filter(d => !String(d.id).startsWith("test-drawing-"));
       const realRevMap = Object.fromEntries(Object.entries(prev.revMap).filter(([k]) => !k.startsWith("test-issue-")));
-      return { ...prev, issues: realIssues, revMap: realRevMap };
+      return { ...prev, issues: realIssues, drawings: realDrawings, revMap: realRevMap };
     });
     setTestInjected(false);
   }
@@ -660,7 +671,7 @@ function TransmittalTab({ projectId, isAdmin }) {
     setSavingPdf(true);
     setPdfMsg(null);
     try {
-      const PAGE_W = 1048;
+      const PAGE_W = 1048 - 106; // subtract 14mm*2 side padding
       const PINNED_W = 580;
       const ISSUE_COL_W = 32;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
@@ -696,7 +707,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       // A4 landscape usable width at 96dpi, 10mm margins each side ≈ 1048px
       // Pinned columns: Drawing No (1%) + Title (auto) + B'Fwd (1%) ≈ estimate 520px
       // Each issue column is 38px wide in the print HTML
-      const PAGE_W = 1048;
+      const PAGE_W = 1048 - 106; // subtract 14mm*2 side padding
       const PINNED_W = 580;
       const ISSUE_COL_W = 32;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
@@ -894,7 +905,7 @@ function TransmittalTab({ projectId, isAdmin }) {
           </button>
           {/* ── TEST ONLY ── remove before go-live */}
           {!testInjected
-            ? <button className="btn" onClick={injectTestIssues} style={{ fontSize: 10, color: "#fff", background: "#b06000", border: "none", padding: "4px 10px", letterSpacing: "0.04em" }}>⚗ Inject 100 test issues</button>
+            ? <button className="btn" onClick={injectTestIssues} style={{ fontSize: 10, color: "#fff", background: "#b06000", border: "none", padding: "4px 10px", letterSpacing: "0.04em" }}>⚗ Inject 100 issues + 100 rows</button>
             : <button className="btn" onClick={clearTestIssues} style={{ fontSize: 10, color: "#fff", background: "#7a0000", border: "none", padding: "4px 10px", letterSpacing: "0.04em" }}>⚗ Clear test issues</button>
           }
           <button className="btn" onClick={load}
@@ -1137,8 +1148,8 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     font-size: 8pt;
     color: ${c.bodyText};
     background: #fff;
-    /* Body padding substitutes for @page margins */
     padding: 8mm 14mm 8mm 14mm;
+    box-sizing: border-box;
     width: 297mm;
     margin: 0;
   }
