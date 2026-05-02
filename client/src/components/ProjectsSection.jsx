@@ -659,12 +659,33 @@ function TransmittalTab({ projectId, isAdmin }) {
   }
 
   // "Save PDF Snapshot" — generates PDF, saves to R2, opens print dialog
+  // Print warning modal
+  const [printWarning, setPrintWarning] = useState(null); // { action: 'snapshot'|'pdf' }
+  const printWarningDismissed = typeof window !== "undefined" && localStorage.getItem("archimind_print_warning_dismissed") === "1";
+
+  function handlePrintClick(action) {
+    if (printWarningDismissed) {
+      if (action === "snapshot") savePdfSnapshot();
+      else exportPdf();
+    } else {
+      setPrintWarning({ action });
+    }
+  }
+
+  function confirmPrint(dontShowAgain) {
+    if (dontShowAgain) localStorage.setItem("archimind_print_warning_dismissed", "1");
+    const action = printWarning.action;
+    setPrintWarning(null);
+    if (action === "snapshot") savePdfSnapshot();
+    else exportPdf();
+  }
+
   async function savePdfSnapshot() {
     if (!data || savingPdf) return;
     setSavingPdf(true);
     setPdfMsg(null);
     try {
-      const PAGE_W = 1048 - 53; // subtract 7mm*2 side @page margins (~26px each)
+      const PAGE_W = 1048 - 53; // subtract 7mm*2 side padding
       const PINNED_W = 580;
       const ISSUE_COL_W = 32;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
@@ -700,7 +721,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       // A4 landscape usable width at 96dpi, 10mm margins each side ≈ 1048px
       // Pinned columns: Drawing No (1%) + Title (auto) + B'Fwd (1%) ≈ estimate 520px
       // Each issue column is 38px wide in the print HTML
-      const PAGE_W = 1048 - 53; // subtract 7mm*2 side @page margins (~26px each)
+      const PAGE_W = 1048 - 53; // subtract 7mm*2 side padding
       const PINNED_W = 580;
       const ISSUE_COL_W = 32;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
@@ -810,6 +831,40 @@ function TransmittalTab({ projectId, isAdmin }) {
 
   return (
     <div>
+      {/* Print warning modal */}
+      {printWarning && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", width: 480, borderTop: `3px solid ${ARC_NAVY}`, padding: "28px 32px", fontFamily: "Inter, Arial, sans-serif" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 12 }}>🖨 Before you print</h3>
+            <p style={{ fontSize: 13, color: "#5a5048", lineHeight: 1.7, marginBottom: 8 }}>
+              To remove browser-generated text (URL, page number, date) from your printed schedule:
+            </p>
+            <ol style={{ fontSize: 13, color: "#5a5048", lineHeight: 2, paddingLeft: 20, marginBottom: 20 }}>
+              <li>In the print dialog, click <strong>More settings</strong></li>
+              <li>Uncheck <strong>Headers and footers</strong></li>
+              <li>Click <strong>Print</strong></li>
+            </ol>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
+              <input type="checkbox" id="print-dismiss" style={{ width: 14, height: 14, cursor: "pointer", accentColor: ARC_NAVY }}
+                onChange={e => { if (e.target.checked) localStorage.setItem("archimind_print_warning_dismissed", "1"); else localStorage.removeItem("archimind_print_warning_dismissed"); }} />
+              <label htmlFor="print-dismiss" style={{ fontSize: 12, color: "#9a9088", cursor: "pointer" }}>
+                Don't show this again
+              </label>
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button className="btn" onClick={() => confirmPrint(localStorage.getItem("archimind_print_warning_dismissed") === "1")}
+                style={{ background: ARC_NAVY, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>
+                Continue to Print
+              </button>
+              <button className="btn" onClick={() => setPrintWarning(null)}
+                style={{ background: "none", color: "#9a9088", border: "1px solid #ddd8d0", padding: "9px 16px", fontSize: 11, cursor: "pointer" }}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Delete issue column confirmation */}
       {pendingDeleteIssue && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -886,11 +941,11 @@ function TransmittalTab({ projectId, isAdmin }) {
             }}>{pdfMsg.text}</span>
           )}
           {isAdmin && (
-            <button className="btn" onClick={savePdfSnapshot} disabled={savingPdf} style={btnSm(ARC_TERRACOTTA)}>
+            <button className="btn" onClick={() => handlePrintClick("snapshot")} disabled={savingPdf} style={btnSm(ARC_TERRACOTTA)}>
               {savingPdf ? <><Spinner size={10} /> Saving…</> : "↓ Save PDF Snapshot"}
             </button>
           )}
-          <button className="btn" onClick={exportPdf} disabled={exportingPdf} style={btnSm(ARC_NAVY)}>
+          <button className="btn" onClick={() => handlePrintClick("pdf")} disabled={exportingPdf} style={btnSm(ARC_NAVY)}>
             {exportingPdf ? <><Spinner size={10} /> Preparing…</> : "↓ Export PDF"}
           </button>
           <button className="btn" onClick={exportExcel} disabled={exportingExcel} style={btnSm(AD_GREEN)}>
@@ -1119,8 +1174,8 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
 <meta charset="utf-8">
 <title>Drawing Schedule — ${(project?.name || "").replace(/</g,"&lt;")}</title>
 <style>
-  /* @page margins: consistent on all pages, suppresses browser header/footer text */
-  @page { size: A4 landscape; margin: 6mm 7mm; }
+  /* margin:0 suppresses browser-generated header/footer text (URL, page number, date) */
+  @page { size: A4 landscape; margin: 0; }
 
   *, *::before, *::after {
     box-sizing: border-box;
@@ -1137,7 +1192,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     color: ${c.bodyText};
     background: #fff;
     margin: 0;
-    padding: 0;
+    padding: 6mm 7mm 0 7mm;
   }
 
   .hdr {
@@ -1180,7 +1235,11 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     table { page-break-inside: auto; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     thead { display: table-header-group; }
-    @page { size: A4 landscape; margin: 6mm 7mm; }
+    @page { size: A4 landscape; margin: 0; }
+    /* Give the repeating thead header cell top padding so pages 2+ match page 1 */
+    thead tr:first-child td { padding-top: 6mm !important; }
+    /* But page 1 already has body padding, so cancel it for the first occurrence */
+    body > table > thead tr:first-child td { padding-top: 0 !important; }
   }
 </style>
 </head>
