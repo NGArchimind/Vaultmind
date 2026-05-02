@@ -664,7 +664,7 @@ function TransmittalTab({ projectId, isAdmin }) {
     setSavingPdf(true);
     setPdfMsg(null);
     try {
-      const PAGE_W = 1048 - 106; // subtract 14mm*2 side padding
+      const PAGE_W = 1048 - 53; // subtract 7mm*2 side @page margins (~26px each)
       const PINNED_W = 580;
       const ISSUE_COL_W = 32;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
@@ -700,7 +700,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       // A4 landscape usable width at 96dpi, 10mm margins each side ≈ 1048px
       // Pinned columns: Drawing No (1%) + Title (auto) + B'Fwd (1%) ≈ estimate 520px
       // Each issue column is 38px wide in the print HTML
-      const PAGE_W = 1048 - 106; // subtract 14mm*2 side padding
+      const PAGE_W = 1048 - 53; // subtract 7mm*2 side @page margins (~26px each)
       const PINNED_W = 580;
       const ISSUE_COL_W = 32;
       const maxIssueCols = Math.floor((PAGE_W - PINNED_W) / ISSUE_COL_W);
@@ -1119,8 +1119,8 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
 <meta charset="utf-8">
 <title>Drawing Schedule — ${(project?.name || "").replace(/</g,"&lt;")}</title>
 <style>
-  /* @page margin:0 removes browser header/footer text. Body padding gives the white border. */
-  @page { size: A4 landscape; margin: 0; }
+  /* @page margins: consistent on all pages, suppresses browser header/footer text */
+  @page { size: A4 landscape; margin: 6mm 7mm; }
 
   *, *::before, *::after {
     box-sizing: border-box;
@@ -1137,7 +1137,7 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     color: ${c.bodyText};
     background: #fff;
     margin: 0;
-    padding: 6mm 7mm;
+    padding: 0;
   }
 
   .hdr {
@@ -1180,17 +1180,13 @@ function buildPrintHtml(data, logo, colours, bfOverrides, notes) {
     table { page-break-inside: auto; }
     tr { page-break-inside: avoid; page-break-after: auto; }
     thead { display: table-header-group; }
-    .page-spacer { display: table-row; height: 6mm; }
-    .page-spacer td { border: none; background: #fff; padding: 0; height: 6mm; }
-    @page :first { margin-top: -6mm; }
+    @page { size: A4 landscape; margin: 6mm 7mm; }
   }
 </style>
 </head>
 <body>
 <table>
   <thead>
-    <!-- Spacer row: invisible on screen, gives top margin on pages 2+ when thead repeats -->
-    <tr class="page-spacer"><td colspan="${3 + issues.length}"></td></tr>
     <!-- Header row: logo + title + notes — repeats on every page via thead -->
     <tr>
       <td colspan="${3 + issues.length}" style="padding:0 0 4px 0;border:none;background:#fff;white-space:normal">
