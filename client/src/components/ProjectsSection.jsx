@@ -748,8 +748,11 @@ function TransmittalTab({ projectId, isAdmin }) {
           #archimind-transmittal-print th,
           #archimind-transmittal-print td { position: static !important; }
           #archimind-transmittal-print #schedule-scroll { overflow: visible !important; }
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
+          #archimind-transmittal-print * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+          }
         }
       `;
 
