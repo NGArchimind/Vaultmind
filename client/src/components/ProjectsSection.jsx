@@ -472,7 +472,6 @@ function TransmittalTab({ projectId, isAdmin }) {
   const [pdfMsg, setPdfMsg] = useState(null);
   const [exportingExcel, setExportingExcel] = useState(false);
   const [exportingPdf, setExportingPdf] = useState(false);
-  const [printSlicedIssues, setPrintSlicedIssues] = useState(null);
 
   // B' Forward overrides
   const [bfOverrides, setBfOverrides] = useState({});
@@ -719,84 +718,182 @@ function TransmittalTab({ projectId, isAdmin }) {
     if (!data || exportingPdf) return;
     setExportingPdf(true);
     try {
-      // Calculate which issue columns fit on A4 landscape
-      const USABLE_W = 995;
-      const PINNED_W = 502;
-      const ISSUE_COL_W = 38;
-      const maxIssueCols = Math.floor((USABLE_W - PINNED_W) / ISSUE_COL_W);
-      const sliced = data.issues.length > maxIssueCols
-        ? data.issues.slice(data.issues.length - maxIssueCols)
-        : data.issues;
+      const { project, drawings, issues, revMap } = data;
 
-      // Inject print stylesheet
-      const styleId = "archimind-print-style";
-      let styleEl = document.getElementById(styleId);
-      if (!styleEl) {
-        styleEl = document.createElement("style");
-        styleEl.id = styleId;
-        document.head.appendChild(styleEl);
+      // ── Page dimensions (A4 landscape at 96dpi, 8mm/10mm margins) ────────────
+      const PAGE_W        = 1000;  // usable width px
+      const PAGE_H        = 760;   // usable height px
+      const HDR_H         = 96;    // header block
+      const NOTES_H       = notes ? 44 : 0;
+      const COL_HDR_H     = 48;    // column header row
+      const ROW_H         = 26;    // data row height
+      const GROUP_ROW_H   = 22;    // group label row height
+      const W_TITLE       = 220;
+      const W_DRAWNO      = 220;
+      const W_BFWD        = 48;
+      const W_ISSUE       = 38;
+      const PINNED_W      = W_TITLE + W_DRAWNO + W_BFWD;
+      const COLS_PER_PAGE = Math.floor((PAGE_W - PINNED_W) / W_ISSUE);
+
+      // ── Slice issues — latest N columns only ─────────────────────────────────
+      const slicedIssues = issues.length > COLS_PER_PAGE
+        ? issues.slice(issues.length - COLS_PER_PAGE)
+        : issues;
+
+      // ── Build flat list of rows (group headers + drawing rows) ───────────────
+      const groups = {};
+      drawings.forEach(d => {
+        const g = d.drawing_type || "Other";
+        if (!groups[g]) groups[g] = [];
+        groups[g].push(d);
+      });
+      const flatRows = []; // { type: "group"|"drawing", data }
+      Object.entries(groups).forEach(([g, ds]) => {
+        flatRows.push({ type: "group", label: g });
+        ds.forEach(d => flatRows.push({ type: "drawing", data: d }));
+      });
+
+      // ── B' Forward helper ─────────────────────────────────────────────────────
+      function getBf(dn) {
+        if (bfOverrides[dn]?.value) return bfOverrides[dn].value;
+        return data.autoBforward?.[dn] || "";
       }
-      styleEl.textContent = `
-        @media print {
-          @page { size: A4 landscape; margin: 8mm 10mm; }
-          body * { visibility: hidden; }
-          #archimind-transmittal-print, #archimind-transmittal-print * {
-            visibility: visible;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            color-adjust: exact !important;
-          }
-          #archimind-transmittal-print {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-          }
-          #archimind-transmittal-print table {
-            width: 100% !important;
-            table-layout: fixed !important;
-          }
-          #archimind-transmittal-print th,
-          #archimind-transmittal-print td { position: static !important; }
-          #archimind-transmittal-print #schedule-scroll {
-            overflow: visible !important;
-            height: auto !important;
-            max-height: none !important;
-          }
-          #archimind-transmittal-print .issue-th {
-            width: 38px !important;
-            min-width: 38px !important;
-            max-width: 38px !important;
-          }
-          #archimind-transmittal-print .issue-td {
-            width: 38px !important;
-            min-width: 38px !important;
-            max-width: 38px !important;
-          }
+
+      // ── Paginate rows ─────────────────────────────────────────────────────────
+      const availH = PAGE_H - HDR_H - NOTES_H - COL_HDR_H;
+      const pages = [];
+      let currentPage = [];
+      let usedH = 0;
+      flatRows.forEach(row => {
+        const h = row.type === "group" ? GROUP_ROW_H : ROW_H;
+        if (usedH + h > availH && currentPage.length > 0) {
+          pages.push(currentPage);
+          currentPage = [];
+          usedH = 0;
         }
-      `;
+        currentPage.push(row);
+        usedH += h;
+      });
+      if (currentPage.length > 0) pages.push(currentPage);
 
-      // Set sliced issues so table renders only fitting columns
-      setPrintSlicedIssues(sliced);
+      // ── Colour helpers ────────────────────────────────────────────────────────
+      const c = colours;
+      const logoHtml = logo?.base64
+        ? `<img src="data:${logo.mimeType};base64,${logo.base64}" style="max-height:64px;max-width:140px;object-fit:contain;display:block">`
+        : `<div style="width:140px;height:64px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;font-size:9px;color:#ccc">Logo</div>`;
 
-      // Cleanup function — { once: true } prevents multiple firings
-      function cleanup() {
-        setPrintSlicedIssues(null);
-        if (styleEl) styleEl.textContent = "";
-        setExportingPdf(false);
+      function blend(hex, ratio) {
+        try {
+          const p = h => { const n = parseInt(h.replace("#",""),16); return [(n>>16)&255,(n>>8)&255,n&255]; };
+          const [r1,g1,b1] = p(hex); const [r2,g2,b2] = p("#ffffff");
+          return `#${[r1+(r2-r1)*ratio,g1+(g2-g1)*ratio,b1+(b2-b1)*ratio].map(x=>Math.round(x).toString(16).padStart(2,"0")).join("")}`;
+        } catch(_){ return hex; }
       }
 
-      setTimeout(() => {
-        window.addEventListener("afterprint", cleanup, { once: true });
-        window.print();
-        // Fallback: if afterprint doesn't fire within 30s (user cancelled), clean up anyway
-        setTimeout(cleanup, 30000);
-      }, 150);
+      // ── Build issue column headers ────────────────────────────────────────────
+      function issueHeaders() {
+        return slicedIssues.map((issue, i) => {
+          const dt = new Date(issue.issue_date);
+          const day   = String(dt.getUTCDate()).padStart(2,"0");
+          const month = String(dt.getUTCMonth()+1).padStart(2,"0");
+          const year  = String(dt.getUTCFullYear()).slice(2);
+          const isLatest = i === slicedIssues.length - 1;
+          const bg = isLatest ? c.latestIssue : c.header;
+          return `<td style="background:${bg};color:${c.headerText};width:${W_ISSUE}px;min-width:${W_ISSUE}px;max-width:${W_ISSUE}px;text-align:center;font-size:7pt;font-weight:600;line-height:1.4;padding:3px 2px;border-left:1px solid rgba(255,255,255,0.15);vertical-align:bottom">${day}<br>${month}<br>${year}</td>`;
+        }).join("");
+      }
+
+      // ── Build a single page HTML ──────────────────────────────────────────────
+      function buildPage(rows, pageNum, totalPages) {
+        const notesHtml = notes
+          ? `<div style="padding:6px 8px;font-size:10pt;color:${c.bodyText};border-bottom:1px solid #e8e0d5;line-height:1.5;background:#fff">${notes.replace(/</g,"&lt;")}</div>`
+          : "";
+
+        const rowsHtml = rows.map(row => {
+          if (row.type === "group") {
+            return `<tr>
+              <td colspan="${3 + slicedIssues.length}" style="background:${c.groupRow};color:${c.bodyText};font-weight:700;font-size:9pt;text-transform:uppercase;letter-spacing:0.06em;padding:3px 8px;border-bottom:1px solid #e8e0d5;height:${GROUP_ROW_H}px">${row.label}</td>
+            </tr>`;
+          }
+          const d = row.data;
+          const bfVal = getBf(d.drawing_number);
+          const bfBg = blend(c.bforward, 0.82);
+          const issueCells = slicedIssues.map((issue, i) => {
+            const rev = revMap[issue.id]?.[d.drawing_number] || "";
+            const isLatest = i === slicedIssues.length - 1;
+            const bg = isLatest ? blend(c.latestIssue, 0.80) : "transparent";
+            return `<td style="background:${bg};width:${W_ISSUE}px;min-width:${W_ISSUE}px;max-width:${W_ISSUE}px;text-align:center;font-weight:${rev?700:400};color:${rev?c.bodyText:"#ccc"};border-left:1px solid #e8e0d5;padding:2px 2px;font-size:9pt;height:${ROW_H}px">${rev}</td>`;
+          }).join("");
+          return `<tr style="background:transparent">
+            <td style="width:${W_TITLE}px;min-width:${W_TITLE}px;max-width:${W_TITLE}px;padding:3px 6px;font-size:9pt;color:${c.bodyText};border-bottom:1px solid #e8e0d5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;height:${ROW_H}px">${(d.title||"").replace(/</g,"&lt;")}</td>
+            <td style="width:${W_DRAWNO}px;min-width:${W_DRAWNO}px;max-width:${W_DRAWNO}px;text-align:center;padding:3px 4px;font-size:8pt;font-weight:600;color:${c.bodyText};border-bottom:1px solid #e8e0d5;border-left:1px solid #e8e0d5;overflow:hidden;white-space:nowrap;height:${ROW_H}px">${(d.drawing_number||"—").replace(/</g,"&lt;")}</td>
+            <td style="width:${W_BFWD}px;min-width:${W_BFWD}px;max-width:${W_BFWD}px;background:${bfBg};text-align:center;font-weight:700;padding:3px 2px;font-size:9pt;color:${c.bodyText};border-left:2px solid ${c.bforward};border-bottom:1px solid #e8e0d5;height:${ROW_H}px">${bfVal||"—"}</td>
+            ${issueCells}
+          </tr>`;
+        }).join("");
+
+        return `
+          <div class="page" style="width:${PAGE_W}px;height:${PAGE_H}px;overflow:hidden;box-sizing:border-box;background:#fff;position:relative;font-family:Arial,Helvetica,sans-serif">
+            <!-- Header -->
+            <div style="display:flex;align-items:center;gap:20px;padding:12px 0;border-bottom:2px solid #e8e0d5;height:${HDR_H}px;box-sizing:border-box;background:#fff">
+              <div style="width:140px;height:64px;flex-shrink:0;display:flex;align-items:center">${logoHtml}</div>
+              <div style="flex:1">
+                <div style="font-size:14pt;font-weight:700;color:${c.bodyText};line-height:1.2">${(project?.name||"").replace(/</g,"&lt;")}</div>
+                <div style="font-size:9pt;color:#777;margin-top:4px">
+                  ${project?.job_number ? `<strong>Job No.</strong> ${project.job_number}` : ""}
+                  ${project?.job_number && project?.location ? " · " : ""}
+                  ${project?.location || ""}
+                </div>
+              </div>
+              <div style="font-size:8pt;color:#aaa;text-align:right">Page ${pageNum} of ${totalPages}<br>Generated by Archimind</div>
+            </div>
+            <!-- Notes -->
+            ${notesHtml}
+            <!-- Table -->
+            <table style="width:${PAGE_W}px;border-collapse:collapse;table-layout:fixed">
+              <thead>
+                <tr style="height:${COL_HDR_H}px">
+                  <td style="background:${c.header};color:${c.headerText};width:${W_TITLE}px;min-width:${W_TITLE}px;max-width:${W_TITLE}px;padding:4px 6px;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;vertical-align:middle">Drawing Title</td>
+                  <td style="background:${c.header};color:${c.headerText};width:${W_DRAWNO}px;min-width:${W_DRAWNO}px;max-width:${W_DRAWNO}px;text-align:center;padding:4px 4px;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;border-left:1px solid rgba(255,255,255,0.15);vertical-align:middle">Drawing No.</td>
+                  <td style="background:${c.bforward};color:${c.headerText};width:${W_BFWD}px;min-width:${W_BFWD}px;max-width:${W_BFWD}px;text-align:center;padding:4px 2px;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;border-left:2px solid rgba(255,255,255,0.3);vertical-align:middle">B'Fwd</td>
+                  ${issueHeaders()}
+                </tr>
+              </thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>`;
+      }
+
+      // ── Assemble full HTML document ───────────────────────────────────────────
+      const pageHtmls = pages.map((rows, i) => buildPage(rows, i+1, pages.length)).join("");
+
+      const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Drawing Schedule — ${(project?.name||"").replace(/</g,"&lt;")}</title>
+<style>
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; color-adjust: exact !important; }
+  body { margin: 0; padding: 0; background: #fff; }
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: avoid; }
+  @page { size: A4 landscape; margin: 8mm 10mm; }
+  @media screen { body { background: #e0e0e0; } .page { margin: 20px auto; box-shadow: 0 2px 8px rgba(0,0,0,0.2); } }
+</style>
+</head>
+<body>${pageHtmls}</body>
+</html>`;
+
+      const blob = new Blob([html], { type: "text/html" });
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, "_blank");
+      if (win) win.onload = () => setTimeout(() => { try { win.print(); } catch(_){} }, 400);
+      setTimeout(() => URL.revokeObjectURL(url), 20000);
 
     } catch (e) {
       console.error(e);
-      setExportingPdf(false);
     }
+    setExportingPdf(false);
   }
 
   async function exportExcel() {
@@ -1023,9 +1120,6 @@ function TransmittalTab({ projectId, isAdmin }) {
         </div>
       </div>
 
-      {/* Header block + schedule — wrapped for print targeting */}
-      <div id="archimind-transmittal-print">
-
       {/* Header block — outside scroll container so it never moves */}
       <div style={{ border: "1px solid #e8e0d5", borderBottom: "none", background: "#fff" }}>
         <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, minHeight: 88, background: "#fff" }}>
@@ -1069,17 +1163,17 @@ function TransmittalTab({ projectId, isAdmin }) {
               <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: 0, zIndex: 3, textAlign: "left", whiteSpace: "nowrap", minWidth: W_TITLE, maxWidth: W_TITLE, width: W_TITLE, overflow: "hidden", textOverflow: "ellipsis" }}>Drawing Title</th>
               <th style={{ ...thStyle, background: colours.header, color: colours.headerText, position: "sticky", left: W_TITLE, zIndex: 3, textAlign: "center", whiteSpace: "nowrap", minWidth: W_DRAWNO, width: W_DRAWNO }}>Drawing No.</th>
               <th style={{ ...thStyle, background: colours.bforward, color: colours.headerText, position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 3, textAlign: "center", width: W_BFWD, minWidth: W_BFWD, boxShadow: "4px 0 0 0 #e8e0d5, 6px 0 8px rgba(0,0,0,0.12)", borderRight: "2px solid #e8e0d5" }}>B' Fwd</th>
-              {(printSlicedIssues ?? issues).map((issue, i) => {
+              {issues.map((issue, i) => {
                 const dt = new Date(issue.issue_date);
                 const day   = String(dt.getUTCDate()).padStart(2, "0");
                 const month = String(dt.getUTCMonth() + 1).padStart(2, "0");
                 const year  = String(dt.getUTCFullYear()).slice(2);
-                const isLatest = i === (printSlicedIssues ?? issues).length - 1;
+                const isLatest = i === issues.length - 1;
                 const bg = isLatest ? colours.latestIssue : colours.header;
                 return (
                   <th key={issue.id} className="issue-th" style={{ ...thStyle, background: bg, color: colours.headerText, textAlign: "center", lineHeight: 1.4, borderLeft: "1px solid rgba(255,255,255,0.15)", position: "relative", paddingBottom: isAdmin ? 20 : undefined }}>
                     <div>{day}</div><div>{month}</div><div>{year}</div>
-                    {isAdmin && !printSlicedIssues && (
+                    {isAdmin && (
                       <button className="btn"
                         onClick={() => setPendingDeleteIssue({ issueId: issue.id, issueDate: issue.issue_date })}
                         title="Delete this issue column"
@@ -1115,9 +1209,9 @@ function TransmittalTab({ projectId, isAdmin }) {
                       <td style={{ ...tdStyle, background: rowBg, position: "sticky", left: 0, zIndex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", width: W_TITLE, minWidth: W_TITLE, maxWidth: W_TITLE, borderRight: "1px solid #e8e0d5" }}>{d.title}</td>
                       <td style={{ ...tdStyle, background: rowBg, textAlign: "center", fontWeight: 600, fontSize: 11, whiteSpace: "nowrap", position: "sticky", left: W_TITLE, zIndex: 1, width: W_DRAWNO, minWidth: W_DRAWNO, borderRight: "1px solid #e8e0d5" }}>{d.drawing_number || "—"}</td>
                       <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, background: blendHex(colours.bforward, "#ffffff", 0.88), position: "sticky", left: W_TITLE + W_DRAWNO, zIndex: 1, width: W_BFWD, minWidth: W_BFWD, boxShadow: "4px 0 0 0 #e8e0d5, 6px 0 8px rgba(0,0,0,0.12)", borderRight: "2px solid #e8e0d5" }}>{bfVal || "—"}</td>
-                      {(printSlicedIssues ?? issues).map((issue, i) => {
+                      {issues.map((issue, i) => {
                         const rev = revMap[issue.id]?.[d.drawing_number] || "";
-                        const isLatest = i === (printSlicedIssues ?? issues).length - 1;
+                        const isLatest = i === issues.length - 1;
                         const isEditing = editingCell?.issueId === issue.id && editingCell?.drawingNumber === d.drawing_number;
                         return (
                           <td key={issue.id} className="issue-td" style={{ ...tdStyle, textAlign: "center", padding: "2px 4px", fontWeight: rev ? 700 : 400, background: isLatest ? colours.latestIssue + "22" : rowBg, color: rev ? colours.bodyText : "#c8c0b8", borderLeft: "1px solid #e8e0d5" }}>
@@ -1153,8 +1247,6 @@ function TransmittalTab({ projectId, isAdmin }) {
           B' Forward is auto-calculated and shows the latest revision across all issues.
         </p>
       )}
-
-      </div>{/* end #archimind-transmittal-print */}
     </div>
   );
 }
