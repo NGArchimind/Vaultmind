@@ -724,7 +724,9 @@ function TransmittalTab({ projectId, isAdmin }) {
       const PAGE_W        = 760;   // usable width px  (A4 portrait ~794px minus margins)
       const PAGE_H        = 1030;  // usable height px (A4 portrait ~1122px minus margins)
       const HDR_H         = 80;    // header block
-      const NOTES_H       = notes ? 36 : 0;
+      const NOTES_LINE_H  = 14;  // px per line at 7pt
+      const notesLines    = notes ? notes.split("\n").length : 0;
+      const NOTES_H       = notes ? Math.max(28, notesLines * NOTES_LINE_H + 12) : 0;
       const COL_HDR_H     = 40;    // column header row
       const ROW_H         = 20;    // data row height
       const GROUP_ROW_H   = 18;    // group label row height
@@ -806,7 +808,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       // ── Build a single page HTML ──────────────────────────────────────────────
       function buildPage(rows, pageNum, totalPages) {
         const notesHtml = notes
-          ? `<div style="padding:6px 8px;font-size:10pt;color:${c.bodyText};border-bottom:1px solid #e8e0d5;line-height:1.5;background:#fff">${notes.replace(/</g,"&lt;")}</div>`
+          ? `<div style="padding:5px 8px;font-size:7pt;color:${c.bodyText};border-bottom:1px solid #e8e0d5;line-height:1.5;background:#fff;white-space:pre-wrap;word-wrap:break-word">${notes.replace(/</g,"&lt;")}</div>`
           : "";
 
         const rowsHtml = rows.map(row => {
@@ -840,7 +842,7 @@ function TransmittalTab({ projectId, isAdmin }) {
             <div style="display:flex;align-items:center;gap:16px;padding:8px 0;border-bottom:2px solid #e8e0d5;height:${HDR_H}px;box-sizing:border-box;background:#fff">
               <div style="width:100px;height:52px;flex-shrink:0;display:flex;align-items:center">${logoHtml}</div>
               <div style="flex:1">
-                <div style="font-size:11pt;font-weight:700;color:${c.bodyText};line-height:1.2">${(project?.name||"").replace(/</g,"&lt;")}</div>
+                <div style="font-size:13pt;font-weight:700;color:${c.bodyText};line-height:1.2">${(project?.name||"").replace(/</g,"&lt;")}</div>
                 <div style="font-size:7pt;color:#777;margin-top:3px">
                   ${project?.job_number ? `<strong>Job No.</strong> ${project.job_number}` : ""}
                   ${project?.job_number && project?.location ? " · " : ""}
