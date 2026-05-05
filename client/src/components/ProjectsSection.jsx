@@ -722,7 +722,7 @@ function TransmittalTab({ projectId, isAdmin }) {
 
       // ── Page dimensions (A4 portrait at 96dpi, 8mm/10mm margins) ─────────────
       const PAGE_W        = 760;   // usable width px  (A4 portrait ~794px minus margins)
-      const PAGE_H        = 1030;  // usable height px (A4 portrait ~1122px minus margins)
+      const PAGE_H        = 1080;  // usable height px (A4 portrait ~1122px minus margins)
       const HDR_H         = 80;    // header block
       const NOTES_LINE_H  = 14;  // px per line at 7pt
       const notesLines    = notes ? notes.split("\n").length : 0;
@@ -755,10 +755,13 @@ function TransmittalTab({ projectId, isAdmin }) {
         ds.forEach(d => flatRows.push({ type: "drawing", data: d }));
       });
 
-      // ── B' Forward helper ─────────────────────────────────────────────────────
+      // ── B' Forward helper — use override, then autoBforward, then calculate from revMap ──
       function getBf(dn) {
         if (bfOverrides[dn]?.value) return bfOverrides[dn].value;
-        return data.autoBforward?.[dn] || "";
+        if (data.autoBforward?.[dn]) return data.autoBforward[dn];
+        // Fallback: calculate from revMap across all issues
+        const revs = issues.map(issue => revMap[issue.id]?.[dn]).filter(Boolean);
+        return revs.length > 0 ? revs[revs.length - 1] : "";
       }
 
       // ── Paginate rows ─────────────────────────────────────────────────────────
