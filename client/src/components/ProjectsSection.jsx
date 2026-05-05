@@ -746,31 +746,34 @@ function TransmittalTab({ projectId, isAdmin }) {
             print-color-adjust: exact !important;
             color-adjust: exact !important;
           }
-          #archimind-transmittal-print { position: fixed; top: 0; left: 0; width: 100%; }
-          #archimind-transmittal-print table { table-layout: auto; width: auto; }
+          #archimind-transmittal-print {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+          }
+          #archimind-transmittal-print table {
+            width: 100% !important;
+            table-layout: auto;
+          }
           #archimind-transmittal-print th,
           #archimind-transmittal-print td { position: static !important; }
-          #archimind-transmittal-print #schedule-scroll { overflow: visible !important; }
+          #archimind-transmittal-print #schedule-scroll { overflow: visible !important; height: auto !important; }
         }
       `;
 
       // Set sliced issues so table renders only fitting columns
       setPrintSlicedIssues(sliced);
 
-      // Cleanup function — only runs once
-      let cleaned = false;
+      // Cleanup function — { once: true } prevents multiple firings
       function cleanup() {
-        if (cleaned) return;
-        cleaned = true;
         setPrintSlicedIssues(null);
         if (styleEl) styleEl.textContent = "";
         setExportingPdf(false);
-        window.removeEventListener("afterprint", cleanup);
       }
 
-      // Wait for React to re-render then print
       setTimeout(() => {
-        window.addEventListener("afterprint", cleanup);
+        window.addEventListener("afterprint", cleanup, { once: true });
         window.print();
         // Fallback: if afterprint doesn't fire within 30s (user cancelled), clean up anyway
         setTimeout(cleanup, 30000);
@@ -1032,7 +1035,7 @@ function TransmittalTab({ projectId, isAdmin }) {
           </div>
         </div>
         {(notes || isAdmin) && (
-          <div style={{ padding: "8px 16px", background: "#faf8f5", borderBottom: "1px solid #e8e0d5" }}>
+          <div style={{ padding: "8px 0", background: "#faf8f5", borderBottom: "1px solid #e8e0d5" }}>
             {isAdmin ? (
               <textarea value={notesDraft} onChange={e => { setNotesDraft(e.target.value); e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; }} onBlur={saveNotes}
                 placeholder="Transmittal notes (optional)…" rows={2}
