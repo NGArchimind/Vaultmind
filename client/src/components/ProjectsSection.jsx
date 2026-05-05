@@ -720,18 +720,18 @@ function TransmittalTab({ projectId, isAdmin }) {
     try {
       const { project, drawings, issues, revMap } = data;
 
-      // ── Page dimensions (A4 landscape at 96dpi, 8mm/10mm margins) ────────────
-      const PAGE_W        = 1000;  // usable width px
-      const PAGE_H        = 760;   // usable height px
-      const HDR_H         = 96;    // header block
-      const NOTES_H       = notes ? 44 : 0;
-      const COL_HDR_H     = 48;    // column header row
-      const ROW_H         = 26;    // data row height
-      const GROUP_ROW_H   = 22;    // group label row height
-      const W_TITLE       = 220;
-      const W_DRAWNO      = 220;
-      const W_BFWD        = 48;
-      const W_ISSUE       = 38;
+      // ── Page dimensions (A4 portrait at 96dpi, 8mm/10mm margins) ─────────────
+      const PAGE_W        = 760;   // usable width px  (A4 portrait ~794px minus margins)
+      const PAGE_H        = 1030;  // usable height px (A4 portrait ~1122px minus margins)
+      const HDR_H         = 80;    // header block
+      const NOTES_H       = notes ? 36 : 0;
+      const COL_HDR_H     = 40;    // column header row
+      const ROW_H         = 20;    // data row height
+      const GROUP_ROW_H   = 18;    // group label row height
+      const W_TITLE       = 160;
+      const W_DRAWNO      = 165;
+      const W_BFWD        = 36;
+      const W_ISSUE       = 28;
       const PINNED_W      = W_TITLE + W_DRAWNO + W_BFWD;
       const COLS_PER_PAGE = Math.floor((PAGE_W - PINNED_W) / W_ISSUE);
 
@@ -779,8 +779,8 @@ function TransmittalTab({ projectId, isAdmin }) {
       // ── Colour helpers ────────────────────────────────────────────────────────
       const c = colours;
       const logoHtml = logo?.base64
-        ? `<img src="data:${logo.mimeType};base64,${logo.base64}" style="max-height:64px;max-width:140px;object-fit:contain;display:block">`
-        : `<div style="width:140px;height:64px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;font-size:9px;color:#ccc">Logo</div>`;
+        ? `<img src="data:${logo.mimeType};base64,${logo.base64}" style="max-height:52px;max-width:100px;object-fit:contain;display:block">`
+        : `<div style="width:100px;height:52px;border:1px dashed #ccc;display:flex;align-items:center;justify-content:center;font-size:8px;color:#ccc">Logo</div>`;
 
       function blend(hex, ratio) {
         try {
@@ -799,7 +799,7 @@ function TransmittalTab({ projectId, isAdmin }) {
           const year  = String(dt.getUTCFullYear()).slice(2);
           const isLatest = i === slicedIssues.length - 1;
           const bg = isLatest ? c.latestIssue : c.header;
-          return `<td style="background:${bg};color:${c.headerText};width:${W_ISSUE}px;min-width:${W_ISSUE}px;max-width:${W_ISSUE}px;text-align:center;font-size:7pt;font-weight:600;line-height:1.4;padding:3px 2px;border-left:1px solid rgba(255,255,255,0.15);vertical-align:bottom">${day}<br>${month}<br>${year}</td>`;
+          return `<td style="background:${bg};color:${c.headerText};width:${W_ISSUE}px;min-width:${W_ISSUE}px;max-width:${W_ISSUE}px;text-align:center;font-size:6pt;font-weight:600;line-height:1.4;padding:2px 1px;border-left:1px solid rgba(255,255,255,0.15);vertical-align:bottom">${day}<br>${month}<br>${year}</td>`;
         }).join("");
       }
 
@@ -812,7 +812,7 @@ function TransmittalTab({ projectId, isAdmin }) {
         const rowsHtml = rows.map(row => {
           if (row.type === "group") {
             return `<tr>
-              <td colspan="${3 + slicedIssues.length}" style="background:${c.groupRow};color:${c.bodyText};font-weight:700;font-size:9pt;text-transform:uppercase;letter-spacing:0.06em;padding:3px 8px;border-bottom:1px solid #e8e0d5;height:${GROUP_ROW_H}px">${row.label}</td>
+              <td colspan="${3 + slicedIssues.length}" style="background:${c.groupRow};color:${c.bodyText};font-weight:700;font-size:7pt;text-transform:uppercase;letter-spacing:0.06em;padding:2px 6px;border-bottom:1px solid #e8e0d5;height:${GROUP_ROW_H}px">${row.label}</td>
               <td style="background:${c.groupRow};border-bottom:1px solid #e8e0d5"></td>
             </tr>`;
           }
@@ -823,12 +823,12 @@ function TransmittalTab({ projectId, isAdmin }) {
             const rev = revMap[issue.id]?.[d.drawing_number] || "";
             const isLatest = i === slicedIssues.length - 1;
             const bg = isLatest ? blend(c.latestIssue, 0.80) : "transparent";
-            return `<td style="background:${bg};width:${W_ISSUE}px;min-width:${W_ISSUE}px;max-width:${W_ISSUE}px;text-align:center;font-weight:${rev?700:400};color:${rev?c.bodyText:"#ccc"};border-left:1px solid #e8e0d5;padding:2px 2px;font-size:9pt;height:${ROW_H}px">${rev}</td>`;
+            return `<td style="background:${bg};width:${W_ISSUE}px;min-width:${W_ISSUE}px;max-width:${W_ISSUE}px;text-align:center;font-weight:${rev?700:400};color:${rev?c.bodyText:"#ccc"};border-left:1px solid #e8e0d5;padding:1px 1px;font-size:7pt;height:${ROW_H}px">${rev}</td>`;
           }).join("");
           return `<tr style="background:transparent">
-            <td style="width:${W_TITLE}px;min-width:${W_TITLE}px;max-width:${W_TITLE}px;padding:3px 6px;font-size:9pt;color:${c.bodyText};border-bottom:1px solid #e8e0d5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;height:${ROW_H}px">${(d.title||"").replace(/</g,"&lt;")}</td>
-            <td style="width:${W_DRAWNO}px;min-width:${W_DRAWNO}px;max-width:${W_DRAWNO}px;text-align:center;padding:3px 4px;font-size:8pt;font-weight:600;color:${c.bodyText};border-bottom:1px solid #e8e0d5;border-left:1px solid #e8e0d5;overflow:hidden;white-space:nowrap;height:${ROW_H}px">${(d.drawing_number||"—").replace(/</g,"&lt;")}</td>
-            <td style="width:${W_BFWD}px;min-width:${W_BFWD}px;max-width:${W_BFWD}px;background:${bfBg};text-align:center;font-weight:700;padding:3px 2px;font-size:9pt;color:${c.bodyText};border-left:2px solid ${c.bforward};border-bottom:1px solid #e8e0d5;height:${ROW_H}px">${bfVal||"—"}</td>
+            <td style="width:${W_TITLE}px;min-width:${W_TITLE}px;max-width:${W_TITLE}px;padding:2px 5px;font-size:7pt;color:${c.bodyText};border-bottom:1px solid #e8e0d5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;height:${ROW_H}px">${(d.title||"").replace(/</g,"&lt;")}</td>
+            <td style="width:${W_DRAWNO}px;min-width:${W_DRAWNO}px;max-width:${W_DRAWNO}px;text-align:center;padding:2px 3px;font-size:6.5pt;font-weight:600;color:${c.bodyText};border-bottom:1px solid #e8e0d5;border-left:1px solid #e8e0d5;overflow:hidden;white-space:nowrap;height:${ROW_H}px">${(d.drawing_number||"—").replace(/</g,"&lt;")}</td>
+            <td style="width:${W_BFWD}px;min-width:${W_BFWD}px;max-width:${W_BFWD}px;background:${bfBg};text-align:center;font-weight:700;padding:2px 1px;font-size:7pt;color:${c.bodyText};border-left:2px solid ${c.bforward};border-bottom:1px solid #e8e0d5;height:${ROW_H}px">${bfVal||"—"}</td>
             ${issueCells}
             <td style="border-bottom:1px solid #e8e0d5"></td>
           </tr>`;
@@ -837,17 +837,17 @@ function TransmittalTab({ projectId, isAdmin }) {
         return `
           <div class="page" style="width:${PAGE_W}px;height:${PAGE_H}px;overflow:hidden;box-sizing:border-box;background:#fff;position:relative;font-family:Arial,Helvetica,sans-serif">
             <!-- Header -->
-            <div style="display:flex;align-items:center;gap:20px;padding:12px 0;border-bottom:2px solid #e8e0d5;height:${HDR_H}px;box-sizing:border-box;background:#fff">
-              <div style="width:140px;height:64px;flex-shrink:0;display:flex;align-items:center">${logoHtml}</div>
+            <div style="display:flex;align-items:center;gap:16px;padding:8px 0;border-bottom:2px solid #e8e0d5;height:${HDR_H}px;box-sizing:border-box;background:#fff">
+              <div style="width:100px;height:52px;flex-shrink:0;display:flex;align-items:center">${logoHtml}</div>
               <div style="flex:1">
-                <div style="font-size:14pt;font-weight:700;color:${c.bodyText};line-height:1.2">${(project?.name||"").replace(/</g,"&lt;")}</div>
-                <div style="font-size:9pt;color:#777;margin-top:4px">
+                <div style="font-size:11pt;font-weight:700;color:${c.bodyText};line-height:1.2">${(project?.name||"").replace(/</g,"&lt;")}</div>
+                <div style="font-size:7pt;color:#777;margin-top:3px">
                   ${project?.job_number ? `<strong>Job No.</strong> ${project.job_number}` : ""}
                   ${project?.job_number && project?.location ? " · " : ""}
                   ${project?.location || ""}
                 </div>
               </div>
-              <div style="font-size:8pt;color:#aaa;text-align:right">Page ${pageNum} of ${totalPages}<br>Generated by Archimind</div>
+              <div style="font-size:7pt;color:#aaa;text-align:right">Page ${pageNum} of ${totalPages}<br>Generated by Archimind</div>
             </div>
             <!-- Notes -->
             ${notesHtml}
@@ -855,9 +855,9 @@ function TransmittalTab({ projectId, isAdmin }) {
             <table style="width:${PAGE_W}px;border-collapse:collapse;table-layout:auto">
               <thead>
                 <tr style="height:${COL_HDR_H}px">
-                  <td style="background:${c.header};color:${c.headerText};width:${W_TITLE}px;min-width:${W_TITLE}px;max-width:${W_TITLE}px;padding:4px 6px;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;vertical-align:middle">Drawing Title</td>
-                  <td style="background:${c.header};color:${c.headerText};width:${W_DRAWNO}px;min-width:${W_DRAWNO}px;max-width:${W_DRAWNO}px;text-align:center;padding:4px 4px;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;border-left:1px solid rgba(255,255,255,0.15);vertical-align:middle">Drawing No.</td>
-                  <td style="background:${c.bforward};color:${c.headerText};width:${W_BFWD}px;min-width:${W_BFWD}px;max-width:${W_BFWD}px;text-align:center;padding:4px 2px;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;border-left:2px solid rgba(255,255,255,0.3);vertical-align:middle">B'Fwd</td>
+                  <td style="background:${c.header};color:${c.headerText};width:${W_TITLE}px;min-width:${W_TITLE}px;max-width:${W_TITLE}px;padding:3px 5px;font-size:6pt;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;vertical-align:middle">Drawing Title</td>
+                  <td style="background:${c.header};color:${c.headerText};width:${W_DRAWNO}px;min-width:${W_DRAWNO}px;max-width:${W_DRAWNO}px;text-align:center;padding:3px 3px;font-size:6pt;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;border-left:1px solid rgba(255,255,255,0.15);vertical-align:middle">Drawing No.</td>
+                  <td style="background:${c.bforward};color:${c.headerText};width:${W_BFWD}px;min-width:${W_BFWD}px;max-width:${W_BFWD}px;text-align:center;padding:3px 2px;font-size:6pt;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;border-left:2px solid rgba(255,255,255,0.3);vertical-align:middle">B'Fwd</td>
                   ${issueHeaders()}
                   <td style="background:${c.header};width:auto"></td>
                 </tr>
@@ -880,7 +880,7 @@ function TransmittalTab({ projectId, isAdmin }) {
   body { margin: 0; padding: 0; background: #fff; }
   .page { page-break-after: always; }
   .page:last-child { page-break-after: avoid; }
-  @page { size: A4 landscape; margin: 8mm 10mm; }
+  @page { size: A4 portrait; margin: 8mm 10mm; }
   @media screen { body { background: #e0e0e0; } .page { margin: 20px auto; box-shadow: 0 2px 8px rgba(0,0,0,0.2); } }
 </style>
 </head>
