@@ -755,11 +755,20 @@ function TransmittalTab({ projectId, isAdmin }) {
         ds.forEach(d => flatRows.push({ type: "drawing", data: d }));
       });
 
-      // ── B' Forward helper — use override, then autoBforward, then calculate from revMap ──
+      // ── B' Forward helper — latest revision from issues NOT shown on this page ─
+      const slicedIssueIds = new Set(slicedIssues.map(i => i.id));
+      const priorIssues = issues.filter(i => !slicedIssueIds.has(i.id));
       function getBf(dn) {
         if (bfOverrides[dn]?.value) return bfOverrides[dn].value;
+        // Find latest revision from issues not visible on this page
+        if (priorIssues.length > 0) {
+          for (let i = priorIssues.length - 1; i >= 0; i--) {
+            const rev = revMap[priorIssues[i].id]?.[dn];
+            if (rev) return rev;
+          }
+        }
+        // If all issues fit on page (nothing prior), fall back to autoBforward or revMap
         if (data.autoBforward?.[dn]) return data.autoBforward[dn];
-        // Fallback: calculate from revMap across all issues
         const revs = issues.map(issue => revMap[issue.id]?.[dn]).filter(Boolean);
         return revs.length > 0 ? revs[revs.length - 1] : "";
       }
