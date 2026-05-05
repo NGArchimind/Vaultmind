@@ -1256,6 +1256,10 @@ export default function App() {
                     ) : answer ? (
                       <div style={{ maxWidth: 680, margin: "0 auto" }}>
                         <AnswerRenderer text={answer} onCitationClick={handleCitationClick} />
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
+                        <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>📄 {tempDoc.name}</p>
                         {tempDocIndexing ? (
                           <p style={{ fontSize: 12, color: "#9a9088", display: "flex", alignItems: "center", gap: 6 }}>
                             <Spinner size={11} /> Indexing document — you can ask a question while this runs…
