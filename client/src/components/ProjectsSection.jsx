@@ -813,6 +813,7 @@ function TransmittalTab({ projectId, isAdmin }) {
           if (row.type === "group") {
             return `<tr>
               <td colspan="${3 + slicedIssues.length}" style="background:${c.groupRow};color:${c.bodyText};font-weight:700;font-size:9pt;text-transform:uppercase;letter-spacing:0.06em;padding:3px 8px;border-bottom:1px solid #e8e0d5;height:${GROUP_ROW_H}px">${row.label}</td>
+              <td style="background:${c.groupRow};border-bottom:1px solid #e8e0d5"></td>
             </tr>`;
           }
           const d = row.data;
@@ -829,6 +830,7 @@ function TransmittalTab({ projectId, isAdmin }) {
             <td style="width:${W_DRAWNO}px;min-width:${W_DRAWNO}px;max-width:${W_DRAWNO}px;text-align:center;padding:3px 4px;font-size:8pt;font-weight:600;color:${c.bodyText};border-bottom:1px solid #e8e0d5;border-left:1px solid #e8e0d5;overflow:hidden;white-space:nowrap;height:${ROW_H}px">${(d.drawing_number||"—").replace(/</g,"&lt;")}</td>
             <td style="width:${W_BFWD}px;min-width:${W_BFWD}px;max-width:${W_BFWD}px;background:${bfBg};text-align:center;font-weight:700;padding:3px 2px;font-size:9pt;color:${c.bodyText};border-left:2px solid ${c.bforward};border-bottom:1px solid #e8e0d5;height:${ROW_H}px">${bfVal||"—"}</td>
             ${issueCells}
+            <td style="border-bottom:1px solid #e8e0d5"></td>
           </tr>`;
         }).join("");
 
@@ -850,13 +852,14 @@ function TransmittalTab({ projectId, isAdmin }) {
             <!-- Notes -->
             ${notesHtml}
             <!-- Table -->
-            <table style="width:${PAGE_W}px;border-collapse:collapse;table-layout:fixed">
+            <table style="width:${PAGE_W}px;border-collapse:collapse;table-layout:auto">
               <thead>
                 <tr style="height:${COL_HDR_H}px">
                   <td style="background:${c.header};color:${c.headerText};width:${W_TITLE}px;min-width:${W_TITLE}px;max-width:${W_TITLE}px;padding:4px 6px;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;vertical-align:middle">Drawing Title</td>
                   <td style="background:${c.header};color:${c.headerText};width:${W_DRAWNO}px;min-width:${W_DRAWNO}px;max-width:${W_DRAWNO}px;text-align:center;padding:4px 4px;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;border-left:1px solid rgba(255,255,255,0.15);vertical-align:middle">Drawing No.</td>
                   <td style="background:${c.bforward};color:${c.headerText};width:${W_BFWD}px;min-width:${W_BFWD}px;max-width:${W_BFWD}px;text-align:center;padding:4px 2px;font-size:8pt;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;border-left:2px solid rgba(255,255,255,0.3);vertical-align:middle">B'Fwd</td>
                   ${issueHeaders()}
+                  <td style="background:${c.header};width:auto"></td>
                 </tr>
               </thead>
               <tbody>${rowsHtml}</tbody>
