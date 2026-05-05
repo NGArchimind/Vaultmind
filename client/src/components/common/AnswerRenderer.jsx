@@ -9,7 +9,34 @@ function formatInline(text) {
   });
 }
 
-export default function AnswerRenderer({ text }) {
+// Parse "Document Name | Clause Title (Parent)" into { docName, heading }
+function parseCitation(citationText) {
+  const pipeIdx = citationText.indexOf("|");
+  if (pipeIdx === -1) return { docName: citationText.trim(), heading: "" };
+  const docName = citationText.slice(0, pipeIdx).trim();
+  const heading = citationText.slice(pipeIdx + 1).trim();
+  return { docName, heading };
+}
+
+function CitationLine({ citationText, onCitationClick, keyProp }) {
+  const { docName, heading } = parseCitation(citationText);
+  return (
+    <p key={keyProp} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif", display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+      <span>{citationText}</span>
+      {onCitationClick && (
+        <button
+          onClick={() => onCitationClick(docName, heading)}
+          title="Open source PDF"
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#9a9088", fontSize: 10, padding: "0 2px", fontStyle: "normal", lineHeight: 1, flexShrink: 0, textDecoration: "underline", fontFamily: "Inter, Arial, sans-serif" }}
+          onMouseEnter={e => e.target.style.color = ARC_NAVY}
+          onMouseLeave={e => e.target.style.color = "#9a9088"}
+        >↗ open</button>
+      )}
+    </p>
+  );
+}
+
+export default function AnswerRenderer({ text, onCitationClick }) {
   if (!text) return null;
   const lines = text.split("\n");
   const elements = [];
@@ -146,9 +173,7 @@ export default function AnswerRenderer({ text }) {
       const isSeparatorRow = /^\|[\s:|-]+\|/.test(quoteText);
       if (isCitation) {
         elements.push(
-          <p key={i} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif" }}>
-            {quoteText.slice(1, -1)}
-          </p>
+          <CitationLine key={i} keyProp={i} citationText={quoteText.slice(1, -1)} onCitationClick={onCitationClick} />
         );
       } else if (isTableRow && !isSeparatorRow) {
         inTable = true; tableBuffer.push(quoteText);
@@ -168,9 +193,7 @@ export default function AnswerRenderer({ text }) {
       if (isBulletCitationWrapped || isBulletCitationUnwrapped) {
         const citationText = isBulletCitationWrapped ? trimmedBullet.slice(1, -1) : trimmedBullet.slice(1).trim();
         elements.push(
-          <p key={i} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif" }}>
-            {citationText}
-          </p>
+          <CitationLine key={i} keyProp={i} citationText={citationText} onCitationClick={onCitationClick} />
         );
       } else {
         elements.push(<li key={i} style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.7, marginLeft: 20, marginBottom: 4, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(line.slice(2))}</li>);
@@ -196,9 +219,7 @@ export default function AnswerRenderer({ text }) {
       if (isWrappedCitation || isUnwrappedCitation) {
         const citationText = isWrappedCitation ? trimmed.slice(1, -1) : trimmed.slice(1).trim();
         elements.push(
-          <p key={i} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif" }}>
-            {citationText}
-          </p>
+          <CitationLine key={i} keyProp={i} citationText={citationText} onCitationClick={onCitationClick} />
         );
       } else {
         elements.push(<p key={i} style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.8, margin: "6px 0", fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.01em" }}>{formatInline(line)}</p>);

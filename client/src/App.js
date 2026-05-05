@@ -80,6 +80,7 @@ export default function App() {
   const [followUpVaultId, setFollowUpVaultId] = useState("");
   const [followUpQuestion, setFollowUpQuestion] = useState("");
   const [answerVaultName, setAnswerVaultName] = useState("");
+  const [citationPageMap, setCitationPageMap] = useState({}); // { docName → { page, vaultId, fileName } }
   const [lastQuestion, setLastQuestion] = useState("");
   const [timedOut, setTimedOut] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
@@ -511,6 +512,7 @@ export default function App() {
     setAnswer(null);
     setCostEst(null);
     setAnswerVaultName("");
+    setCitationPageMap({});
     if (!overrideQuestion) setQuestion("");
     setFollowUpQuestion("");
     setLastQuestion(q);
@@ -650,7 +652,27 @@ export default function App() {
         console.warn("Scoring returned empty — raw response:", scoringText.slice(0, 500));
       }
 
-      // ── PASS 2: Load PDFs and extract pages ──────────────────────────────────
+      // ── Build citation page map — docName → { page, vaultId, fileName } ────────
+      // Built now so AnswerRenderer can link citations to their source PDF + page
+      const newCitationPageMap = {};
+      (scoring.selectedDocs || []).forEach(selectedDoc => {
+        const rawDocName = selectedDoc.docName;
+        (selectedDoc.sections || []).forEach(section => {
+          const page = typeof section.pageHint === "number" ? section.pageHint : parseInt(section.pageHint);
+          if (!page || page < 1) return;
+          const key = rawDocName;
+          // Take the lowest (first) page hint per doc as a fallback, highest-prob section wins
+          if (!newCitationPageMap[key] || section.probability > (newCitationPageMap[key]._prob || 0)) {
+            // We'll resolve vaultId/fileName in Pass 2 once we know which sub-vault matched
+            newCitationPageMap[key] = { page, vaultId: null, fileName: null, _prob: section.probability || 0 };
+          }
+          // Also store per-heading for finer-grained matching
+          const headingKey = `${rawDocName}||${(section.heading || "").toLowerCase().trim()}`;
+          if (!newCitationPageMap[headingKey]) {
+            newCitationPageMap[headingKey] = { page, vaultId: null, fileName: null };
+          }
+        });
+      });
       setStatusMsg("Pass 1/3 · Loading documents for page extraction…");
 
       const contentsData = [];
@@ -691,6 +713,10 @@ export default function App() {
             );
           }
           if (!found) { console.warn(`Could not match scoring docName "${docName}" to any sub-vault PDF`); continue; }
+          // Resolve vaultId + fileName into citation map
+          [docName, ...Object.keys(newCitationPageMap).filter(k => k.startsWith(`${docName}||`))].forEach(k => {
+            if (newCitationPageMap[k]) { newCitationPageMap[k].vaultId = found.subVault.id; newCitationPageMap[k].fileName = found.fileName; }
+          });
           try {
             const pdfData = await api(`/api/vaults/${encodeURIComponent(found.subVault.id)}/pdfs/${encodeURIComponent(found.fileName)}`);
             contentsData.push({ pdf: { name: found.prefixedName, size: 0 }, base64: pdfData.base64 });
@@ -700,6 +726,11 @@ export default function App() {
         }
       } else if (usingTempOnly && resolvedTempIndex) {
         // Temp doc only mode — base64 already in memory, no server fetch needed
+        // Mark all citation map entries as temp (no vaultId fetch needed — we have base64 in memory)
+        Object.keys(newCitationPageMap).forEach(k => {
+          newCitationPageMap[k].vaultId = "__temp__";
+          newCitationPageMap[k].fileName = tempDoc.name;
+        });
         contentsData.push({ pdf: { name: tempDoc.name, size: 0 }, base64: tempDoc.base64 });
       } else {
         const docsNeeded = effectivePdfs.filter(p =>
@@ -707,6 +738,14 @@ export default function App() {
         );
         const docsToFetch = docsNeeded.length > 0 ? docsNeeded : effectivePdfs.slice(0, 2);
         for (const pdf of docsToFetch) {
+          // Resolve citation map entries that match this PDF
+          selectedDocNames.forEach(docName => {
+            if (pdf.name.includes(docName) || docName.includes(pdf.name)) {
+              [docName, ...Object.keys(newCitationPageMap).filter(k => k.startsWith(`${docName}||`))].forEach(k => {
+                if (newCitationPageMap[k]) { newCitationPageMap[k].vaultId = effectiveVault.id; newCitationPageMap[k].fileName = pdf.name; }
+              });
+            }
+          });
           try {
             const pdfData = await api(`/api/vaults/${encodeURIComponent(effectiveVault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
             contentsData.push({ pdf, base64: pdfData.base64 });
@@ -874,6 +913,7 @@ export default function App() {
       setProgress(p => ({ ...p, answer: 100 }));
       setAnswer(finalAnswer);
       setAnswerVaultName(usingTempOnly ? "Temp Doc" : (effectiveVault?.name || vault?.name || ""));
+      setCitationPageMap(newCitationPageMap);
       setFollowUpQuestion(q);
       setStage("done");
       setHistory(prev => [...prev, { vaultId: usingTempOnly ? "temp" : (effectiveVault?.id || "temp"), vaultName: usingTempOnly ? "Temp Doc" : (effectiveVault?.name || ""), question: q, answer: finalAnswer, timestamp: new Date() }]);
@@ -913,6 +953,49 @@ export default function App() {
     setStage(null);
     setCostEst(null);
     setQueryScope("single");
+  };
+
+  // ── Open PDF at page from citation ───────────────────────────────────────────
+  const handleCitationClick = async (docName, heading) => {
+    // Try heading-specific key first, fall back to doc-level key
+    const headingKey = `${docName}||${(heading || "").toLowerCase().trim()}`;
+    const entry = citationPageMap[headingKey] || citationPageMap[docName];
+
+    // Fuzzy fallback — find best matching key if exact miss
+    let resolved = entry;
+    if (!resolved) {
+      const lower = docName.toLowerCase();
+      const fallbackKey = Object.keys(citationPageMap).find(k =>
+        k.toLowerCase().includes(lower) || lower.includes(k.toLowerCase().split("||")[0])
+      );
+      resolved = fallbackKey ? citationPageMap[fallbackKey] : null;
+    }
+
+    if (!resolved || !resolved.vaultId || !resolved.fileName) {
+      alert("Sorry — could not locate the source document for this citation.");
+      return;
+    }
+
+    try {
+      let base64;
+      if (resolved.vaultId === "__temp__") {
+        base64 = tempDoc?.base64;
+      } else {
+        const pdfData = await api(`/api/vaults/${encodeURIComponent(resolved.vaultId)}/pdfs/${encodeURIComponent(resolved.fileName)}`);
+        base64 = pdfData.base64;
+      }
+      if (!base64) { alert("Could not load the PDF."); return; }
+
+      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+      const blob = new Blob([bytes], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      // #page=N is supported by Chrome, Edge, Firefox PDF viewers
+      window.open(`${url}#page=${resolved.page}`, "_blank");
+      // Revoke after a short delay to allow the tab to load
+      setTimeout(() => URL.revokeObjectURL(url), 30000);
+    } catch (e) {
+      alert("Failed to open PDF: " + e.message);
+    }
   };
 
   // ── Global styles ─────────────────────────────────────────────────────────────
@@ -1172,11 +1255,7 @@ export default function App() {
                       </div>
                     ) : answer ? (
                       <div style={{ maxWidth: 680, margin: "0 auto" }}>
-                        <AnswerRenderer text={answer} />
-                      </div>
-                    ) : (
-                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
-                        <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>📄 {tempDoc.name}</p>
+                        <AnswerRenderer text={answer} onCitationClick={handleCitationClick} />
                         {tempDocIndexing ? (
                           <p style={{ fontSize: 12, color: "#9a9088", display: "flex", alignItems: "center", gap: 6 }}>
                             <Spinner size={11} /> Indexing document — you can ask a question while this runs…
@@ -1374,7 +1453,7 @@ export default function App() {
                             <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                               Response — {answerVaultName || (queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name)}
                             </p>
-                            <AnswerRenderer text={answer} />
+                            <AnswerRenderer text={answer} onCitationClick={handleCitationClick} />
                           </div>
 
                           {/* ── Follow-up: ask another vault ── */}
