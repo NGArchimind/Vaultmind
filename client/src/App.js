@@ -76,6 +76,7 @@ export default function App() {
   const [tempDocIndexing, setTempDocIndexing] = useState(false);
   const tempDocIndexRef = useRef(null); // ref so askQuestion can await it
   const [tempDocDragOver, setTempDocDragOver] = useState(false);
+  const [tempDocMode, setTempDocMode] = useState("query-vault-with-temp"); // "query-temp" | "query-vault-with-temp"
   const [lastQuestion, setLastQuestion] = useState("");
   const [timedOut, setTimedOut] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
@@ -494,6 +495,8 @@ export default function App() {
 
   // ── 3-pass Q&A pipeline ───────────────────────────────────────────────────────
   const askQuestion = async () => {
+    // usingTempOnly: no vault selected, OR vault selected but mode is "query temp doc directly"
+    const usingTempOnly = tempDoc && (!vault || tempDocMode === "query-temp");
     if ((!vault && !tempDoc) || !question.trim()) return;
     const q = question.trim();
     setAnswer(null);
@@ -508,7 +511,7 @@ export default function App() {
     try {
       // ── Temp doc only mode — wait for background index then run full pipeline ──
       let resolvedTempIndex = null;
-      if (!vault && tempDoc) {
+      if (usingTempOnly) {
         // Wait for background indexing to complete if still running
         if (tempDocIndexRef.current && typeof tempDocIndexRef.current.then === "function") {
           setStatusMsg("Waiting for document to finish indexing…");
@@ -646,8 +649,8 @@ export default function App() {
             console.warn(`Could not load ${found.fileName} from ${found.subVault.name}:`, e);
           }
         }
-      } else if (!vault && tempDoc && resolvedTempIndex) {
-        // Temp doc — base64 already in memory, no server fetch needed
+      } else if (usingTempOnly && resolvedTempIndex) {
+        // Temp doc only mode — base64 already in memory, no server fetch needed
         contentsData.push({ pdf: { name: tempDoc.name, size: 0 }, base64: tempDoc.base64 });
       } else {
         const docsNeeded = pdfs.filter(p =>
@@ -822,7 +825,7 @@ export default function App() {
       setProgress(p => ({ ...p, answer: 100 }));
       setAnswer(finalAnswer);
       setStage("done");
-      setHistory(prev => [...prev, { vaultId: vault?.id || "temp", question: q, answer: finalAnswer, timestamp: new Date() }]);
+      setHistory(prev => [...prev, { vaultId: usingTempOnly ? "temp" : (vault?.id || "temp"), question: q, answer: finalAnswer, timestamp: new Date() }]);
       setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
 
       const GEMINI_INPUT_PRICE_USD = 0.15;
@@ -1036,10 +1039,23 @@ export default function App() {
                   <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "8px 10px" }}>
                     <span style={{ fontSize: 11, color: ARC_TERRACOTTA, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {tempDoc.name}</span>
-                    <button className="btn" onClick={() => { setTempDoc(null); setTempDocIndex(null); setTempDocIndexing(false); tempDocIndexRef.current = null; }} title="Remove"
+                    <button className="btn" onClick={() => { setTempDoc(null); setTempDocIndex(null); setTempDocIndexing(false); tempDocIndexRef.current = null; setTempDocMode("query-vault-with-temp"); }} title="Remove"
                       style={{ background: "none", color: ARC_TERRACOTTA, fontSize: 14, padding: "0 2px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
                   </div>
                   <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Temporary — will not be saved. Included in all questions.</p>
+                  {vault && (
+                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                      <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Query mode</div>
+                      <button className="btn" onClick={() => setTempDocMode("query-vault-with-temp")}
+                        style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, background: tempDocMode === "query-vault-with-temp" ? ARC_NAVY : "transparent", color: tempDocMode === "query-vault-with-temp" ? "#fff" : "#505a5f", border: `1px solid ${tempDocMode === "query-vault-with-temp" ? ARC_NAVY : "#ccc"}`, letterSpacing: "0.02em" }}>
+                        Ask vault, using temp doc as context
+                      </button>
+                      <button className="btn" onClick={() => setTempDocMode("query-temp")}
+                        style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, background: tempDocMode === "query-temp" ? ARC_NAVY : "transparent", color: tempDocMode === "query-temp" ? "#fff" : "#505a5f", border: `1px solid ${tempDocMode === "query-temp" ? ARC_NAVY : "#ccc"}`, letterSpacing: "0.02em" }}>
+                        Ask temp doc directly
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div
@@ -1288,6 +1304,16 @@ export default function App() {
                               </div>
                             </div>
                           ))}
+                        </div>
+                      )}
+
+                      {isRunning && lastQuestion && (
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize: 13, color: "#505a5f", background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, padding: "8px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+                            <span style={{ color: AD_GREEN, fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                            <span style={{ flex: 1 }}>{lastQuestion}</span>
+                            <Spinner size={11} />
+                          </div>
                         </div>
                       )}
 

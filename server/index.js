@@ -194,7 +194,7 @@ app.get("/api/vaults", requireAuth, async (req, res) => {
     const topResult = await r2.send(topCmd);
     const topPrefixes = (topResult.CommonPrefixes || []).map(p => p.Prefix);
 
-    const SYSTEM_PREFIXES = new Set(["products", "projects"]);
+    const SYSTEM_PREFIXES = new Set(["products", "projects", "settings"]);
     const vaults = [];
 
     for (const prefix of topPrefixes) {
