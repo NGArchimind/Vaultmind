@@ -2406,3 +2406,4 @@ app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Archimind server running on port ${PORT}`));
+
