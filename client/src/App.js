@@ -77,6 +77,9 @@ export default function App() {
   const tempDocIndexRef = useRef(null); // ref so askQuestion can await it
   const [tempDocDragOver, setTempDocDragOver] = useState(false);
   const [tempDocMode, setTempDocMode] = useState("query-vault-with-temp"); // "query-temp" | "query-vault-with-temp"
+  const [followUpVaultId, setFollowUpVaultId] = useState("");
+  const [followUpQuestion, setFollowUpQuestion] = useState("");
+  const [answerVaultName, setAnswerVaultName] = useState("");
   const [lastQuestion, setLastQuestion] = useState("");
   const [timedOut, setTimedOut] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
@@ -179,6 +182,11 @@ export default function App() {
 
   const parentMaster = vaults.find(v => v.type === "master" && (v.subVaults || []).some(sv => sv.id === selectedVault));
   const vaultHistory = history.filter(h => h.vaultId === selectedVault);
+
+  // Flat list of all queryable vaults (excluding current) for follow-up dropdown
+  const allQueryableVaults = vaults.flatMap(v =>
+    v.type === "master" ? (v.subVaults || []) : [v]
+  );
 
   useEffect(() => {
     const isStaging = process.env.REACT_APP_API_URL?.includes("staging");
@@ -494,19 +502,60 @@ export default function App() {
   };
 
   // ── 3-pass Q&A pipeline ───────────────────────────────────────────────────────
-  const askQuestion = async () => {
+  const askQuestion = async (overrideVaultId = null, overrideQuestion = null) => {
     // usingTempOnly: no vault selected, OR vault selected but mode is "query temp doc directly"
     const usingTempOnly = tempDoc && (!vault || tempDocMode === "query-temp");
-    if ((!vault && !tempDoc) || !question.trim()) return;
-    const q = question.trim();
+    const effectiveQuestion = overrideQuestion || question;
+    if ((!vault && !tempDoc) || !effectiveQuestion.trim()) return;
+    const q = effectiveQuestion.trim();
     setAnswer(null);
     setCostEst(null);
-    setQuestion("");
+    setAnswerVaultName("");
+    if (!overrideQuestion) setQuestion("");
+    setFollowUpQuestion("");
     setLastQuestion(q);
     setTimedOut(false);
     setStage("selecting");
     setProgress({ index: 100, select: 0, read: 0, answer: 0 });
     setStatusMsg("Pass 1/3 · Reading contents pages and scoring sections…");
+
+    // Resolve override vault data if a cross-vault follow-up
+    let overrideVault = null;
+    let overrideIndex = null;
+    let overridePdfs = null;
+    if (overrideVaultId) {
+      try {
+        setStatusMsg("Loading vault for follow-up…");
+        const [pdfsData, indexData] = await Promise.all([
+          api(`/api/vaults/${encodeURIComponent(overrideVaultId)}/pdfs`),
+          api(`/api/vaults/${encodeURIComponent(overrideVaultId)}/index`).catch(() => null),
+        ]);
+        // Find vault object from all vaults (flat + sub)
+        for (const v of vaults) {
+          if (v.id === overrideVaultId) { overrideVault = v; break; }
+          if (v.type === "master") {
+            const sub = (v.subVaults || []).find(sv => sv.id === overrideVaultId);
+            if (sub) { overrideVault = sub; break; }
+          }
+        }
+        overrideIndex = indexData;
+        overridePdfs = pdfsData.pdfs || [];
+        if (!overrideIndex) {
+          setStage(null);
+          setStatusMsg("That vault has not been indexed yet — index it first before asking a question.");
+          return;
+        }
+      } catch (e) {
+        setStage(null);
+        setStatusMsg("Failed to load vault for follow-up: " + e.message);
+        return;
+      }
+    }
+
+    // Effective vault/index/pdfs for this query
+    const effectiveVault = overrideVault || vault;
+    const effectiveVaultIndex = overrideIndex || vaultIndex;
+    const effectivePdfs = overridePdfs || pdfs;
 
     try {
       // ── Temp doc only mode — wait for background index then run full pipeline ──
@@ -526,9 +575,9 @@ export default function App() {
         }
       }
 
-      const useAllSubVaults = queryScope === "all" && parentMaster;
+      const useAllSubVaults = !overrideVaultId && queryScope === "all" && parentMaster;
       const activeIndex = resolvedTempIndex ? resolvedTempIndex
-        : useAllSubVaults ? await buildCombinedIndex() : vaultIndex;
+        : useAllSubVaults ? await buildCombinedIndex() : effectiveVaultIndex;
 
       // ── PASS 1: Score index ──────────────────────────────────────────────────
       setStatusMsg("Pass 1/3 · Scoring index — identifying relevant sections…");
@@ -653,13 +702,13 @@ export default function App() {
         // Temp doc only mode — base64 already in memory, no server fetch needed
         contentsData.push({ pdf: { name: tempDoc.name, size: 0 }, base64: tempDoc.base64 });
       } else {
-        const docsNeeded = pdfs.filter(p =>
+        const docsNeeded = effectivePdfs.filter(p =>
           selectedDocNames.some(n => p.name.includes(n) || n.includes(p.name))
         );
-        const docsToFetch = docsNeeded.length > 0 ? docsNeeded : pdfs.slice(0, 2);
+        const docsToFetch = docsNeeded.length > 0 ? docsNeeded : effectivePdfs.slice(0, 2);
         for (const pdf of docsToFetch) {
           try {
-            const pdfData = await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
+            const pdfData = await api(`/api/vaults/${encodeURIComponent(effectiveVault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
             contentsData.push({ pdf, base64: pdfData.base64 });
           } catch (e) {
             console.warn(`Could not load ${pdf.name}:`, e);
@@ -824,8 +873,10 @@ export default function App() {
 
       setProgress(p => ({ ...p, answer: 100 }));
       setAnswer(finalAnswer);
+      setAnswerVaultName(usingTempOnly ? "Temp Doc" : (effectiveVault?.name || vault?.name || ""));
+      setFollowUpQuestion(q);
       setStage("done");
-      setHistory(prev => [...prev, { vaultId: usingTempOnly ? "temp" : (vault?.id || "temp"), question: q, answer: finalAnswer, timestamp: new Date() }]);
+      setHistory(prev => [...prev, { vaultId: usingTempOnly ? "temp" : (effectiveVault?.id || "temp"), vaultName: usingTempOnly ? "Temp Doc" : (effectiveVault?.name || ""), question: q, answer: finalAnswer, timestamp: new Date() }]);
       setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
 
       const GEMINI_INPUT_PRICE_USD = 0.15;
@@ -1321,10 +1372,42 @@ export default function App() {
                         <div style={{ animation: "fadeIn 0.4s ease" }}>
                           <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #4a7c20", padding: "24px 28px" }}>
                             <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                              Response — {queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name}
+                              Response — {answerVaultName || (queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name)}
                             </p>
                             <AnswerRenderer text={answer} />
                           </div>
+
+                          {/* ── Follow-up: ask another vault ── */}
+                          {!isRunning && allQueryableVaults.length > 1 && (
+                            <div style={{ marginTop: 12, background: "#f5f3f0", border: "1px solid #ddd8d0", padding: "12px 16px" }}>
+                              <p style={{ fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>Ask another vault</p>
+                              <div style={{ display: "flex", gap: 8, alignItems: "stretch", flexWrap: "wrap" }}>
+                                <select
+                                  value={followUpVaultId}
+                                  onChange={e => setFollowUpVaultId(e.target.value)}
+                                  className="arc-input"
+                                  style={{ border: "1px solid #ddd8d0", padding: "8px 10px", fontSize: 12, color: ARC_NAVY, background: "#ffffff", fontFamily: "Inter, Arial, sans-serif", minWidth: 180, flexShrink: 0 }}>
+                                  <option value="">— Select vault —</option>
+                                  {allQueryableVaults.map(v => (
+                                    <option key={v.id} value={v.id}>{v.name}</option>
+                                  ))}
+                                </select>
+                                <textarea
+                                  value={followUpQuestion}
+                                  onChange={e => setFollowUpQuestion(e.target.value)}
+                                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && followUpVaultId && followUpQuestion.trim()) { e.preventDefault(); askQuestion(followUpVaultId, followUpQuestion); } }}
+                                  placeholder="Ask this vault the same or a different question…"
+                                  rows={2} className="arc-input"
+                                  style={{ flex: 1, border: "1px solid #ddd8d0", borderRight: "none", padding: "8px 12px", color: ARC_NAVY, fontSize: 12, outline: "none", resize: "none", lineHeight: 1.5, fontFamily: "Inter, Arial, sans-serif", background: "#ffffff", letterSpacing: "0.01em", minWidth: 200 }} />
+                                <button className="btn"
+                                  onClick={() => { if (followUpVaultId && followUpQuestion.trim()) askQuestion(followUpVaultId, followUpQuestion); }}
+                                  disabled={!followUpVaultId || !followUpQuestion.trim()}
+                                  style={{ background: !followUpVaultId || !followUpQuestion.trim() ? "#f0ede8" : ARC_NAVY, color: !followUpVaultId || !followUpQuestion.trim() ? "#9a9088" : "#ffffff", padding: "0 18px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${!followUpVaultId || !followUpQuestion.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 70, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                                  Ask
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
