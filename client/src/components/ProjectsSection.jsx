@@ -720,8 +720,6 @@ function TransmittalTab({ projectId, isAdmin }) {
     setExportingPdf(true);
     try {
       // Calculate which issue columns fit on A4 landscape
-      // Pinned cols: W_TITLE(220) + W_DRAWNO(230) + W_BFWD(52) = 502px
-      // Each issue col: 52px. Usable page width ~995px (A4 landscape 297mm at 96dpi minus margins)
       const USABLE_W = 995;
       const PINNED_W = 502;
       const ISSUE_COL_W = 52;
@@ -742,34 +740,40 @@ function TransmittalTab({ projectId, isAdmin }) {
         @media print {
           @page { size: A4 landscape; margin: 8mm 10mm; }
           body * { visibility: hidden; }
-          #archimind-transmittal-print, #archimind-transmittal-print * { visibility: visible; }
+          #archimind-transmittal-print, #archimind-transmittal-print * {
+            visibility: visible;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+            color-adjust: exact !important;
+          }
           #archimind-transmittal-print { position: fixed; top: 0; left: 0; width: 100%; }
           #archimind-transmittal-print table { table-layout: auto; width: auto; }
           #archimind-transmittal-print th,
           #archimind-transmittal-print td { position: static !important; }
           #archimind-transmittal-print #schedule-scroll { overflow: visible !important; }
-          #archimind-transmittal-print * {
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
-            color-adjust: exact !important;
-          }
         }
       `;
 
       // Set sliced issues so table renders only fitting columns
       setPrintSlicedIssues(sliced);
 
-      // Wait for React to re-render, then print
+      // Cleanup function — only runs once
+      let cleaned = false;
+      function cleanup() {
+        if (cleaned) return;
+        cleaned = true;
+        setPrintSlicedIssues(null);
+        if (styleEl) styleEl.textContent = "";
+        setExportingPdf(false);
+        window.removeEventListener("afterprint", cleanup);
+      }
+
+      // Wait for React to re-render then print
       setTimeout(() => {
-        window.print();
-        // Clean up after print dialog closes
-        const cleanup = () => {
-          setPrintSlicedIssues(null);
-          if (styleEl) styleEl.textContent = "";
-          setExportingPdf(false);
-          window.removeEventListener("afterprint", cleanup);
-        };
         window.addEventListener("afterprint", cleanup);
+        window.print();
+        // Fallback: if afterprint doesn't fire within 30s (user cancelled), clean up anyway
+        setTimeout(cleanup, 30000);
       }, 150);
 
     } catch (e) {
@@ -1030,9 +1034,9 @@ function TransmittalTab({ projectId, isAdmin }) {
         {(notes || isAdmin) && (
           <div style={{ padding: "8px 16px", background: "#faf8f5", borderBottom: "1px solid #e8e0d5" }}>
             {isAdmin ? (
-              <textarea value={notesDraft} onChange={e => setNotesDraft(e.target.value)} onBlur={saveNotes}
+              <textarea value={notesDraft} onChange={e => { setNotesDraft(e.target.value); e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; }} onBlur={saveNotes}
                 placeholder="Transmittal notes (optional)…" rows={2}
-                style={{ width: "100%", fontSize: 11, border: "1px solid #ddd8d0", padding: "6px 8px", fontFamily: "Inter, Arial, sans-serif", resize: "vertical", color: colours.bodyText, background: "#fff", boxSizing: "border-box" }} />
+                style={{ width: "100%", fontSize: 11, border: "1px solid #ddd8d0", padding: "6px 8px", fontFamily: "Inter, Arial, sans-serif", resize: "vertical", color: colours.bodyText, background: "#fff", boxSizing: "border-box", overflow: "hidden", minHeight: 48 }} />
             ) : (
               <div style={{ fontSize: 11, color: colours.bodyText, lineHeight: 1.6 }}>{notes}</div>
             )}
