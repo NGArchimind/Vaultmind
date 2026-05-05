@@ -722,7 +722,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       // Calculate which issue columns fit on A4 landscape
       const USABLE_W = 995;
       const PINNED_W = 502;
-      const ISSUE_COL_W = 52;
+      const ISSUE_COL_W = 38;
       const maxIssueCols = Math.floor((USABLE_W - PINNED_W) / ISSUE_COL_W);
       const sliced = data.issues.length > maxIssueCols
         ? data.issues.slice(data.issues.length - maxIssueCols)
@@ -754,11 +754,25 @@ function TransmittalTab({ projectId, isAdmin }) {
           }
           #archimind-transmittal-print table {
             width: 100% !important;
-            table-layout: auto;
+            table-layout: fixed !important;
           }
           #archimind-transmittal-print th,
           #archimind-transmittal-print td { position: static !important; }
-          #archimind-transmittal-print #schedule-scroll { overflow: visible !important; height: auto !important; }
+          #archimind-transmittal-print #schedule-scroll {
+            overflow: visible !important;
+            height: auto !important;
+            max-height: none !important;
+          }
+          #archimind-transmittal-print .issue-th {
+            width: 38px !important;
+            min-width: 38px !important;
+            max-width: 38px !important;
+          }
+          #archimind-transmittal-print .issue-td {
+            width: 38px !important;
+            min-width: 38px !important;
+            max-width: 38px !important;
+          }
         }
       `;
 
@@ -1013,8 +1027,8 @@ function TransmittalTab({ projectId, isAdmin }) {
       <div id="archimind-transmittal-print">
 
       {/* Header block — outside scroll container so it never moves */}
-      <div style={{ border: "1px solid #e8e0d5", borderBottom: "none", background: "#faf8f5" }}>
-        <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, minHeight: 88 }}>
+      <div style={{ border: "1px solid #e8e0d5", borderBottom: "none", background: "#fff" }}>
+        <div style={{ borderBottom: "2px solid #e8e0d5", padding: "16px 16px", display: "flex", alignItems: "center", gap: 24, minHeight: 88, background: "#fff" }}>
           <div style={{ width: 160, height: 72, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "flex-start" }}>
             {logo?.base64 ? (
               <img src={`data:${logo.mimeType};base64,${logo.base64}`} alt="Practice logo"
@@ -1063,7 +1077,7 @@ function TransmittalTab({ projectId, isAdmin }) {
                 const isLatest = i === (printSlicedIssues ?? issues).length - 1;
                 const bg = isLatest ? colours.latestIssue : colours.header;
                 return (
-                  <th key={issue.id} style={{ ...thStyle, background: bg, color: colours.headerText, textAlign: "center", lineHeight: 1.4, borderLeft: "1px solid rgba(255,255,255,0.15)", position: "relative", paddingBottom: isAdmin ? 20 : undefined }}>
+                  <th key={issue.id} className="issue-th" style={{ ...thStyle, background: bg, color: colours.headerText, textAlign: "center", lineHeight: 1.4, borderLeft: "1px solid rgba(255,255,255,0.15)", position: "relative", paddingBottom: isAdmin ? 20 : undefined }}>
                     <div>{day}</div><div>{month}</div><div>{year}</div>
                     {isAdmin && !printSlicedIssues && (
                       <button className="btn"
@@ -1106,7 +1120,7 @@ function TransmittalTab({ projectId, isAdmin }) {
                         const isLatest = i === (printSlicedIssues ?? issues).length - 1;
                         const isEditing = editingCell?.issueId === issue.id && editingCell?.drawingNumber === d.drawing_number;
                         return (
-                          <td key={issue.id} style={{ ...tdStyle, textAlign: "center", padding: "2px 4px", fontWeight: rev ? 700 : 400, background: isLatest ? colours.latestIssue + "22" : rowBg, color: rev ? colours.bodyText : "#c8c0b8", borderLeft: "1px solid #e8e0d5" }}>
+                          <td key={issue.id} className="issue-td" style={{ ...tdStyle, textAlign: "center", padding: "2px 4px", fontWeight: rev ? 700 : 400, background: isLatest ? colours.latestIssue + "22" : rowBg, color: rev ? colours.bodyText : "#c8c0b8", borderLeft: "1px solid #e8e0d5" }}>
                             {isEditing ? (
                               <input autoFocus value={cellDraft} onChange={e => setCellDraft(e.target.value)}
                                 onBlur={() => requestCellEdit(issue.id, issue.issue_date, d.drawing_number, d.title, cellDraft)}
