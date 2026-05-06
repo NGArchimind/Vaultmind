@@ -37,6 +37,9 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [assignCatsLoading, setAssignCatsLoading] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [assignError, setAssignError] = useState("");
+  const [assignNewCatName, setAssignNewCatName] = useState("");
+  const [assignAddingCat, setAssignAddingCat] = useState(false);
+  const [assignSavingCat, setAssignSavingCat] = useState(false);
   // productId → array of project names it's assigned to
   const [assignmentMap, setAssignmentMap] = useState({});
 
@@ -101,6 +104,8 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
     setAssignCategoryId("");
     setAssignCategories([]);
     setAssignError("");
+    setAssignNewCatName("");
+    setAssignAddingCat(false);
     if (!projectsLoaded) {
       try {
         const { projects } = await api("/api/projects");
@@ -119,6 +124,8 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
     setAssignCategoryId("");
     setAssignCategories([]);
     setAssignError("");
+    setAssignNewCatName("");
+    setAssignAddingCat(false);
     if (!projectsLoaded) {
       try {
         const { projects } = await api("/api/projects");
@@ -196,6 +203,26 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
     setAssignProjectId("");
     setAssignCategoryId("");
     setAssignError("");
+    setAssignNewCatName("");
+    setAssignAddingCat(false);
+  }
+
+  async function createAssignCategory() {
+    if (!assignNewCatName.trim() || !assignProjectId) return;
+    setAssignSavingCat(true);
+    try {
+      const { category } = await api(`/api/projects/${assignProjectId}/categories`, {
+        method: "POST",
+        body: { name: assignNewCatName.trim(), sort_order: assignCategories.length },
+      });
+      setAssignCategories(prev => [...prev, category]);
+      setAssignCategoryId(category.id);
+      setAssignNewCatName("");
+      setAssignAddingCat(false);
+    } catch (e) {
+      setAssignError("Could not create category: " + e.message);
+    }
+    setAssignSavingCat(false);
   }
 
   const manufacturers = [...new Set(products.map(p => p.manufacturer).filter(Boolean))].sort();
@@ -1072,13 +1099,38 @@ Use only the provided document pages. Do not speculate beyond what the documents
                   {assignCatsLoading ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#9a9088" }}><Spinner size={11} /> Loading categories…</div>
                   ) : (
-                    <select value={assignCategoryId} onChange={e => setAssignCategoryId(e.target.value)}
-                      style={{ width: "100%", fontSize: 13, padding: "8px 10px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", color: assignCategoryId ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff" }}>
-                      <option value="">Select a category…</option>
-                      {assignCategories.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
+                    <>
+                      <select value={assignCategoryId}
+                        onChange={e => {
+                          if (e.target.value === "__new__") { setAssignAddingCat(true); setAssignCategoryId(""); }
+                          else { setAssignCategoryId(e.target.value); setAssignAddingCat(false); }
+                        }}
+                        style={{ width: "100%", fontSize: 13, padding: "8px 10px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", color: assignCategoryId ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff", marginBottom: assignAddingCat ? 8 : 0 }}>
+                        <option value="">Select a category…</option>
+                        {assignCategories.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                        <option value="__new__">+ New category…</option>
+                      </select>
+                      {assignAddingCat && (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <input
+                            autoFocus
+                            value={assignNewCatName}
+                            onChange={e => setAssignNewCatName(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") createAssignCategory(); if (e.key === "Escape") { setAssignAddingCat(false); setAssignNewCatName(""); } }}
+                            placeholder="New category name…"
+                            style={{ flex: 1, border: "1px solid #2e7d4f", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none" }} />
+                          <button className="btn" onClick={createAssignCategory}
+                            disabled={!assignNewCatName.trim() || assignSavingCat}
+                            style={{ background: "#2e7d4f", color: "#fff", padding: "7px 14px", fontSize: 11, fontWeight: 600, flexShrink: 0, opacity: !assignNewCatName.trim() || assignSavingCat ? 0.5 : 1 }}>
+                            {assignSavingCat ? <Spinner size={11} /> : "Add"}
+                          </button>
+                          <button className="btn" onClick={() => { setAssignAddingCat(false); setAssignNewCatName(""); }}
+                            style={{ background: "none", color: "#9a9088", padding: "7px 10px", fontSize: 11, border: "1px solid #ddd8d0", flexShrink: 0 }}>✕</button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
