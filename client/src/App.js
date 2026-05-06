@@ -50,6 +50,140 @@ async function splitPdfIntoChunks(base64Data, chunkSize) {
   }
 }
 
+// ── Vault PDF Viewer Modal ────────────────────────────────────────────────────
+function VaultPdfViewer({ base64, fileName, page, onClose }) {
+  const iframeRef = useRef(null);
+  const [blobUrl, setBlobUrl] = useState(null);
+  const [viewerUrl, setViewerUrl] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!base64) return;
+    const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    setBlobUrl(url);
+    // Use PDF.js CDN viewer — supports ?file= and #page= reliably across browsers
+    const pdfJsViewer = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf_viewer.min.js`;
+    // Use mozilla's hosted viewer which accepts a file param
+    const encodedUrl = encodeURIComponent(url);
+    setViewerUrl(`https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodedUrl}#page=${page || 1}`);
+    return () => URL.revokeObjectURL(url);
+  }, [base64, page]);
+
+  // Close on Escape
+  useEffect(() => {
+    const handleKey = e => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  // mozilla.github.io pdf.js viewer blocks cross-origin blob URLs.
+  // Instead render the PDF directly in the iframe and use a page param approach.
+  // We use a self-contained HTML page written into the iframe via srcdoc,
+  // which embeds PDF.js from CDN and renders the PDF from base64 at the correct page.
+  const srcdoc = viewerUrl ? null : null; // built below
+
+  // Build a self-contained viewer page using PDF.js from cdnjs
+  const viewerHtml = blobUrl ? `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #525659; display: flex; flex-direction: column; height: 100vh; font-family: Inter, Arial, sans-serif; }
+  #toolbar { background: #1a2332; padding: 8px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  #toolbar span { color: rgba(255,255,255,0.7); font-size: 12px; }
+  #toolbar strong { color: #fff; font-size: 12px; }
+  #page-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  #page-controls button { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 4px 10px; cursor: pointer; font-size: 13px; border-radius: 2px; }
+  #page-controls button:hover { background: rgba(255,255,255,0.2); }
+  #page-controls input { width: 48px; text-align: center; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 4px; font-size: 12px; border-radius: 2px; }
+  #canvas-container { flex: 1; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 16px; }
+  canvas { box-shadow: 0 2px 16px rgba(0,0,0,0.5); }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <strong id="filename">${fileName || "Document"}</strong>
+  <div id="page-controls">
+    <button id="prev">‹</button>
+    <input id="page-input" type="number" min="1" value="${page || 1}" />
+    <span>/ <span id="total-pages">…</span></span>
+    <button id="next">›</button>
+  </div>
+</div>
+<div id="canvas-container"><canvas id="pdf-canvas"></canvas></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  let pdfDoc = null;
+  let currentPage = ${page || 1};
+  const canvas = document.getElementById('pdf-canvas');
+  const ctx = canvas.getContext('2d');
+
+  function renderPage(num) {
+    pdfDoc.getPage(num).then(page => {
+      const viewport = page.getViewport({ scale: 1.5 });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      page.render({ canvasContext: ctx, viewport }).promise.then(() => {
+        document.getElementById('page-input').value = num;
+      });
+    });
+  }
+
+  pdfjsLib.getDocument('${blobUrl}').promise.then(pdf => {
+    pdfDoc = pdf;
+    const total = pdf.numPages;
+    document.getElementById('total-pages').textContent = total;
+    currentPage = Math.min(Math.max(1, ${page || 1}), total);
+    renderPage(currentPage);
+  });
+
+  document.getElementById('prev').addEventListener('click', () => {
+    if (currentPage > 1) { currentPage--; renderPage(currentPage); }
+  });
+  document.getElementById('next').addEventListener('click', () => {
+    if (pdfDoc && currentPage < pdfDoc.numPages) { currentPage++; renderPage(currentPage); }
+  });
+  document.getElementById('page-input').addEventListener('change', e => {
+    const n = parseInt(e.target.value);
+    if (pdfDoc && n >= 1 && n <= pdfDoc.numPages) { currentPage = n; renderPage(currentPage); }
+  });
+</script>
+</body>
+</html>` : "";
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 3000, display: "flex", flexDirection: "column" }}>
+      <div style={{ background: ARC_NAVY, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{fileName}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>p.{page} · Source document</div>
+          </div>
+        </div>
+        <button className="btn" onClick={onClose}
+          style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}>
+          Close ✕
+        </button>
+      </div>
+      <div style={{ flex: 1, background: "#525659", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {!blobUrl && <div style={{ color: "#fff", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}><Spinner size={14} /> Loading document…</div>}
+        {blobUrl && (
+          <iframe
+            srcDoc={viewerHtml}
+            style={{ width: "100%", height: "100%", border: "none" }}
+            title={fileName}
+            sandbox="allow-scripts allow-same-origin"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [appSection, setAppSection] = useState("home");
   const [vaults, setVaults] = useState([]);
@@ -955,13 +1089,13 @@ export default function App() {
     setQueryScope("single");
   };
 
-  // ── Open PDF at page from citation ───────────────────────────────────────────
+  const [citationViewer, setCitationViewer] = useState(null); // { base64, fileName, page }
+
+  // ── Open PDF viewer at page from citation ────────────────────────────────────
   const handleCitationClick = async (docName, heading) => {
-    // Try heading-specific key first, fall back to doc-level key
     const headingKey = `${docName}||${(heading || "").toLowerCase().trim()}`;
     const entry = citationPageMap[headingKey] || citationPageMap[docName];
 
-    // Fuzzy fallback — find best matching key if exact miss
     let resolved = entry;
     if (!resolved) {
       const lower = docName.toLowerCase();
@@ -985,16 +1119,9 @@ export default function App() {
         base64 = pdfData.base64;
       }
       if (!base64) { alert("Could not load the PDF."); return; }
-
-      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-      const blob = new Blob([bytes], { type: "application/pdf" });
-      const url = URL.createObjectURL(blob);
-      // #page=N is supported by Chrome, Edge, Firefox PDF viewers
-      window.open(`${url}#page=${resolved.page}`, "_blank");
-      // Revoke after a short delay to allow the tab to load
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      setCitationViewer({ base64, fileName: resolved.fileName, page: resolved.page || 1 });
     } catch (e) {
-      alert("Failed to open PDF: " + e.message);
+      alert("Failed to load PDF: " + e.message);
     }
   };
 
@@ -1542,6 +1669,16 @@ export default function App() {
         </> /* end vault section */}
 
       </div>
+
+      {/* ── Citation PDF Viewer ── */}
+      {citationViewer && (
+        <VaultPdfViewer
+          base64={citationViewer.base64}
+          fileName={citationViewer.fileName}
+          page={citationViewer.page}
+          onClose={() => setCitationViewer(null)}
+        />
+      )}
     </div>
   );
 }
