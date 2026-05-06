@@ -13,6 +13,7 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [uploadStatus, setUploadStatus] = useState("");
   const [deleting, setDeleting] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [selectedIds, setSelectedIds] = useState(new Set()); // multi-select for bulk assign
   const [editingType, setEditingType] = useState(null);
   const [showCustomInput, setShowCustomInput] = useState(false);
   const [pendingNewType, setPendingNewType] = useState(null);
@@ -24,6 +25,21 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [filterType, setFilterType] = useState("");
   const [downloading, setDownloading] = useState(false);
 
+  // ── Assign to project state ───────────────────────────────────────────────
+  const [assigningProduct, setAssigningProduct] = useState(null); // single product, or null for bulk
+  const [assigningBulk, setAssigningBulk] = useState(false); // true when assigning multiple
+  const [allProjects, setAllProjects] = useState([]);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
+  const [assignStep, setAssignStep] = useState("project"); // "project" | "category"
+  const [assignProjectId, setAssignProjectId] = useState("");
+  const [assignCategories, setAssignCategories] = useState([]);
+  const [assignCategoryId, setAssignCategoryId] = useState("");
+  const [assignCatsLoading, setAssignCatsLoading] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  const [assignError, setAssignError] = useState("");
+  // productId → array of project names it's assigned to
+  const [assignmentMap, setAssignmentMap] = useState({});
+
   const [complianceVaultId, setComplianceVaultId] = useState("");
   const [complianceQuestion, setComplianceQuestion] = useState("");
   const [complianceRunning, setComplianceRunning] = useState(false);
@@ -33,7 +49,9 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
 
   const inputRef = useRef();
 
-  useEffect(() => { loadProducts(); }, []);
+  useEffect(() => {
+    loadProducts().then(() => loadAssignmentMap());
+  }, []);
 
   async function loadProducts() {
     setLoading(true);
@@ -44,6 +62,140 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
       setUploadStatus("Failed to load products: " + e.message);
     }
     setLoading(false);
+  }
+
+  // Load a map of productId → [projectName, ...] for assignment badges
+  async function loadAssignmentMap(productList) {
+    try {
+      const { projects } = await api("/api/projects");
+      if (!projects || projects.length === 0) return;
+      // Fetch all project-product assignments in parallel
+      const results = await Promise.all(
+        projects.map(p =>
+          api(`/api/projects/${p.id}/products`)
+            .then(d => ({ projectId: p.id, projectName: p.name, assignments: d.products || [] }))
+            .catch(() => ({ projectId: p.id, projectName: p.name, assignments: [] }))
+        )
+      );
+      const map = {};
+      for (const { projectName, assignments } of results) {
+        for (const a of assignments) {
+          if (!map[a.product_id]) map[a.product_id] = [];
+          map[a.product_id].push(projectName);
+        }
+      }
+      setAssignmentMap(map);
+      setAllProjects(projects);
+      setProjectsLoaded(true);
+    } catch (e) {
+      console.error("Failed to load assignment map:", e);
+    }
+  }
+
+  // Open assign modal for a single product
+  async function openAssignModal(product) {
+    setAssigningProduct(product);
+    setAssigningBulk(false);
+    setAssignStep("project");
+    setAssignProjectId("");
+    setAssignCategoryId("");
+    setAssignCategories([]);
+    setAssignError("");
+    if (!projectsLoaded) {
+      try {
+        const { projects } = await api("/api/projects");
+        setAllProjects(projects || []);
+        setProjectsLoaded(true);
+      } catch (e) { console.error(e); }
+    }
+  }
+
+  // Open assign modal for bulk (multiple selected)
+  async function openBulkAssignModal() {
+    setAssigningProduct(null);
+    setAssigningBulk(true);
+    setAssignStep("project");
+    setAssignProjectId("");
+    setAssignCategoryId("");
+    setAssignCategories([]);
+    setAssignError("");
+    if (!projectsLoaded) {
+      try {
+        const { projects } = await api("/api/projects");
+        setAllProjects(projects || []);
+        setProjectsLoaded(true);
+      } catch (e) { console.error(e); }
+    }
+  }
+
+  async function handleAssignProjectSelect(projectId) {
+    setAssignProjectId(projectId);
+    setAssignCategoryId("");
+    setAssignError("");
+    if (!projectId) return;
+    setAssignCatsLoading(true);
+    try {
+      const { categories } = await api(`/api/projects/${projectId}/categories`);
+      setAssignCategories(categories || []);
+      setAssignStep("category");
+    } catch (e) { setAssignError("Failed to load categories."); }
+    setAssignCatsLoading(false);
+  }
+
+  async function confirmAssign() {
+    if (!assignProjectId || !assignCategoryId) return;
+    if (!assigningBulk && !assigningProduct) return;
+    setAssigning(true);
+    setAssignError("");
+
+    const productIds = assigningBulk
+      ? [...selectedIds]
+      : [assigningProduct.id];
+
+    let successCount = 0;
+    let alreadyCount = 0;
+    const proj = allProjects.find(p => p.id === assignProjectId);
+
+    for (const productId of productIds) {
+      try {
+        await api(`/api/projects/${assignProjectId}/products`, {
+          method: "POST",
+          body: { product_id: productId, category_id: assignCategoryId },
+        });
+        successCount++;
+        if (proj) {
+          setAssignmentMap(prev => ({
+            ...prev,
+            [productId]: [...(prev[productId] || []), proj.name],
+          }));
+        }
+      } catch (e) {
+        const msg = e.message || "";
+        if (msg.includes("409") || msg.includes("already")) { alreadyCount++; }
+        else { console.error(e); }
+      }
+    }
+
+    setAssigning(false);
+
+    if (successCount === 0 && alreadyCount > 0) {
+      setAssignError(alreadyCount === 1
+        ? "This product is already assigned to that project."
+        : "All selected products are already assigned to that project.");
+    } else {
+      if (assigningBulk) setSelectedIds(new Set());
+      setAssigningProduct(null);
+      setAssigningBulk(false);
+    }
+  }
+
+  function closeAssignModal() {
+    setAssigningProduct(null);
+    setAssigningBulk(false);
+    setAssignStep("project");
+    setAssignProjectId("");
+    setAssignCategoryId("");
+    setAssignError("");
   }
 
   const manufacturers = [...new Set(products.map(p => p.manufacturer).filter(Boolean))].sort();
@@ -171,6 +323,7 @@ Extract every relevant technical attribute: dimensions, weights, thermal values,
       setProducts(prev => prev.filter(p => p.id !== product.id));
       if (expanded === product.id) setExpanded(null);
       if (selected === product.id) setSelected(null);
+      setSelectedIds(prev => { const n = new Set(prev); n.delete(product.id); return n; });
       setUploadStatus(`"${product.name}" removed from library.`);
     } catch (e) {
       setUploadStatus("Delete failed: " + e.message);
@@ -662,6 +815,12 @@ Use only the provided document pages. Do not speculate beyond what the documents
               {uploadStatus}
             </span>
           )}
+          {selectedIds.size > 1 && (
+            <button className="btn" onClick={openBulkAssignModal}
+              style={{ background: "#2e7d4f", color: "#fff", border: "none", padding: "6px 14px", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+              + Assign {selectedIds.size} to Project
+            </button>
+          )}
           {selected && (
             <button className="btn" onClick={handleDownload} disabled={downloading}
               style={{ background: "none", color: LIBRARY_BLUE, border: `1px solid ${LIBRARY_BLUE}`, padding: "6px 14px", fontSize: 12, fontWeight: 500, opacity: downloading ? 0.6 : 1 }}>
@@ -699,12 +858,16 @@ Use only the provided document pages. Do not speculate beyond what the documents
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               {filteredProducts.map(product => {
-                const isSelected = selected === product.id;
+                const isSelected = selectedIds.has(product.id);
                 const isExpanded = expanded === product.id;
                 return (
                   <div key={product.id} style={{ background: "#ffffff", border: `1px solid ${isSelected ? LIBRARY_BLUE : isExpanded ? "#c0ccd4" : "#e8e0d5"}`, transition: "border-color 0.15s" }}>
                     <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", gap: 12 }}>
                       <input type="checkbox" checked={isSelected} onChange={() => {
+                          const next = new Set(selectedIds);
+                          if (isSelected) { next.delete(product.id); } else { next.add(product.id); }
+                          setSelectedIds(next);
+                          // Also drive compliance panel selection (last checked wins)
                           setSelected(isSelected ? null : product.id);
                           setComplianceAnswer(null);
                           setComplianceStatus("");
@@ -752,6 +915,18 @@ Use only the provided document pages. Do not speculate beyond what the documents
                       <div style={{ fontSize: 11, color: "#b0a898", fontFamily: "Inter, Arial, sans-serif", flexShrink: 0 }}>
                         {new Date(product.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
                       </div>
+                      {/* Assignment badge */}
+                      {assignmentMap[product.id]?.length > 0 && (
+                        <span title={assignmentMap[product.id].join(", ")}
+                          style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", color: "#2e7d4f", background: "#e6f4ec", padding: "2px 8px", flexShrink: 0, cursor: "default", whiteSpace: "nowrap" }}>
+                          {assignmentMap[product.id].length} project{assignmentMap[product.id].length !== 1 ? "s" : ""}
+                        </span>
+                      )}
+                      {/* Assign to project button */}
+                      <button className="btn" onClick={() => openAssignModal(product)}
+                        style={{ fontSize: 11, color: "#2e7d4f", background: "none", border: "1px solid #2e7d4f", padding: "2px 10px", flexShrink: 0, fontWeight: 500, whiteSpace: "nowrap" }}>
+                        + Assign
+                      </button>
                       <button className="btn" onClick={() => handleExpand(product.id)}
                         style={{ fontSize: 11, color: LIBRARY_BLUE, background: "none", border: "none", padding: "2px 6px", flexShrink: 0, fontWeight: 500 }}>
                         {isExpanded ? "▲" : "▼"}
@@ -854,6 +1029,77 @@ Use only the provided document pages. Do not speculate beyond what the documents
           </div>
         )}
       </div>
+
+      {/* ── Assign to project modal ─────────────────────────────────────────── */}
+      {(assigningProduct || assigningBulk) && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", width: 460, borderTop: "3px solid #2e7d4f", fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column" }}>
+            {/* Modal header */}
+            <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #e8e0d5" }}>
+              <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#9a9088", marginBottom: 4 }}>Assign to Project</div>
+              {assigningBulk ? (
+                <div style={{ fontSize: 14, fontWeight: 600, color: ARC_NAVY }}>
+                  {selectedIds.size} product{selectedIds.size !== 1 ? "s" : ""} selected
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: ARC_NAVY }}>{assigningProduct?.name}</div>
+                  {assigningProduct?.manufacturer && <div style={{ fontSize: 12, color: "#9a9088", marginTop: 2 }}>{assigningProduct.manufacturer}</div>}
+                </>
+              )}
+            </div>
+
+            <div style={{ padding: "20px 24px" }}>
+              {/* Step 1 — choose project */}
+              <div style={{ marginBottom: 16 }}>
+                <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Project</label>
+                <select value={assignProjectId}
+                  onChange={e => handleAssignProjectSelect(e.target.value)}
+                  style={{ width: "100%", fontSize: 13, padding: "8px 10px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", color: assignProjectId ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff" }}>
+                  <option value="">Select a project…</option>
+                  {allProjects.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}{p.job_number ? ` (#${p.job_number})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Step 2 — choose category */}
+              {assignStep === "category" && (
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Category</label>
+                  {assignCatsLoading ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#9a9088" }}><Spinner size={11} /> Loading categories…</div>
+                  ) : (
+                    <select value={assignCategoryId} onChange={e => setAssignCategoryId(e.target.value)}
+                      style={{ width: "100%", fontSize: 13, padding: "8px 10px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", color: assignCategoryId ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff" }}>
+                      <option value="">Select a category…</option>
+                      {assignCategories.map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+
+              {assignError && (
+                <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 12 }}>{assignError}</p>
+              )}
+
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button className="btn" onClick={closeAssignModal}
+                  style={{ background: "none", color: "#9a9088", padding: "8px 16px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+                <button className="btn" onClick={confirmAssign}
+                  disabled={!assignProjectId || !assignCategoryId || assigning}
+                  style={{ background: assignProjectId && assignCategoryId && !assigning ? "#2e7d4f" : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  {assigning ? <Spinner size={11} /> : "Assign"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

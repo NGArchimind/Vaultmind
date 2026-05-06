@@ -50,6 +50,140 @@ async function splitPdfIntoChunks(base64Data, chunkSize) {
   }
 }
 
+// ── Vault PDF Viewer Modal ────────────────────────────────────────────────────
+function VaultPdfViewer({ base64, fileName, page, onClose }) {
+  const iframeRef = useRef(null);
+  const [blobUrl, setBlobUrl] = useState(null);
+  const [viewerUrl, setViewerUrl] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!base64) return;
+    const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const blob = new Blob([bytes], { type: "application/pdf" });
+    const url = URL.createObjectURL(blob);
+    setBlobUrl(url);
+    // Use PDF.js CDN viewer — supports ?file= and #page= reliably across browsers
+    const pdfJsViewer = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf_viewer.min.js`;
+    // Use mozilla's hosted viewer which accepts a file param
+    const encodedUrl = encodeURIComponent(url);
+    setViewerUrl(`https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodedUrl}#page=${page || 1}`);
+    return () => URL.revokeObjectURL(url);
+  }, [base64, page]);
+
+  // Close on Escape
+  useEffect(() => {
+    const handleKey = e => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onClose]);
+
+  // mozilla.github.io pdf.js viewer blocks cross-origin blob URLs.
+  // Instead render the PDF directly in the iframe and use a page param approach.
+  // We use a self-contained HTML page written into the iframe via srcdoc,
+  // which embeds PDF.js from CDN and renders the PDF from base64 at the correct page.
+  const srcdoc = viewerUrl ? null : null; // built below
+
+  // Build a self-contained viewer page using PDF.js from cdnjs
+  const viewerHtml = blobUrl ? `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #525659; display: flex; flex-direction: column; height: 100vh; font-family: Inter, Arial, sans-serif; }
+  #toolbar { background: #1a2332; padding: 8px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+  #toolbar span { color: rgba(255,255,255,0.7); font-size: 12px; }
+  #toolbar strong { color: #fff; font-size: 12px; }
+  #page-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  #page-controls button { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 4px 10px; cursor: pointer; font-size: 13px; border-radius: 2px; }
+  #page-controls button:hover { background: rgba(255,255,255,0.2); }
+  #page-controls input { width: 48px; text-align: center; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 4px; font-size: 12px; border-radius: 2px; }
+  #canvas-container { flex: 1; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 16px; }
+  canvas { box-shadow: 0 2px 16px rgba(0,0,0,0.5); }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <strong id="filename">${fileName || "Document"}</strong>
+  <div id="page-controls">
+    <button id="prev">‹</button>
+    <input id="page-input" type="number" min="1" value="${page || 1}" />
+    <span>/ <span id="total-pages">…</span></span>
+    <button id="next">›</button>
+  </div>
+</div>
+<div id="canvas-container"><canvas id="pdf-canvas"></canvas></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  let pdfDoc = null;
+  let currentPage = ${page || 1};
+  const canvas = document.getElementById('pdf-canvas');
+  const ctx = canvas.getContext('2d');
+
+  function renderPage(num) {
+    pdfDoc.getPage(num).then(page => {
+      const viewport = page.getViewport({ scale: 1.5 });
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      page.render({ canvasContext: ctx, viewport }).promise.then(() => {
+        document.getElementById('page-input').value = num;
+      });
+    });
+  }
+
+  pdfjsLib.getDocument('${blobUrl}').promise.then(pdf => {
+    pdfDoc = pdf;
+    const total = pdf.numPages;
+    document.getElementById('total-pages').textContent = total;
+    currentPage = Math.min(Math.max(1, ${page || 1}), total);
+    renderPage(currentPage);
+  });
+
+  document.getElementById('prev').addEventListener('click', () => {
+    if (currentPage > 1) { currentPage--; renderPage(currentPage); }
+  });
+  document.getElementById('next').addEventListener('click', () => {
+    if (pdfDoc && currentPage < pdfDoc.numPages) { currentPage++; renderPage(currentPage); }
+  });
+  document.getElementById('page-input').addEventListener('change', e => {
+    const n = parseInt(e.target.value);
+    if (pdfDoc && n >= 1 && n <= pdfDoc.numPages) { currentPage = n; renderPage(currentPage); }
+  });
+</script>
+</body>
+</html>` : "";
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 3000, display: "flex", flexDirection: "column" }}>
+      <div style={{ background: ARC_NAVY, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{fileName}</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>p.{page} · Source document</div>
+          </div>
+        </div>
+        <button className="btn" onClick={onClose}
+          style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}>
+          Close ✕
+        </button>
+      </div>
+      <div style={{ flex: 1, background: "#525659", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        {!blobUrl && <div style={{ color: "#fff", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}><Spinner size={14} /> Loading document…</div>}
+        {blobUrl && (
+          <iframe
+            srcDoc={viewerHtml}
+            style={{ width: "100%", height: "100%", border: "none" }}
+            title={fileName}
+            sandbox="allow-scripts allow-same-origin"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [appSection, setAppSection] = useState("home");
   const [vaults, setVaults] = useState([]);
@@ -72,7 +206,15 @@ export default function App() {
   const [loadingVaults, setLoadingVaults] = useState(true);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [tempDoc, setTempDoc] = useState(null);
+  const [tempDocIndex, setTempDocIndex] = useState(null);
+  const [tempDocIndexing, setTempDocIndexing] = useState(false);
+  const tempDocIndexRef = useRef(null); // ref so askQuestion can await it
   const [tempDocDragOver, setTempDocDragOver] = useState(false);
+  const [tempDocMode, setTempDocMode] = useState("query-vault-with-temp"); // "query-temp" | "query-vault-with-temp"
+  const [followUpVaultId, setFollowUpVaultId] = useState("");
+  const [followUpQuestion, setFollowUpQuestion] = useState("");
+  const [answerVaultName, setAnswerVaultName] = useState("");
+  const [citationPageMap, setCitationPageMap] = useState({}); // { docName → { page, vaultId, fileName } }
   const [lastQuestion, setLastQuestion] = useState("");
   const [timedOut, setTimedOut] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
@@ -138,9 +280,24 @@ export default function App() {
   const loadTempDoc = async (file) => {
     if (!file || file.type !== "application/pdf") return;
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       const base64 = e.target.result.split(",")[1];
       setTempDoc({ name: file.name, base64 });
+      setTempDocIndex(null);
+      setTempDocIndexing(true);
+      // Index in background — store a promise in ref so askQuestion can await it
+      const indexPromise = indexOnePdf(file.name, base64).then(result => {
+        const idx = { documents: [{ name: file.name, headings: result.headings, base64 }] };
+        tempDocIndexRef.current = idx; // store result directly so askQuestion can use it immediately
+        setTempDocIndex(idx);
+        setTempDocIndexing(false);
+        return idx;
+      }).catch(err => {
+        console.warn("Temp doc indexing failed:", err.message);
+        setTempDocIndexing(false);
+        tempDocIndexRef.current = null;
+      });
+      tempDocIndexRef.current = indexPromise; // initially a promise, replaced with result on completion
     };
     reader.readAsDataURL(file);
   };
@@ -160,6 +317,11 @@ export default function App() {
 
   const parentMaster = vaults.find(v => v.type === "master" && (v.subVaults || []).some(sv => sv.id === selectedVault));
   const vaultHistory = history.filter(h => h.vaultId === selectedVault);
+
+  // Flat list of all queryable vaults (excluding current) for follow-up dropdown
+  const allQueryableVaults = vaults.flatMap(v =>
+    v.type === "master" ? (v.subVaults || []) : [v]
+  );
 
   useEffect(() => {
     const isStaging = process.env.REACT_APP_API_URL?.includes("staging");
@@ -453,22 +615,105 @@ export default function App() {
     return combinedDocs.length > 0 ? { documents: combinedDocs } : vaultIndex;
   };
 
+  // ── Retry wrapper for transient Gemini errors ────────────────────────────────
+  const withRetry = async (fn, retries = 3, delayMs = 4000, label = "") => {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        const isTransient = err.message?.includes("503") ||
+          err.message?.includes("UNAVAILABLE") ||
+          err.message?.includes("timed out") ||
+          err.message?.includes("overloaded");
+        if (isTransient && attempt < retries) {
+          const wait = delayMs * attempt;
+          setStatusMsg(`${label} — Gemini busy, retrying in ${wait / 1000}s… (attempt ${attempt}/${retries})`);
+          await new Promise(r => setTimeout(r, wait));
+        } else {
+          throw err;
+        }
+      }
+    }
+  };
+
   // ── 3-pass Q&A pipeline ───────────────────────────────────────────────────────
-  const askQuestion = async () => {
-    if (!vaultIndex || !question.trim()) return;
-    const q = question.trim();
+  const askQuestion = async (overrideVaultId = null, overrideQuestion = null) => {
+    // usingTempOnly: no vault selected, OR vault selected but mode is "query temp doc directly"
+    const usingTempOnly = tempDoc && (!vault || tempDocMode === "query-temp");
+    const effectiveQuestion = overrideQuestion || question;
+    if ((!vault && !tempDoc) || !effectiveQuestion.trim()) return;
+    const q = effectiveQuestion.trim();
     setAnswer(null);
     setCostEst(null);
-    setQuestion("");
+    setAnswerVaultName("");
+    setCitationPageMap({});
+    if (!overrideQuestion) setQuestion("");
+    setFollowUpQuestion("");
     setLastQuestion(q);
     setTimedOut(false);
     setStage("selecting");
     setProgress({ index: 100, select: 0, read: 0, answer: 0 });
     setStatusMsg("Pass 1/3 · Reading contents pages and scoring sections…");
 
+    // Resolve override vault data if a cross-vault follow-up
+    let overrideVault = null;
+    let overrideIndex = null;
+    let overridePdfs = null;
+    if (overrideVaultId) {
+      try {
+        setStatusMsg("Loading vault for follow-up…");
+        const [pdfsData, indexData] = await Promise.all([
+          api(`/api/vaults/${encodeURIComponent(overrideVaultId)}/pdfs`),
+          api(`/api/vaults/${encodeURIComponent(overrideVaultId)}/index`).catch(() => null),
+        ]);
+        // Find vault object from all vaults (flat + sub)
+        for (const v of vaults) {
+          if (v.id === overrideVaultId) { overrideVault = v; break; }
+          if (v.type === "master") {
+            const sub = (v.subVaults || []).find(sv => sv.id === overrideVaultId);
+            if (sub) { overrideVault = sub; break; }
+          }
+        }
+        overrideIndex = indexData;
+        overridePdfs = pdfsData.pdfs || [];
+        if (!overrideIndex) {
+          setStage(null);
+          setStatusMsg("That vault has not been indexed yet — index it first before asking a question.");
+          return;
+        }
+      } catch (e) {
+        setStage(null);
+        setStatusMsg("Failed to load vault for follow-up: " + e.message);
+        return;
+      }
+    }
+
+    // Effective vault/index/pdfs for this query
+    const effectiveVault = overrideVault || vault;
+    const effectiveVaultIndex = overrideIndex || vaultIndex;
+    const effectivePdfs = overridePdfs || pdfs;
+
     try {
-      const useAllSubVaults = queryScope === "all" && parentMaster;
-      const activeIndex = useAllSubVaults ? await buildCombinedIndex() : vaultIndex;
+      // ── Temp doc only mode — wait for background index then run full pipeline ──
+      let resolvedTempIndex = null;
+      if (usingTempOnly) {
+        // Wait for background indexing to complete if still running
+        if (tempDocIndexRef.current && typeof tempDocIndexRef.current.then === "function") {
+          setStatusMsg("Waiting for document to finish indexing…");
+          resolvedTempIndex = await tempDocIndexRef.current;
+        } else {
+          resolvedTempIndex = tempDocIndexRef.current; // already resolved
+        }
+        if (!resolvedTempIndex) {
+          setStage(null);
+          setStatusMsg("Document indexing failed — please try removing and re-uploading the file.");
+          return;
+        }
+      }
+
+      const useAllSubVaults = !overrideVaultId && queryScope === "all" && parentMaster;
+      const activeIndex = resolvedTempIndex ? resolvedTempIndex
+        : useAllSubVaults ? await buildCombinedIndex() : effectiveVaultIndex;
 
       // ── PASS 1: Score index ──────────────────────────────────────────────────
       setStatusMsg("Pass 1/3 · Scoring index — identifying relevant sections…");
@@ -518,10 +763,12 @@ export default function App() {
 
       const scoringPrompt = `You are an expert technical document analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain the answer to the question.\n\nDOCUMENT INDEX (headings, sections and page numbers extracted from vault documents):\n${indexSummary}\n${conversationContext}\n\nQUESTION: ${q}\n${recentHistory.length > 0 ? "NOTE: This may be a follow-up question. Use the conversation history above to understand the full context before scoring." : ""}\n\nAnalyse the index carefully. For every section that could possibly be relevant — even tangentially — assign a probability score. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections. Be CONSERVATIVE — it is better to include a borderline section than to miss critical information.\n\nNOTE: Select ALL sections that are relevant to the question — do not limit to just one section if multiple sections are relevant.\n\nTABLES AND FIGURES: If the question relates to a requirement that is likely defined or quantified in a table or figure (e.g. fire resistance ratings, dimensions, classifications), you MUST also select any table or figure entries in the index that are likely to contain that data. For example, if the index contains "Table 3 — Fire resistance of cavity barriers" or "Table 5 — Minimum fire resistance", select those entries with high probability. Never rely solely on clause text pages when the actual values are in a table.\n\nRespond ONLY as compact JSON — no other text, no explanations, no reasons:\n{\n  "selectedDocs": [\n    {\n      "docName": "exact filename from index",\n      "sections": [\n        {"heading": "exact heading from index", "pageHint": 42, "probability": 0.95}\n      ]\n    }\n  ]\n}\n\nRules:\n- Include sections with probability > 0.5\n- pageHint MUST be a plain integer. Never use "p.12" or "page 12". Use 1 if unknown.\n- Omit "styleNotes", "reason" and "crossRefs" fields entirely — keep JSON compact`;
 
-      const { text: scoringText, usage: scoringUsage } = await callClaude(
-        [{ role: "user", content: scoringPrompt }],
-        "You are a technical document analyst. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
-        65000, 2, "gemini-2.5-flash"
+      const { text: scoringText, usage: scoringUsage } = await withRetry(
+        () => callClaude(
+          [{ role: "user", content: scoringPrompt }],
+          "You are a technical document analyst. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
+          65000, 2, "gemini-2.5-flash"
+        ), 3, 4000, "Pass 1/3 · Scoring index"
       );
 
       setProgress(p => ({ ...p, select: 100 }));
@@ -539,7 +786,27 @@ export default function App() {
         console.warn("Scoring returned empty — raw response:", scoringText.slice(0, 500));
       }
 
-      // ── PASS 2: Load PDFs and extract pages ──────────────────────────────────
+      // ── Build citation page map — docName → { page, vaultId, fileName } ────────
+      // Built now so AnswerRenderer can link citations to their source PDF + page
+      const newCitationPageMap = {};
+      (scoring.selectedDocs || []).forEach(selectedDoc => {
+        const rawDocName = selectedDoc.docName;
+        (selectedDoc.sections || []).forEach(section => {
+          const page = typeof section.pageHint === "number" ? section.pageHint : parseInt(section.pageHint);
+          if (!page || page < 1) return;
+          const key = rawDocName;
+          // Take the lowest (first) page hint per doc as a fallback, highest-prob section wins
+          if (!newCitationPageMap[key] || section.probability > (newCitationPageMap[key]._prob || 0)) {
+            // We'll resolve vaultId/fileName in Pass 2 once we know which sub-vault matched
+            newCitationPageMap[key] = { page, vaultId: null, fileName: null, _prob: section.probability || 0 };
+          }
+          // Also store per-heading for finer-grained matching
+          const headingKey = `${rawDocName}||${(section.heading || "").toLowerCase().trim()}`;
+          if (!newCitationPageMap[headingKey]) {
+            newCitationPageMap[headingKey] = { page, vaultId: null, fileName: null };
+          }
+        });
+      });
       setStatusMsg("Pass 1/3 · Loading documents for page extraction…");
 
       const contentsData = [];
@@ -580,6 +847,10 @@ export default function App() {
             );
           }
           if (!found) { console.warn(`Could not match scoring docName "${docName}" to any sub-vault PDF`); continue; }
+          // Resolve vaultId + fileName into citation map
+          [docName, ...Object.keys(newCitationPageMap).filter(k => k.startsWith(`${docName}||`))].forEach(k => {
+            if (newCitationPageMap[k]) { newCitationPageMap[k].vaultId = found.subVault.id; newCitationPageMap[k].fileName = found.fileName; }
+          });
           try {
             const pdfData = await api(`/api/vaults/${encodeURIComponent(found.subVault.id)}/pdfs/${encodeURIComponent(found.fileName)}`);
             contentsData.push({ pdf: { name: found.prefixedName, size: 0 }, base64: pdfData.base64 });
@@ -587,14 +858,30 @@ export default function App() {
             console.warn(`Could not load ${found.fileName} from ${found.subVault.name}:`, e);
           }
         }
+      } else if (usingTempOnly && resolvedTempIndex) {
+        // Temp doc only mode — base64 already in memory, no server fetch needed
+        // Mark all citation map entries as temp (no vaultId fetch needed — we have base64 in memory)
+        Object.keys(newCitationPageMap).forEach(k => {
+          newCitationPageMap[k].vaultId = "__temp__";
+          newCitationPageMap[k].fileName = tempDoc.name;
+        });
+        contentsData.push({ pdf: { name: tempDoc.name, size: 0 }, base64: tempDoc.base64 });
       } else {
-        const docsNeeded = pdfs.filter(p =>
+        const docsNeeded = effectivePdfs.filter(p =>
           selectedDocNames.some(n => p.name.includes(n) || n.includes(p.name))
         );
-        const docsToFetch = docsNeeded.length > 0 ? docsNeeded : pdfs.slice(0, 2);
+        const docsToFetch = docsNeeded.length > 0 ? docsNeeded : effectivePdfs.slice(0, 2);
         for (const pdf of docsToFetch) {
+          // Resolve citation map entries that match this PDF
+          selectedDocNames.forEach(docName => {
+            if (pdf.name.includes(docName) || docName.includes(pdf.name)) {
+              [docName, ...Object.keys(newCitationPageMap).filter(k => k.startsWith(`${docName}||`))].forEach(k => {
+                if (newCitationPageMap[k]) { newCitationPageMap[k].vaultId = effectiveVault.id; newCitationPageMap[k].fileName = pdf.name; }
+              });
+            }
+          });
           try {
-            const pdfData = await api(`/api/vaults/${encodeURIComponent(vault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
+            const pdfData = await api(`/api/vaults/${encodeURIComponent(effectiveVault.id)}/pdfs/${encodeURIComponent(pdf.name)}`);
             contentsData.push({ pdf, base64: pdfData.base64 });
           } catch (e) {
             console.warn(`Could not load ${pdf.name}:`, e);
@@ -749,16 +1036,21 @@ export default function App() {
 
       const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `\n\nNOTE: A temporary document has been included for reference: "${tempDoc.name}". This is not part of the permanent vault — treat it as an additional reference document when answering.` : ""}\n\n${contextBlock}CURRENT QUESTION: ${q}\n\nPRIORITY SECTIONS: ${focusSections || "all sections"}\n\n---\n\nTABLES — GLOBAL RULE (applies to every section):\nWhen multiple documents contain tables that are near-identical in structure and content (e.g. minimum fire resistance performance tables across different versions of the same standard), do NOT reproduce each one separately. Instead:\n1. Reproduce the single most complete and relevant version in full\n2. After the citation, add a plain italic note: *Note: [Other Document] [Table X] contains equivalent/near-identical data. [Note any meaningful differences, e.g. if one table lacks a cavity barrier row.]*\n\nFor the one table you reproduce:\n1. Output the table title on its own line in bold: **Table X — Title of table**\n2. Reproduce the COMPLETE table — EVERY row, EVERY column, NO exceptions. Do not extract only the relevant row. Do not summarise. If the table has 30 rows, output all 30 rows. Every row starts and ends with | pipe characters.\n3. After the header row output a separator row: | --- | --- | --- |\n4. For the specific row(s) that directly answer the question, prefix that ENTIRE ROW with >> ONCE at the very start, before the first pipe: >> | cell | cell | cell |\n   CRITICAL: The >> prefix appears ONCE at the start of the row only. Do NOT put >> before each cell.\n5. Do NOT wrap tables in > block quote syntax\n6. Place the citation immediately below the table, then the equivalence note\n7. If the table spans multiple pages, combine ALL parts into one complete table — do not stop at the first page\n\nIf only one table is referenced, reproduce it in full without any equivalence note.\n\nRESPONSE FORMAT — output in this exact order every time:\n\n## Summary\n\nWRITE THIS FIRST. A confident, definitive answer in 2–4 sentences. Must:\n- Open with a direct answer in plain English\n- Cite ALL relevant documents provided — not just one\n- Build on any prior conversation context where relevant\n- Reproduce any table directly relevant to the answer\n- After any table include footnotes/qualifications as plain italic text\n\nFor each key fact, include the exact supporting phrase and citation as a consecutive pair:\n\n> "Exact short phrase from document."\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nCITATION FORMAT: *Document | Clause number and title (Parent section title)*\nCRITICAL: Citation MUST start AND end with * asterisk.\n\nCITATION PLACEMENT — strictly follow these rules:\n- Every citation goes on its OWN LINE, never embedded within a sentence\n- Never write: "Quote." *Citation* and more text continues here.\n- Never chain citations with "and": *Citation A* and *Citation B* — WRONG\n- If multiple documents support the same fact, each citation goes on its own separate line:\n  > "Quote."\n  *Document A | Clause*\n  *Document B | Clause*\n- A citation always ends a paragraph, never appears mid-sentence\n\n---\n\n## Detailed Analysis\n\nWRITE THIS SECOND. Only content that adds value beyond the summary.\n\nCheck ALL of the following — if ANY apply, write Case 2:\n- Location/scenario-specific requirements beyond the general rule?\n- Exceptions or conditions where the rule does NOT apply?\n- Construction/specification requirements beyond the fire rating?\n- Cross-references to other clauses, standards, or ADs?\n- Do the multiple documents differ or add to each other?\n- Inspection, testing, or certification requirements?\n\nCASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."\n\nCASE 2 — Concise bullet points. One sentence each. Reproduce any referenced table in full below the bullet. Citation after each bullet or table:\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nRULES:\n- No repetition of summary content\n- Citations: opening AND closing * required\n- Cite ALL documents where relevant — never rely on just one\n- Maximum 6 bullets\n\n---\n\n## Regulatory Context\n\nWRITE THIS THIRD. Broader background tightly scoped to the question. 2–4 bullets maximum.\nCitation after each bullet: *Document Name | X.X.X Clause Title (Parent Section Title)*\nIf nothing to add: "No additional context required."\n\n---\n\n## Contradictions & Conflicts\n\nWRITE THIS LAST. Conflicts: state conflict, quote both sides with citations, give practical conclusion.\nNo conflicts: "No contradictions identified."\n\n---\n\nRULES:\n- Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions\n- Use ONLY the provided document pages — no external knowledge\n- Every factual statement needs a citation with opening AND closing asterisks\n- Draw from ALL provided documents — never rely on just one`;
 
-      const { text: finalAnswer, usage: answerUsage } = await callClaude(
-        [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-        `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. Draw from ALL provided documents.`,
-        65536
+      const { text: finalAnswer, usage: answerUsage } = await withRetry(
+        () => callClaude(
+          [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
+          `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. Draw from ALL provided documents.`,
+          65536
+        ), 3, 5000, "Pass 3/3 · Synthesising answer"
       );
 
       setProgress(p => ({ ...p, answer: 100 }));
       setAnswer(finalAnswer);
+      setAnswerVaultName(usingTempOnly ? "Temp Doc" : (effectiveVault?.name || vault?.name || ""));
+      setCitationPageMap(newCitationPageMap);
+      setFollowUpQuestion(q);
       setStage("done");
-      setHistory(prev => [...prev, { vaultId: vault.id, question: q, answer: finalAnswer, timestamp: new Date() }]);
+      setHistory(prev => [...prev, { vaultId: usingTempOnly ? "temp" : (effectiveVault?.id || "temp"), vaultName: usingTempOnly ? "Temp Doc" : (effectiveVault?.name || ""), question: q, answer: finalAnswer, timestamp: new Date() }]);
       setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
 
       const GEMINI_INPUT_PRICE_USD = 0.15;
@@ -770,6 +1062,7 @@ export default function App() {
       setCostEst(costGBP);
       setStatusMsg("Answer ready");
     } catch (err) {
+      console.error("askQuestion error:", err);
       setStage(null);
       if (err.message === "TIMEOUT") {
         setTimedOut(true);
@@ -777,7 +1070,7 @@ export default function App() {
       } else if (err.message && err.message.includes('rate_limit')) {
         setStatusMsg('Rate limit reached — retrying automatically in 15 seconds…');
       } else {
-        setStatusMsg("Error: " + err.message);
+        setStatusMsg("Error: " + (err.message || String(err)));
       }
     }
   };
@@ -794,6 +1087,42 @@ export default function App() {
     setStage(null);
     setCostEst(null);
     setQueryScope("single");
+  };
+
+  const [citationViewer, setCitationViewer] = useState(null); // { base64, fileName, page }
+
+  // ── Open PDF viewer at page from citation ────────────────────────────────────
+  const handleCitationClick = async (docName, heading) => {
+    const headingKey = `${docName}||${(heading || "").toLowerCase().trim()}`;
+    const entry = citationPageMap[headingKey] || citationPageMap[docName];
+
+    let resolved = entry;
+    if (!resolved) {
+      const lower = docName.toLowerCase();
+      const fallbackKey = Object.keys(citationPageMap).find(k =>
+        k.toLowerCase().includes(lower) || lower.includes(k.toLowerCase().split("||")[0])
+      );
+      resolved = fallbackKey ? citationPageMap[fallbackKey] : null;
+    }
+
+    if (!resolved || !resolved.vaultId || !resolved.fileName) {
+      alert("Sorry — could not locate the source document for this citation.");
+      return;
+    }
+
+    try {
+      let base64;
+      if (resolved.vaultId === "__temp__") {
+        base64 = tempDoc?.base64;
+      } else {
+        const pdfData = await api(`/api/vaults/${encodeURIComponent(resolved.vaultId)}/pdfs/${encodeURIComponent(resolved.fileName)}`);
+        base64 = pdfData.base64;
+      }
+      if (!base64) { alert("Could not load the PDF."); return; }
+      setCitationViewer({ base64, fileName: resolved.fileName, page: resolved.page || 1 });
+    } catch (e) {
+      alert("Failed to load PDF: " + e.message);
+    }
   };
 
   // ── Global styles ─────────────────────────────────────────────────────────────
@@ -971,10 +1300,23 @@ export default function App() {
                   <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
                   <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "8px 10px" }}>
                     <span style={{ fontSize: 11, color: ARC_TERRACOTTA, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {tempDoc.name}</span>
-                    <button className="btn" onClick={() => setTempDoc(null)} title="Remove"
+                    <button className="btn" onClick={() => { setTempDoc(null); setTempDocIndex(null); setTempDocIndexing(false); tempDocIndexRef.current = null; setTempDocMode("query-vault-with-temp"); }} title="Remove"
                       style={{ background: "none", color: ARC_TERRACOTTA, fontSize: 14, padding: "0 2px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
                   </div>
                   <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Temporary — will not be saved. Included in all questions.</p>
+                  {vault && (
+                    <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
+                      <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Query mode</div>
+                      <button className="btn" onClick={() => setTempDocMode("query-vault-with-temp")}
+                        style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, background: tempDocMode === "query-vault-with-temp" ? ARC_NAVY : "transparent", color: tempDocMode === "query-vault-with-temp" ? "#fff" : "#505a5f", border: `1px solid ${tempDocMode === "query-vault-with-temp" ? ARC_NAVY : "#ccc"}`, letterSpacing: "0.02em" }}>
+                        Ask vault, using temp doc as context
+                      </button>
+                      <button className="btn" onClick={() => setTempDocMode("query-temp")}
+                        style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, background: tempDocMode === "query-temp" ? ARC_NAVY : "transparent", color: tempDocMode === "query-temp" ? "#fff" : "#505a5f", border: `1px solid ${tempDocMode === "query-temp" ? ARC_NAVY : "#ccc"}`, letterSpacing: "0.02em" }}>
+                        Ask temp doc directly
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div
@@ -1026,10 +1368,57 @@ export default function App() {
           {/* Main panel */}
           <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
             {!vault ? (
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Select a vault</p>
-                <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Upload documents and query building regulations</p>
-              </div>
+              tempDoc ? (
+                // Temp doc loaded with no vault — show question bar directly
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                  <div style={{ flex: 1, overflowY: "auto", padding: "32px" }}>
+                    {isRunning ? (
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
+                        <p style={{ fontSize: 12, color: "#9a9088" }}>{statusMsg}</p>
+                      </div>
+                    ) : statusMsg && statusMsg.startsWith("Error") ? (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
+                        <p style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{statusMsg}</p>
+                      </div>
+                    ) : answer ? (
+                      <div style={{ maxWidth: 680, margin: "0 auto" }}>
+                        <AnswerRenderer text={answer} onCitationClick={handleCitationClick} />
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
+                        <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>📄 {tempDoc.name}</p>
+                        {tempDocIndexing ? (
+                          <p style={{ fontSize: 12, color: "#9a9088", display: "flex", alignItems: "center", gap: 6 }}>
+                            <Spinner size={11} /> Indexing document — you can ask a question while this runs…
+                          </p>
+                        ) : tempDocIndex ? (
+                          <p style={{ fontSize: 12, color: AD_GREEN }}>✓ Indexed — ready to query</p>
+                        ) : (
+                          <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Ask a question about this document</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ padding: "16px 32px 20px", borderTop: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0 }}>
+                    <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
+                      <textarea value={question} onChange={e => setQuestion(e.target.value)}
+                        onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
+                        placeholder="Ask a question about this document…"
+                        disabled={isRunning} rows={2} className="arc-input"
+                        style={{ flex: 1, border: "1px solid #ddd8d0", borderRight: "none", padding: "12px 16px", color: ARC_NAVY, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#faf8f5" : "#ffffff", letterSpacing: "0.01em" }} />
+                      <button className="btn" onClick={askQuestion} disabled={isRunning || !question.trim()}
+                        style={{ background: isRunning || !question.trim() ? "#f0ede8" : ARC_NAVY, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                        {isRunning ? <Spinner size={14} /> : "Search"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                  <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Select a vault</p>
+                  <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Upload documents and query building regulations</p>
+                </div>
+              )
             ) : (
               <>
                 {/* Vault header */}
@@ -1179,14 +1568,56 @@ export default function App() {
                         </div>
                       )}
 
+                      {isRunning && lastQuestion && (
+                        <div style={{ marginBottom: 16 }}>
+                          <div style={{ fontSize: 13, color: "#505a5f", background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, padding: "8px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+                            <span style={{ color: AD_GREEN, fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                            <span style={{ flex: 1 }}>{lastQuestion}</span>
+                            <Spinner size={11} />
+                          </div>
+                        </div>
+                      )}
+
                       {answer && (
                         <div style={{ animation: "fadeIn 0.4s ease" }}>
                           <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #4a7c20", padding: "24px 28px" }}>
                             <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                              Response — {queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name}
+                              Response — {answerVaultName || (queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name)}
                             </p>
-                            <AnswerRenderer text={answer} />
+                            <AnswerRenderer text={answer} onCitationClick={handleCitationClick} />
                           </div>
+
+                          {/* ── Follow-up: ask another vault ── */}
+                          {!isRunning && allQueryableVaults.length > 1 && (
+                            <div style={{ marginTop: 12, background: "#f5f3f0", border: "1px solid #ddd8d0", padding: "12px 16px" }}>
+                              <p style={{ fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>Ask another vault</p>
+                              <div style={{ display: "flex", gap: 8, alignItems: "stretch", flexWrap: "wrap" }}>
+                                <select
+                                  value={followUpVaultId}
+                                  onChange={e => setFollowUpVaultId(e.target.value)}
+                                  className="arc-input"
+                                  style={{ border: "1px solid #ddd8d0", padding: "8px 10px", fontSize: 12, color: ARC_NAVY, background: "#ffffff", fontFamily: "Inter, Arial, sans-serif", minWidth: 180, flexShrink: 0 }}>
+                                  <option value="">— Select vault —</option>
+                                  {allQueryableVaults.map(v => (
+                                    <option key={v.id} value={v.id}>{v.name}</option>
+                                  ))}
+                                </select>
+                                <textarea
+                                  value={followUpQuestion}
+                                  onChange={e => setFollowUpQuestion(e.target.value)}
+                                  onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && followUpVaultId && followUpQuestion.trim()) { e.preventDefault(); askQuestion(followUpVaultId, followUpQuestion); } }}
+                                  placeholder="Ask this vault the same or a different question…"
+                                  rows={2} className="arc-input"
+                                  style={{ flex: 1, border: "1px solid #ddd8d0", borderRight: "none", padding: "8px 12px", color: ARC_NAVY, fontSize: 12, outline: "none", resize: "none", lineHeight: 1.5, fontFamily: "Inter, Arial, sans-serif", background: "#ffffff", letterSpacing: "0.01em", minWidth: 200 }} />
+                                <button className="btn"
+                                  onClick={() => { if (followUpVaultId && followUpQuestion.trim()) askQuestion(followUpVaultId, followUpQuestion); }}
+                                  disabled={!followUpVaultId || !followUpQuestion.trim()}
+                                  style={{ background: !followUpVaultId || !followUpQuestion.trim() ? "#f0ede8" : ARC_NAVY, color: !followUpVaultId || !followUpQuestion.trim() ? "#9a9088" : "#ffffff", padding: "0 18px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${!followUpVaultId || !followUpQuestion.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 70, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                                  Ask
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -1213,7 +1644,7 @@ export default function App() {
                       )}
                     </div>
 
-                    {(vaultIndex || (queryScope === "all" && parentMaster)) && (
+                    {(vaultIndex || (queryScope === "all" && parentMaster) || tempDoc) && (
                       <div style={{ padding: "16px 32px 20px", borderTop: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
                         <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
                           <textarea value={question} onChange={e => setQuestion(e.target.value)}
@@ -1238,6 +1669,16 @@ export default function App() {
         </> /* end vault section */}
 
       </div>
+
+      {/* ── Citation PDF Viewer ── */}
+      {citationViewer && (
+        <VaultPdfViewer
+          base64={citationViewer.base64}
+          fileName={citationViewer.fileName}
+          page={citationViewer.page}
+          onClose={() => setCitationViewer(null)}
+        />
+      )}
     </div>
   );
 }
