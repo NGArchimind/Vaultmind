@@ -1205,7 +1205,7 @@ app.delete("/api/projects/:id/todos/:tid", requireAuth, async (req, res) => {
 // Helper: generate embedding via Gemini
 async function generateEmbedding(text) {
   const apiKey = process.env.GEMINI_API_KEY;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:embedContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent?key=${apiKey}`;
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
