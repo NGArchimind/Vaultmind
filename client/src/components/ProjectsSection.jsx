@@ -2519,7 +2519,6 @@ function EmailPreview({ email }) {
     </div>
   );
 }
-
 // ── Placeholder tab ───────────────────────────────────────────────────────────
 function PlaceholderTab({ icon, title, description }) {
   return (
