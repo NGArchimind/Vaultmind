@@ -1205,13 +1205,14 @@ app.delete("/api/projects/:id/todos/:tid", requireAuth, async (req, res) => {
 // Helper: generate embedding via Gemini
 async function generateEmbedding(text) {
   const apiKey = process.env.GEMINI_API_KEY;
-  const url = `https://generativelanguage.googleapis.com/v1/models/text-embedding-004:embedContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`;
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "models/text-embedding-004",
+      model: "models/gemini-embedding-001",
       content: { parts: [{ text: text.slice(0, 8000) }] },
+      outputDimensionality: 768,
     }),
   });
   if (!response.ok) {
@@ -1221,7 +1222,6 @@ async function generateEmbedding(text) {
   const data = await response.json();
   return data.embedding.values; // array of 768 numbers
 }
-
 // POST /api/projects/:id/emails/ingest
 // ArchiSync calls this in batches. Each item in the batch is one parsed email.
 app.post("/api/projects/:id/emails/ingest", requireAuth, async (req, res) => {
