@@ -2140,15 +2140,19 @@ function ProductsTab({ projectId, isAdmin }) {
 function EmailsTab({ projectId }) {
   // ── State ──────────────────────────────────────────────────────────────────
   const [query, setQuery] = useState("");
-  const [filters, setFilters] = useState({});
   const [showFilters, setShowFilters] = useState(false);
   const [searching, setSearching] = useState(false);
-  const [emails, setEmails] = useState(null); // null = not yet searched
+  const [emails, setEmails] = useState([]); // starts as empty, loaded on mount
+  const [allEmails, setAllEmails] = useState([]); // full inbox — loaded on mount
+  const [isSearchMode, setIsSearchMode] = useState(false); // true after a search
   const [selectedEmail, setSelectedEmail] = useState(null);
   const [loadingEmail, setLoadingEmail] = useState(false);
   const [emailBody, setEmailBody] = useState(null);
   const [searchError, setSearchError] = useState(null);
-  const [totalCount, setTotalCount] = useState(null);
+  const [loadingInbox, setLoadingInbox] = useState(true);
+
+  // Similarity threshold slider (0–100, stored as integer percentage)
+  const [threshold, setThreshold] = useState(55);
 
   // Filter field state
   const [filterFrom, setFilterFrom] = useState("");
@@ -2158,12 +2162,24 @@ function EmailsTab({ projectId }) {
   const [filterDateTo, setFilterDateTo] = useState("");
   const [filterHasAttachments, setFilterHasAttachments] = useState("");
 
-  // Load total email count on mount
+  // Load full inbox on mount
   useEffect(() => {
+    setLoadingInbox(true);
     api(`/api/projects/${projectId}/emails/search`, {
       method: "POST",
       body: { query: "", filters: {}, limit: 1000 },
-    }).then(d => setTotalCount((d.emails || []).length)).catch(() => {});
+    })
+      .then(d => {
+        const sorted = (d.emails || []).sort((a, b) => {
+          if (!a.sent_at) return 1;
+          if (!b.sent_at) return -1;
+          return new Date(b.sent_at) - new Date(a.sent_at);
+        });
+        setAllEmails(sorted);
+        setEmails(sorted);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingInbox(false));
   }, [projectId]);
 
   function buildFilters() {
@@ -2179,15 +2195,22 @@ function EmailsTab({ projectId }) {
   }
 
   async function handleSearch() {
+    if (!query.trim()) {
+      // Empty query — go back to inbox view with any active filters applied
+      setIsSearchMode(false);
+      applyFiltersToInbox();
+      return;
+    }
     setSearchError(null);
     setSearching(true);
+    setIsSearchMode(true);
     setSelectedEmail(null);
     setEmailBody(null);
     try {
       const f = buildFilters();
       const { emails: results } = await api(`/api/projects/${projectId}/emails/search`, {
         method: "POST",
-        body: { query: query.trim(), filters: f, limit: 50 },
+        body: { query: query.trim(), filters: f, limit: 100 },
       });
       setEmails(results || []);
     } catch (err) {
@@ -2195,6 +2218,41 @@ function EmailsTab({ projectId }) {
     } finally {
       setSearching(false);
     }
+  }
+
+  function applyFiltersToInbox() {
+    let filtered = [...allEmails];
+    if (filterFrom.trim()) {
+      const f = filterFrom.trim().toLowerCase();
+      filtered = filtered.filter(e =>
+        (e.from_address || "").toLowerCase().includes(f) ||
+        (e.from_name || "").toLowerCase().includes(f)
+      );
+    }
+    if (filterTo.trim()) {
+      const f = filterTo.trim().toLowerCase();
+      filtered = filtered.filter(e =>
+        (e.to_addresses || []).some(a => a.toLowerCase().includes(f))
+      );
+    }
+    if (filterSubject.trim()) {
+      const f = filterSubject.trim().toLowerCase();
+      filtered = filtered.filter(e => (e.subject || "").toLowerCase().includes(f));
+    }
+    if (filterHasAttachments === "yes") filtered = filtered.filter(e => e.has_attachments);
+    if (filterHasAttachments === "no") filtered = filtered.filter(e => !e.has_attachments);
+    if (filterDateFrom) filtered = filtered.filter(e => e.sent_at && e.sent_at >= filterDateFrom);
+    if (filterDateTo) filtered = filtered.filter(e => e.sent_at && e.sent_at <= filterDateTo);
+    setEmails(filtered);
+  }
+
+  function handleClearSearch() {
+    setQuery("");
+    setIsSearchMode(false);
+    setSelectedEmail(null);
+    setEmailBody(null);
+    setSearchError(null);
+    applyFiltersToInbox();
   }
 
   async function handleSelectEmail(email) {
@@ -2222,9 +2280,21 @@ function EmailsTab({ projectId }) {
     setFilterDateFrom("");
     setFilterDateTo("");
     setFilterHasAttachments("");
+    if (!isSearchMode) {
+      setEmails(allEmails);
+    }
   }
 
   const hasActiveFilters = filterFrom || filterTo || filterSubject || filterDateFrom || filterDateTo || filterHasAttachments;
+
+  // Apply threshold filter only in search mode
+  const displayedEmails = isSearchMode
+    ? emails.filter(e => e.similarity === undefined || e.similarity >= threshold / 100)
+    : emails;
+
+  const filteredOutCount = isSearchMode
+    ? emails.length - displayedEmails.length
+    : 0;
 
   const inputStyle = {
     width: "100%",
@@ -2255,9 +2325,9 @@ function EmailsTab({ projectId }) {
       <div style={{ padding: "16px 24px", background: "#fff", borderBottom: "1px solid #e8e0d5", flexShrink: 0 }}>
 
         {/* Count */}
-        {totalCount !== null && (
+        {allEmails.length > 0 && (
           <div style={{ fontSize: 11, color: "#9a9088", marginBottom: 10, letterSpacing: "0.04em" }}>
-            {totalCount} email{totalCount !== 1 ? "s" : ""} indexed for this project
+            {allEmails.length} email{allEmails.length !== 1 ? "s" : ""} indexed for this project
           </div>
         )}
 
@@ -2278,16 +2348,25 @@ function EmailsTab({ projectId }) {
           >
             {searching ? <Spinner size={11} /> : "Search"}
           </button>
+          {isSearchMode && (
+            <button
+              className="btn"
+              onClick={handleClearSearch}
+              style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "10px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap", flexShrink: 0 }}
+            >
+              Clear
+            </button>
+          )}
         </div>
 
-        {/* Filter toggle */}
-        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 10 }}>
+        {/* Second row — filters toggle + threshold slider + result count */}
+        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <button
             className="btn"
             onClick={() => setShowFilters(f => !f)}
             style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 12px", fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}
           >
-            {showFilters ? "Hide Filters" : "Filters"} {hasActiveFilters ? "●" : ""}
+            {showFilters ? "Hide Filters" : "Filters"}{hasActiveFilters ? " ●" : ""}
           </button>
           {hasActiveFilters && (
             <button
@@ -2298,9 +2377,43 @@ function EmailsTab({ projectId }) {
               Clear filters
             </button>
           )}
-          {emails !== null && !searching && (
+
+          {/* Threshold slider — only visible in search mode */}
+          {isSearchMode && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9a9088" }}>
+                Min match
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={95}
+                step={5}
+                value={threshold}
+                onChange={e => setThreshold(Number(e.target.value))}
+                style={{ width: 100, accentColor: ARC_NAVY, cursor: "pointer" }}
+              />
+              <span style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, minWidth: 32 }}>
+                {threshold}%
+              </span>
+              {filteredOutCount > 0 && (
+                <span style={{ fontSize: 10, color: "#b0a8a0" }}>
+                  ({filteredOutCount} below threshold)
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Result count */}
+          {!isSearchMode && !loadingInbox && (
             <span style={{ fontSize: 11, color: "#9a9088", marginLeft: "auto" }}>
-              {emails.length} result{emails.length !== 1 ? "s" : ""}
+              {displayedEmails.length} email{displayedEmails.length !== 1 ? "s" : ""}
+              {hasActiveFilters ? ` (filtered from ${allEmails.length})` : ""}
+            </span>
+          )}
+          {isSearchMode && !searching && (
+            <span style={{ fontSize: 11, color: "#9a9088" }}>
+              {displayedEmails.length} result{displayedEmails.length !== 1 ? "s" : ""}
             </span>
           )}
         </div>
@@ -2310,15 +2423,18 @@ function EmailsTab({ projectId }) {
           <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, padding: 16, background: "#faf8f5", border: "1px solid #e8e0d5" }}>
             <div>
               <label style={labelStyle}>From</label>
-              <input value={filterFrom} onChange={e => setFilterFrom(e.target.value)} placeholder="Name or email address…" style={inputStyle} />
+              <input value={filterFrom} onChange={e => setFilterFrom(e.target.value)} placeholder="Name or email address…" style={inputStyle}
+                onKeyDown={e => { if (e.key === "Enter") { applyFiltersToInbox(); } }} />
             </div>
             <div>
               <label style={labelStyle}>To</label>
-              <input value={filterTo} onChange={e => setFilterTo(e.target.value)} placeholder="Email address…" style={inputStyle} />
+              <input value={filterTo} onChange={e => setFilterTo(e.target.value)} placeholder="Email address…" style={inputStyle}
+                onKeyDown={e => { if (e.key === "Enter") { applyFiltersToInbox(); } }} />
             </div>
             <div>
               <label style={labelStyle}>Subject contains</label>
-              <input value={filterSubject} onChange={e => setFilterSubject(e.target.value)} placeholder="Keywords in subject…" style={inputStyle} />
+              <input value={filterSubject} onChange={e => setFilterSubject(e.target.value)} placeholder="Keywords in subject…" style={inputStyle}
+                onKeyDown={e => { if (e.key === "Enter") { applyFiltersToInbox(); } }} />
             </div>
             <div>
               <label style={labelStyle}>Date from</label>
@@ -2337,6 +2453,14 @@ function EmailsTab({ projectId }) {
                 <option value="no">No attachments</option>
               </select>
             </div>
+            {!isSearchMode && (
+              <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end" }}>
+                <button className="btn" onClick={applyFiltersToInbox}
+                  style={{ background: ARC_NAVY, color: "#fff", padding: "6px 16px", fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  Apply
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -2359,13 +2483,9 @@ function EmailsTab({ projectId }) {
           overflowY: "auto",
           flexShrink: 0,
         }}>
-          {emails === null && !searching && (
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 40px", textAlign: "center" }}>
-              <div style={{ fontSize: 40, marginBottom: 16 }}>✉️</div>
-              <p style={{ fontSize: 15, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>Search your project emails</p>
-              <p style={{ fontSize: 12, color: "#9a9088", maxWidth: 340, lineHeight: 1.7 }}>
-                Describe what you're looking for in plain English — topics, people, decisions, or anything you remember about the email.
-              </p>
+          {loadingInbox && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 24, color: "#9a9088", fontSize: 13 }}>
+              <Spinner size={13} /> Loading emails…
             </div>
           )}
 
@@ -2375,20 +2495,25 @@ function EmailsTab({ projectId }) {
             </div>
           )}
 
-          {emails !== null && !searching && emails.length === 0 && (
+          {!loadingInbox && !searching && displayedEmails.length === 0 && (
             <div style={{ padding: "40px 24px", textAlign: "center" }}>
-              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>No emails found</p>
-              <p style={{ fontSize: 12, color: "#9a9088" }}>Try different search terms or adjust your filters</p>
+              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
+                {isSearchMode ? "No emails matched your search" : allEmails.length === 0 ? "No emails synced yet" : "No emails match your filters"}
+              </p>
+              <p style={{ fontSize: 12, color: "#9a9088" }}>
+                {isSearchMode ? `Try different search terms or lower the match threshold below ${threshold}%` : allEmails.length === 0 ? "Use ArchiSync to sync emails for this project" : "Try adjusting your filters"}
+              </p>
             </div>
           )}
 
-          {emails !== null && !searching && emails.length > 0 && (
+          {!loadingInbox && !searching && displayedEmails.length > 0 && (
             <div>
-              {emails.map(email => (
+              {displayedEmails.map(email => (
                 <EmailRow
                   key={email.id}
                   email={email}
                   selected={selectedEmail?.id === email.id}
+                  isSearchMode={isSearchMode}
                   onClick={() => handleSelectEmail(email)}
                 />
               ))}
@@ -2413,10 +2538,14 @@ function EmailsTab({ projectId }) {
   );
 }
 
-function EmailRow({ email, selected, onClick }) {
+function EmailRow({ email, selected, isSearchMode, onClick }) {
   const sentDate = email.sent_at ? new Date(email.sent_at) : null;
   const dateStr = sentDate ? sentDate.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   const fromDisplay = email.from_name || email.from_address || "Unknown sender";
+
+  // Colour-code match percentage
+  const pct = email.similarity !== undefined ? Math.round(email.similarity * 100) : null;
+  const matchColor = pct >= 80 ? AD_GREEN : pct >= 65 ? "#c28a20" : "#9a9088";
 
   return (
     <div
@@ -2436,21 +2565,21 @@ function EmailRow({ email, selected, onClick }) {
         <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, flex: 1, marginRight: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {fromDisplay}
         </div>
-        <div style={{ fontSize: 10, color: "#9a9088", flexShrink: 0 }}>{dateStr}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {isSearchMode && pct !== null && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: matchColor }}>
+              {pct}%
+            </span>
+          )}
+          <span style={{ fontSize: 10, color: "#9a9088" }}>{dateStr}</span>
+        </div>
       </div>
       <div style={{ fontSize: 12, color: ARC_NAVY, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {email.subject || "(no subject)"}
       </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        {email.has_attachments && (
-          <span style={{ fontSize: 10, color: "#9a9088" }}>📎 {email.attachment_names?.length || ""}</span>
-        )}
-        {email.similarity !== undefined && (
-          <span style={{ fontSize: 10, color: AD_GREEN, fontWeight: 600 }}>
-            {Math.round(email.similarity * 100)}% match
-          </span>
-        )}
-      </div>
+      {email.has_attachments && (
+        <span style={{ fontSize: 10, color: "#9a9088" }}>📎 {email.attachment_names?.length > 1 ? `${email.attachment_names.length} attachments` : "1 attachment"}</span>
+      )}
     </div>
   );
 }
