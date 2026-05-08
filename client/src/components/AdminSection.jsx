@@ -63,6 +63,7 @@ export default function AdminSection() {
   const [archisyncCode, setArchisyncCode] = useState(null);
   const [archisyncLoading, setArchisyncLoading] = useState(false);
   const [archisyncCopied, setArchisyncCopied] = useState(false);
+  const [archisyncPassword, setArchisyncPassword] = useState("");
 
   function showMsg(setter, type, text) {
     setter({ type, text });
@@ -189,7 +190,28 @@ export default function AdminSection() {
   }
 
   // ── ArchiSync ──────────────────────────────────────────────────────────────
+  async function encryptPayload(jsonStr, password) {
+    const enc = new TextEncoder();
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
+    const key = await crypto.subtle.deriveKey(
+      { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+      keyMaterial, { name: "AES-GCM", length: 256 }, false, ["encrypt"]
+    );
+    const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(jsonStr));
+    const combined = new Uint8Array(16 + 12 + ciphertext.byteLength);
+    combined.set(salt, 0);
+    combined.set(iv, 16);
+    combined.set(new Uint8Array(ciphertext), 28);
+    return btoa(String.fromCharCode(...combined));
+  }
+
   async function generateArchisyncCode() {
+    if (!archisyncPassword.trim()) {
+      alert("Please enter a password before generating the code.");
+      return;
+    }
     setArchisyncLoading(true);
     setArchisyncCode(null);
     try {
@@ -199,8 +221,8 @@ export default function AdminSection() {
         supabaseUrl: data.supabaseUrl,
         supabaseAnonKey: data.supabaseAnonKey
       });
-      const code = "ARCH-" + btoa(payload);
-      setArchisyncCode(code);
+      const encrypted = await encryptPayload(payload, archisyncPassword.trim());
+      setArchisyncCode("ARCH-" + encrypted);
     } catch (e) {
       alert("Failed to generate connection code: " + e.message);
     }
@@ -454,19 +476,32 @@ export default function AdminSection() {
 
       {/* ── ArchiSync Connection ──────────────────────────────────────────── */}
       <div style={{ marginBottom: 48 }}>
-        {sectionHeader("ArchiSync Connection", "Generate a connection code to link the ArchiSync desktop tool to this Archimind deployment.")}
+        {sectionHeader("ArchiSync Connection", "Generate an encrypted connection code to link the ArchiSync desktop tool to this Archimind deployment.")}
         <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${ARC_NAVY}`, padding: "24px 28px", maxWidth: 560 }}>
 
           <p style={{ fontSize: 13, color: "#6a6058", lineHeight: 1.7, marginBottom: 20 }}>
             Share this code with anyone who needs to connect ArchiSync to this Archimind instance.
-            The code contains the API and authentication details needed to connect — keep it private.
+            The code is encrypted with a password — share the code and password through separate channels.
             Codes do not expire but you can generate a new one at any time.
+          </p>
+
+          <label style={labelStyle}>Encryption Password</label>
+          <input
+            type="password"
+            value={archisyncPassword}
+            onChange={e => setArchisyncPassword(e.target.value)}
+            placeholder="Choose a password for this code"
+            style={inputStyle(false)}
+            disabled={!!archisyncCode}
+          />
+          <p style={{ fontSize: 11, color: "#9a9088", marginTop: -10, marginBottom: 20 }}>
+            The ArchiSync user will need this password when they paste the code.
           </p>
 
           {archisyncCode ? (
             <div>
               <p style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
-                Connection Code
+                Encrypted Connection Code
               </p>
               <div style={{
                 background: "#f5f3f0",
@@ -477,11 +512,14 @@ export default function AdminSection() {
                 color: ARC_NAVY,
                 wordBreak: "break-all",
                 letterSpacing: "0.02em",
-                marginBottom: 14,
+                marginBottom: 10,
                 lineHeight: 1.6
               }}>
                 {archisyncCode}
               </div>
+              <p style={{ fontSize: 11, color: ARC_TERRACOTTA, fontWeight: 600, marginBottom: 14 }}>
+                Remember to share the password separately from this code.
+              </p>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <button
                   onClick={copyArchisyncCode}
@@ -495,7 +533,7 @@ export default function AdminSection() {
                   {archisyncCopied ? "✓ Copied" : "Copy Code"}
                 </button>
                 <button
-                  onClick={() => { setArchisyncCode(null); setArchisyncCopied(false); }}
+                  onClick={() => { setArchisyncCode(null); setArchisyncCopied(false); setArchisyncPassword(""); }}
                   style={{ background: "none", color: "#9a9088", border: "1px solid #ddd8d0", padding: "8px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
                   Dismiss
                 </button>
@@ -504,13 +542,13 @@ export default function AdminSection() {
           ) : (
             <button
               onClick={generateArchisyncCode}
-              disabled={archisyncLoading}
+              disabled={archisyncLoading || !archisyncPassword.trim()}
               style={{
                 background: ARC_NAVY, color: "#fff", border: "none",
                 padding: "10px 24px", fontSize: 11, fontWeight: 600,
                 letterSpacing: "0.06em", textTransform: "uppercase",
-                cursor: archisyncLoading ? "not-allowed" : "pointer",
-                opacity: archisyncLoading ? 0.6 : 1,
+                cursor: (archisyncLoading || !archisyncPassword.trim()) ? "not-allowed" : "pointer",
+                opacity: (archisyncLoading || !archisyncPassword.trim()) ? 0.6 : 1,
                 display: "flex", alignItems: "center", gap: 8,
                 fontFamily: "Inter, Arial, sans-serif"
               }}>
