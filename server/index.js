@@ -267,9 +267,13 @@ app.post("/api/vaults", requireAuth, async (req, res) => {
   }
 });
 
+function sanitizeVaultPath(raw) {
+  return String(raw).replace(/\\/g, "/").split("/").filter(seg => seg !== "" && seg !== "." && seg !== "..").join("/");
+}
+
 // PATCH /api/vaults/:vault — rename a vault
 app.patch("/api/vaults/*", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   const { name: newName } = req.body;
   if (!newName) return res.status(400).json({ error: "New name required" });
 
@@ -296,7 +300,7 @@ app.patch("/api/vaults/*", requireAuth, async (req, res) => {
 app.delete("/api/vaults/*", requireAuth, async (req, res) => {
   if (req.params[0].includes("/pdfs/")) return res.status(404).json({ error: "Not found" });
 
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   try {
     await deletePrefix(`${vaultPath}/`);
     res.json({ deleted: true });
@@ -307,8 +311,8 @@ app.delete("/api/vaults/*", requireAuth, async (req, res) => {
 
 // POST /api/vaults/:vault/adopt — adopt an existing flat vault as a sub-vault of a master
 app.post("/api/vaults/*/adopt", requireAuth, async (req, res) => {
-  const masterPath = req.params[0];
-  const { sourceVault } = req.body;
+  const masterPath = sanitizeVaultPath(req.params[0]);
+  const sourceVault = sanitizeVaultPath(req.body.sourceVault || "");
   if (!sourceVault) return res.status(400).json({ error: "sourceVault required" });
 
   try {
@@ -337,7 +341,7 @@ app.post("/api/vaults/*/adopt", requireAuth, async (req, res) => {
 
 // GET /api/vaults/:vault/pdfs
 app.get("/api/vaults/*/pdfs", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   try {
     const result = await r2.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${vaultPath}/` }));
     const pdfs = (result.Contents || [])
@@ -351,7 +355,7 @@ app.get("/api/vaults/*/pdfs", requireAuth, async (req, res) => {
 
 // POST /api/vaults/:vault/pdfs
 app.post("/api/vaults/*/pdfs", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   const { name, base64 } = req.body;
   if (!name || !base64) return res.status(400).json({ error: "name and base64 required" });
   const buffer = Buffer.from(base64, "base64");
@@ -370,7 +374,7 @@ app.post("/api/vaults/*/pdfs", requireAuth, async (req, res) => {
 
 // GET /api/vaults/:vault/pdfs/:filename
 app.get("/api/vaults/*/pdfs/:filename", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   const { filename } = req.params;
   try {
     const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${vaultPath}/${filename}` }));
@@ -383,7 +387,7 @@ app.get("/api/vaults/*/pdfs/:filename", requireAuth, async (req, res) => {
 
 // DELETE /api/vaults/:vault/pdfs/:filename
 app.delete("/api/vaults/*/pdfs/:filename", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   const { filename } = req.params;
   try {
     await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: `${vaultPath}/${filename}` }));
@@ -395,7 +399,7 @@ app.delete("/api/vaults/*/pdfs/:filename", requireAuth, async (req, res) => {
 
 // POST /api/vaults/:vault/index
 app.post("/api/vaults/*/index", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   try {
     await r2.send(new PutObjectCommand({
       Bucket: BUCKET,
@@ -411,7 +415,7 @@ app.post("/api/vaults/*/index", requireAuth, async (req, res) => {
 
 // GET /api/vaults/:vault/index
 app.get("/api/vaults/*/index", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   try {
     const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${vaultPath}/.index.json` }));
     const buffer = await streamToBuffer(result.Body);
