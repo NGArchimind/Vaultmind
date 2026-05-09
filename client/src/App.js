@@ -1076,7 +1076,7 @@ export default function App() {
     .btn { cursor: pointer; transition: all 0.2s; border: none; font-family: Inter, Arial, sans-serif; letter-spacing: 0.01em; }
     .btn:hover { opacity: 0.85; }
     .btn:disabled { cursor: not-allowed; opacity: 0.35; }
-    .arc-input:focus { outline: 2px solid #0d6478; outline-offset: 0; }
+    .arc-input:focus { outline: 2px solid ${AD_GREEN}; outline-offset: 0; }
     body { font-family: Inter, Arial, sans-serif; }
   `;
 
