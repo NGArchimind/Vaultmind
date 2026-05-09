@@ -95,8 +95,8 @@ Concise guidance on when to use each product. Include scenarios where one is cle
       const useTextA = extractA.hasText;
       const useTextB = extractB.hasText;
 
-      docA.extractedText = extractA.text || "";
-      docB.extractedText = extractB.text || "";
+      docA = { ...docA, extractedText: extractA.text || "" };
+      docB = { ...docB, extractedText: extractB.text || "" };
 
       const MIN_CHARS = 200;
       const thinA = useTextA && extractA.text.replace(/\s/g, "").length < MIN_CHARS;
