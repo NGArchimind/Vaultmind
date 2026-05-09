@@ -54,7 +54,6 @@ async function splitPdfIntoChunks(base64Data, chunkSize) {
 function VaultPdfViewer({ base64, fileName, page, onClose }) {
   const iframeRef = useRef(null);
   const [blobUrl, setBlobUrl] = useState(null);
-  const [viewerUrl, setViewerUrl] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -63,11 +62,6 @@ function VaultPdfViewer({ base64, fileName, page, onClose }) {
     const blob = new Blob([bytes], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
     setBlobUrl(url);
-    // Use PDF.js CDN viewer — supports ?file= and #page= reliably across browsers
-    const pdfJsViewer = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf_viewer.min.js`;
-    // Use mozilla's hosted viewer which accepts a file param
-    const encodedUrl = encodeURIComponent(url);
-    setViewerUrl(`https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodedUrl}#page=${page || 1}`);
     return () => URL.revokeObjectURL(url);
   }, [base64, page]);
 
@@ -77,12 +71,6 @@ function VaultPdfViewer({ base64, fileName, page, onClose }) {
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [onClose]);
-
-  // mozilla.github.io pdf.js viewer blocks cross-origin blob URLs.
-  // Instead render the PDF directly in the iframe and use a page param approach.
-  // We use a self-contained HTML page written into the iframe via srcdoc,
-  // which embeds PDF.js from CDN and renders the PDF from base64 at the correct page.
-  const srcdoc = viewerUrl ? null : null; // built below
 
   // Build a self-contained viewer page using PDF.js from cdnjs
   const viewerHtml = blobUrl ? `<!DOCTYPE html>
