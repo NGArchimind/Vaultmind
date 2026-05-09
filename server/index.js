@@ -264,8 +264,11 @@ app.get("/api/vaults", requireAuth, async (req, res) => {
 
 // POST /api/vaults — create a regular vault or master vault
 app.post("/api/vaults", requireAuth, async (req, res) => {
-  const { name, type = "vault", parentVault } = req.body;
-  if (!name) return res.status(400).json({ error: "Name required" });
+  const { name: rawName, type = "vault", parentVault: rawParentVault } = req.body;
+  if (!rawName) return res.status(400).json({ error: "Name required" });
+  const name = sanitizeVaultPath(rawName);
+  const parentVault = rawParentVault ? sanitizeVaultPath(rawParentVault) : undefined;
+  if (!name) return res.status(400).json({ error: "Invalid vault name" });
 
   try {
     if (type === "master") {
