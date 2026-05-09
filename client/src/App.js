@@ -8,7 +8,7 @@ import LandingPage from "./components/LandingPage";
 import ProjectsSection from "./components/ProjectsSection";
 import DatasheetsLibrarySection from "./components/DatasheetsLibrarySection";
 import AdminSection from "./components/AdminSection";
-import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, BOILERPLATE_HEADINGS, isBoilerplate } from "./constants";
+import { AD_GREEN, AD_GREEN_MID, AD_GREEN_GRASS, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, BOILERPLATE_HEADINGS, isBoilerplate } from "./constants";
 
 // ── Vault PDF Viewer Modal ────────────────────────────────────────────────────
 function VaultPdfViewer({ base64, fileName, page, onClose }) {
@@ -1496,7 +1496,7 @@ export default function App() {
                           {vaultHistory.map((h, i) => (
                             <div key={i} style={{ marginBottom: 8 }}>
                               <div style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                                <span style={{ color: "#4a7c20", fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                                <span style={{ color: "${AD_GREEN_GRASS}", fontWeight: 700, flexShrink: 0 }}>Q:</span>
                                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.question}</span>
                                 <span style={{ fontSize: 11, color: "#6f777b", flexShrink: 0 }}>{new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                               </div>
@@ -1517,7 +1517,7 @@ export default function App() {
 
                       {answer && (
                         <div style={{ animation: "fadeIn 0.4s ease" }}>
-                          <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #4a7c20", padding: "24px 28px" }}>
+                          <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid ${AD_GREEN_GRASS}", padding: "24px 28px" }}>
                             <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                               Response — {answerVaultName || (queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name)}
                             </p>

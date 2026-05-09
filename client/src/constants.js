@@ -3,6 +3,7 @@ export const AD_GREEN = "#0d6478";
 export const AD_GREEN_LIGHT = "#f0f5f6";
 export const AD_GREEN_MID = "#b8d4da";
 export const AD_GREEN_FOREST = "#2e7d4f";
+export const AD_GREEN_GRASS = "#4a7c20";
 export const ARC_NAVY = "#1e2a35";
 export const ARC_TERRACOTTA = "#c25a45";
 export const ARC_STONE = "#e8e0d5";
