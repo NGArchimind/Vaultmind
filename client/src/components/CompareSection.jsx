@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { api, callClaude, fileToBase64 } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner, ProgressBar } from "./common/Spinner";
-import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA } from "../constants";
+import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, BOILERPLATE_HEADINGS, isBoilerplate } from "../constants";
 
 export default function CompareSection({ vaults, isAdmin }) {
   const [docA, setDocA] = useState(null);
@@ -297,17 +297,6 @@ Return ONLY a JSON array of 3 strings, no other text:
       // Pass 1: Score index
       setComplianceStatus(`Pass 1/3 · Scoring index…`);
       setComplianceProgress({ select: 20, read: 0, answer: 0 });
-
-      const BOILERPLATE_HEADINGS = [
-        "the approved documents", "what is an approved document", "approved documents",
-        "list of approved documents", "use of guidance", "how to use this approved document",
-        "other guidance", "the building regulations", "online version", "hm government",
-        "main changes", "approved document", "list of approved documents"
-      ];
-      const isBoilerplate = (title) => {
-        const t = title.toLowerCase().trim();
-        return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
-      };
 
       const indexSummary = (vaultIndex.documents || []).map(doc => {
         const pageFrequency = {};

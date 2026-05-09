@@ -8,7 +8,7 @@ import LandingPage from "./components/LandingPage";
 import ProjectsSection from "./components/ProjectsSection";
 import DatasheetsLibrarySection from "./components/DatasheetsLibrarySection";
 import AdminSection from "./components/AdminSection";
-import { AD_GREEN, AD_GREEN_LIGHT, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, MAX_PAGES_PER_CHUNK } from "./constants";
+import { AD_GREEN, AD_GREEN_LIGHT, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, MAX_PAGES_PER_CHUNK, BOILERPLATE_HEADINGS, isBoilerplate } from "./constants";
 
 const IS_DEMO = false;
 const MAX_PAGES_PER_CHUNK_LOCAL = MAX_PAGES_PER_CHUNK;
@@ -717,17 +717,6 @@ export default function App() {
 
       // ── PASS 1: Score index ──────────────────────────────────────────────────
       setStatusMsg("Pass 1/3 · Scoring index — identifying relevant sections…");
-
-      const BOILERPLATE_HEADINGS = [
-        "the approved documents", "what is an approved document", "approved documents",
-        "list of approved documents", "use of guidance", "how to use this approved document",
-        "other guidance", "the building regulations", "online version", "hm government",
-        "main changes", "approved document", "list of approved documents"
-      ];
-      const isBoilerplate = (title) => {
-        const t = title.toLowerCase().trim();
-        return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
-      };
 
       const indexSummary = (activeIndex.documents || []).map(doc => {
         const contentsPages = new Set(

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { api, callClaude, fileToBase64 } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, LIBRARY_BLUE, LIBRARY_BLUE_LIGHT, AD_GREEN_FOREST } from "../constants";
+import { ARC_NAVY, ARC_TERRACOTTA, LIBRARY_BLUE, LIBRARY_BLUE_LIGHT, AD_GREEN_FOREST, BOILERPLATE_HEADINGS, isBoilerplate } from "../constants";
 
 export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [products, setProducts] = useState([]);
@@ -498,17 +498,6 @@ Extract every relevant technical attribute: dimensions, weights, thermal values,
       // Pass 1: Score index
       setComplianceStatus("Pass 1/3 · Scoring index…");
       setComplianceProgress({ select: 20, read: 0, answer: 0 });
-
-      const BOILERPLATE_HEADINGS = [
-        "the approved documents", "what is an approved document", "approved documents",
-        "list of approved documents", "use of guidance", "how to use this approved document",
-        "other guidance", "the building regulations", "online version", "hm government",
-        "main changes", "approved document", "list of approved documents"
-      ];
-      const isBoilerplate = (title) => {
-        const t = title.toLowerCase().trim();
-        return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
-      };
 
       const indexSummary = (vaultIndex.documents || []).map(doc => {
         const pageFrequency = {};

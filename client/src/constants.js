@@ -11,3 +11,15 @@ export const LIBRARY_BLUE_LIGHT = "#eef4f8";
 
 // ── Layout / behaviour constants ──────────────────────────────────────────────
 export const MAX_PAGES_PER_CHUNK = 90;
+
+// ── Document pipeline ─────────────────────────────────────────────────────────
+export const BOILERPLATE_HEADINGS = [
+  "the approved documents", "what is an approved document", "approved documents",
+  "list of approved documents", "use of guidance", "how to use this approved document",
+  "other guidance", "the building regulations", "online version", "hm government",
+  "main changes", "approved document", "list of approved documents"
+];
+export const isBoilerplate = (title) => {
+  const t = title.toLowerCase().trim();
+  return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
+};
