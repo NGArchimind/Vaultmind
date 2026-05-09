@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { api, callClaude, fileToBase64 } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, LIBRARY_BLUE, LIBRARY_BLUE_LIGHT } from "../constants";
+import { ARC_NAVY, ARC_TERRACOTTA, LIBRARY_BLUE, LIBRARY_BLUE_LIGHT, AD_GREEN_FOREST, BOILERPLATE_HEADINGS, isBoilerplate } from "../constants";
 
 export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [products, setProducts] = useState([]);
@@ -37,6 +37,9 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [assignCatsLoading, setAssignCatsLoading] = useState(false);
   const [assigning, setAssigning] = useState(false);
   const [assignError, setAssignError] = useState("");
+  const [assignNewCatName, setAssignNewCatName] = useState("");
+  const [assignAddingCat, setAssignAddingCat] = useState(false);
+  const [assignSavingCat, setAssignSavingCat] = useState(false);
   // productId → array of project names it's assigned to
   const [assignmentMap, setAssignmentMap] = useState({});
 
@@ -65,7 +68,7 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   }
 
   // Load a map of productId → [projectName, ...] for assignment badges
-  async function loadAssignmentMap(productList) {
+  async function loadAssignmentMap() {
     try {
       const { projects } = await api("/api/projects");
       if (!projects || projects.length === 0) return;
@@ -101,6 +104,8 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
     setAssignCategoryId("");
     setAssignCategories([]);
     setAssignError("");
+    setAssignNewCatName("");
+    setAssignAddingCat(false);
     if (!projectsLoaded) {
       try {
         const { projects } = await api("/api/projects");
@@ -119,6 +124,8 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
     setAssignCategoryId("");
     setAssignCategories([]);
     setAssignError("");
+    setAssignNewCatName("");
+    setAssignAddingCat(false);
     if (!projectsLoaded) {
       try {
         const { projects } = await api("/api/projects");
@@ -196,6 +203,26 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
     setAssignProjectId("");
     setAssignCategoryId("");
     setAssignError("");
+    setAssignNewCatName("");
+    setAssignAddingCat(false);
+  }
+
+  async function createAssignCategory() {
+    if (!assignNewCatName.trim() || !assignProjectId) return;
+    setAssignSavingCat(true);
+    try {
+      const { category } = await api(`/api/projects/${assignProjectId}/categories`, {
+        method: "POST",
+        body: { name: assignNewCatName.trim(), sort_order: assignCategories.length },
+      });
+      setAssignCategories(prev => [...prev, category]);
+      setAssignCategoryId(category.id);
+      setAssignNewCatName("");
+      setAssignAddingCat(false);
+    } catch (e) {
+      setAssignError("Could not create category: " + e.message);
+    }
+    setAssignSavingCat(false);
   }
 
   const manufacturers = [...new Set(products.map(p => p.manufacturer).filter(Boolean))].sort();
@@ -471,17 +498,6 @@ Extract every relevant technical attribute: dimensions, weights, thermal values,
       // Pass 1: Score index
       setComplianceStatus("Pass 1/3 · Scoring index…");
       setComplianceProgress({ select: 20, read: 0, answer: 0 });
-
-      const BOILERPLATE_HEADINGS = [
-        "the approved documents", "what is an approved document", "approved documents",
-        "list of approved documents", "use of guidance", "how to use this approved document",
-        "other guidance", "the building regulations", "online version", "hm government",
-        "main changes", "approved document", "list of approved documents"
-      ];
-      const isBoilerplate = (title) => {
-        const t = title.toLowerCase().trim();
-        return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
-      };
 
       const indexSummary = (vaultIndex.documents || []).map(doc => {
         const pageFrequency = {};
@@ -817,7 +833,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
           )}
           {selectedIds.size > 1 && (
             <button className="btn" onClick={openBulkAssignModal}
-              style={{ background: "#2e7d4f", color: "#fff", border: "none", padding: "6px 14px", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+              style={{ background: AD_GREEN_FOREST, color: "#fff", border: "none", padding: "6px 14px", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
               + Assign {selectedIds.size} to Project
             </button>
           )}
@@ -918,13 +934,13 @@ Use only the provided document pages. Do not speculate beyond what the documents
                       {/* Assignment badge */}
                       {assignmentMap[product.id]?.length > 0 && (
                         <span title={assignmentMap[product.id].join(", ")}
-                          style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", color: "#2e7d4f", background: "#e6f4ec", padding: "2px 8px", flexShrink: 0, cursor: "default", whiteSpace: "nowrap" }}>
+                          style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", color: AD_GREEN_FOREST, background: "#e6f4ec", padding: "2px 8px", flexShrink: 0, cursor: "default", whiteSpace: "nowrap" }}>
                           {assignmentMap[product.id].length} project{assignmentMap[product.id].length !== 1 ? "s" : ""}
                         </span>
                       )}
                       {/* Assign to project button */}
                       <button className="btn" onClick={() => openAssignModal(product)}
-                        style={{ fontSize: 11, color: "#2e7d4f", background: "none", border: "1px solid #2e7d4f", padding: "2px 10px", flexShrink: 0, fontWeight: 500, whiteSpace: "nowrap" }}>
+                        style={{ fontSize: 11, color: AD_GREEN_FOREST, background: "none", border: `1px solid ${AD_GREEN_FOREST}`, padding: "2px 10px", flexShrink: 0, fontWeight: 500, whiteSpace: "nowrap" }}>
                         + Assign
                       </button>
                       <button className="btn" onClick={() => handleExpand(product.id)}
@@ -1033,7 +1049,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
       {/* ── Assign to project modal ─────────────────────────────────────────── */}
       {(assigningProduct || assigningBulk) && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", width: 460, borderTop: "3px solid #2e7d4f", fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column" }}>
+          <div style={{ background: "#fff", width: 460, borderTop: `3px solid ${AD_GREEN_FOREST}`, fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column" }}>
             {/* Modal header */}
             <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #e8e0d5" }}>
               <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#9a9088", marginBottom: 4 }}>Assign to Project</div>
@@ -1072,13 +1088,38 @@ Use only the provided document pages. Do not speculate beyond what the documents
                   {assignCatsLoading ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#9a9088" }}><Spinner size={11} /> Loading categories…</div>
                   ) : (
-                    <select value={assignCategoryId} onChange={e => setAssignCategoryId(e.target.value)}
-                      style={{ width: "100%", fontSize: 13, padding: "8px 10px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", color: assignCategoryId ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff" }}>
-                      <option value="">Select a category…</option>
-                      {assignCategories.map(c => (
-                        <option key={c.id} value={c.id}>{c.name}</option>
-                      ))}
-                    </select>
+                    <>
+                      <select value={assignCategoryId}
+                        onChange={e => {
+                          if (e.target.value === "__new__") { setAssignAddingCat(true); setAssignCategoryId(""); }
+                          else { setAssignCategoryId(e.target.value); setAssignAddingCat(false); }
+                        }}
+                        style={{ width: "100%", fontSize: 13, padding: "8px 10px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", color: assignCategoryId ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff", marginBottom: assignAddingCat ? 8 : 0 }}>
+                        <option value="">Select a category…</option>
+                        {assignCategories.map(c => (
+                          <option key={c.id} value={c.id}>{c.name}</option>
+                        ))}
+                        <option value="__new__">+ New category…</option>
+                      </select>
+                      {assignAddingCat && (
+                        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                          <input
+                            autoFocus
+                            value={assignNewCatName}
+                            onChange={e => setAssignNewCatName(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") createAssignCategory(); if (e.key === "Escape") { setAssignAddingCat(false); setAssignNewCatName(""); } }}
+                            placeholder="New category name…"
+                            style={{ flex: 1, border: `1px solid ${AD_GREEN_FOREST}`, padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none" }} />
+                          <button className="btn" onClick={createAssignCategory}
+                            disabled={!assignNewCatName.trim() || assignSavingCat}
+                            style={{ background: AD_GREEN_FOREST, color: "#fff", padding: "7px 14px", fontSize: 11, fontWeight: 600, flexShrink: 0, opacity: !assignNewCatName.trim() || assignSavingCat ? 0.5 : 1 }}>
+                            {assignSavingCat ? <Spinner size={11} /> : "Add"}
+                          </button>
+                          <button className="btn" onClick={() => { setAssignAddingCat(false); setAssignNewCatName(""); }}
+                            style={{ background: "none", color: "#9a9088", padding: "7px 10px", fontSize: 11, border: "1px solid #ddd8d0", flexShrink: 0 }}>✕</button>
+                        </div>
+                      )}
+                    </>
                   )}
                 </div>
               )}
@@ -1092,7 +1133,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
                   style={{ background: "none", color: "#9a9088", padding: "8px 16px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
                 <button className="btn" onClick={confirmAssign}
                   disabled={!assignProjectId || !assignCategoryId || assigning}
-                  style={{ background: assignProjectId && assignCategoryId && !assigning ? "#2e7d4f" : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  style={{ background: assignProjectId && assignCategoryId && !assigning ? AD_GREEN_FOREST : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                   {assigning ? <Spinner size={11} /> : "Assign"}
                 </button>
               </div>

@@ -5,7 +5,33 @@ const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
 
 const app = express();
-app.use(cors());
+
+const rateLimitMap = new Map();
+function rateLimit(maxRequests, windowMs) {
+  return (req, res, next) => {
+    const key = req.user?.id || req.ip;
+    const now = Date.now();
+    const entry = rateLimitMap.get(key) || { count: 0, start: now };
+    if (now - entry.start > windowMs) {
+      entry.count = 0;
+      entry.start = now;
+    }
+    entry.count++;
+    rateLimitMap.set(key, entry);
+    if (entry.count > maxRequests) {
+      return res.status(429).json({ error: "Too many requests — please slow down." });
+    }
+    next();
+  };
+}
+
+app.use(cors({
+  origin: [
+    "https://archimind-omega.vercel.app",
+    "https://archimind-git-develop-nathan-greens-projects-192281d0.vercel.app"
+  ],
+  credentials: true
+}));
 app.use(express.json({ limit: "100mb" }));
 
 // Extend timeout to 5 minutes to handle large Gemini requests
@@ -101,7 +127,7 @@ async function requireAuth(req, res, next) {
 }
 
 // ── Gemini AI proxy ───────────────────────────────────────────────────────────
-app.post("/api/claude", requireAuth, async (req, res) => {
+app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "GEMINI_API_KEY not set." });
 
@@ -267,9 +293,13 @@ app.post("/api/vaults", requireAuth, async (req, res) => {
   }
 });
 
+function sanitizeVaultPath(raw) {
+  return String(raw).replace(/\\/g, "/").split("/").filter(seg => seg !== "" && seg !== "." && seg !== "..").join("/");
+}
+
 // PATCH /api/vaults/:vault — rename a vault
 app.patch("/api/vaults/*", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   const { name: newName } = req.body;
   if (!newName) return res.status(400).json({ error: "New name required" });
 
@@ -296,7 +326,7 @@ app.patch("/api/vaults/*", requireAuth, async (req, res) => {
 app.delete("/api/vaults/*", requireAuth, async (req, res) => {
   if (req.params[0].includes("/pdfs/")) return res.status(404).json({ error: "Not found" });
 
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   try {
     await deletePrefix(`${vaultPath}/`);
     res.json({ deleted: true });
@@ -307,8 +337,8 @@ app.delete("/api/vaults/*", requireAuth, async (req, res) => {
 
 // POST /api/vaults/:vault/adopt — adopt an existing flat vault as a sub-vault of a master
 app.post("/api/vaults/*/adopt", requireAuth, async (req, res) => {
-  const masterPath = req.params[0];
-  const { sourceVault } = req.body;
+  const masterPath = sanitizeVaultPath(req.params[0]);
+  const sourceVault = sanitizeVaultPath(req.body.sourceVault || "");
   if (!sourceVault) return res.status(400).json({ error: "sourceVault required" });
 
   try {
@@ -337,7 +367,7 @@ app.post("/api/vaults/*/adopt", requireAuth, async (req, res) => {
 
 // GET /api/vaults/:vault/pdfs
 app.get("/api/vaults/*/pdfs", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   try {
     const result = await r2.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${vaultPath}/` }));
     const pdfs = (result.Contents || [])
@@ -351,7 +381,7 @@ app.get("/api/vaults/*/pdfs", requireAuth, async (req, res) => {
 
 // POST /api/vaults/:vault/pdfs
 app.post("/api/vaults/*/pdfs", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   const { name, base64 } = req.body;
   if (!name || !base64) return res.status(400).json({ error: "name and base64 required" });
   const buffer = Buffer.from(base64, "base64");
@@ -370,7 +400,7 @@ app.post("/api/vaults/*/pdfs", requireAuth, async (req, res) => {
 
 // GET /api/vaults/:vault/pdfs/:filename
 app.get("/api/vaults/*/pdfs/:filename", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   const { filename } = req.params;
   try {
     const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${vaultPath}/${filename}` }));
@@ -383,7 +413,7 @@ app.get("/api/vaults/*/pdfs/:filename", requireAuth, async (req, res) => {
 
 // DELETE /api/vaults/:vault/pdfs/:filename
 app.delete("/api/vaults/*/pdfs/:filename", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   const { filename } = req.params;
   try {
     await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: `${vaultPath}/${filename}` }));
@@ -395,7 +425,7 @@ app.delete("/api/vaults/*/pdfs/:filename", requireAuth, async (req, res) => {
 
 // POST /api/vaults/:vault/index
 app.post("/api/vaults/*/index", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   try {
     await r2.send(new PutObjectCommand({
       Bucket: BUCKET,
@@ -411,7 +441,7 @@ app.post("/api/vaults/*/index", requireAuth, async (req, res) => {
 
 // GET /api/vaults/:vault/index
 app.get("/api/vaults/*/index", requireAuth, async (req, res) => {
-  const vaultPath = req.params[0];
+  const vaultPath = sanitizeVaultPath(req.params[0]);
   try {
     const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: `${vaultPath}/.index.json` }));
     const buffer = await streamToBuffer(result.Body);
@@ -1192,6 +1222,206 @@ app.delete("/api/projects/:id/todos/:tid", requireAuth, async (req, res) => {
       .from("project_todos")
       .delete()
       .eq("id", req.params.tid)
+      .eq("project_id", req.params.id);
+    if (error) throw error;
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Email routes ──────────────────────────────────────────────────────────────
+
+// Helper: generate embedding via Gemini
+async function generateEmbedding(text) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "models/gemini-embedding-001",
+      content: { parts: [{ text: text.slice(0, 8000) }] },
+      outputDimensionality: 768,
+    }),
+  });
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`Embedding error: ${err}`);
+  }
+  const data = await response.json();
+  return data.embedding.values; // array of 768 numbers
+}
+// POST /api/projects/:id/emails/ingest
+// ArchiSync calls this in batches. Each item in the batch is one parsed email.
+app.post("/api/projects/:id/emails/ingest", requireAuth, async (req, res) => {
+  const { emails } = req.body; // array of email objects
+  if (!Array.isArray(emails) || emails.length === 0) {
+    return res.status(400).json({ error: "emails array required" });
+  }
+
+  const results = { inserted: 0, skipped: 0, errors: [] };
+
+  for (const email of emails) {
+    try {
+      // Build text for embedding: subject + body (trimmed)
+      const textForEmbedding = [
+        email.subject || "",
+        email.from_name || email.from_address || "",
+        email.body_text || "",
+      ].join("\n").trim();
+
+      if (!textForEmbedding) { results.skipped++; continue; }
+
+      const embedding = await generateEmbedding(textForEmbedding);
+
+      const { error } = await supabase
+        .from("project_emails")
+        .upsert({
+          project_id: req.params.id,
+          message_id: email.message_id,
+          subject: email.subject || null,
+          from_address: email.from_address || null,
+          from_name: email.from_name || null,
+          to_addresses: email.to_addresses || [],
+          cc_addresses: email.cc_addresses || [],
+          sent_at: email.sent_at || null,
+          body_text: email.body_text || null,
+          has_attachments: email.has_attachments || false,
+          attachment_names: email.attachment_names || [],
+          embedding,
+        }, { onConflict: "project_id,message_id", ignoreDuplicates: false });
+
+      if (error) throw error;
+      results.inserted++;
+    } catch (err) {
+      results.errors.push({ message_id: email.message_id, error: err.message });
+    }
+  }
+
+  res.json(results);
+});
+
+// GET /api/projects/:id/emails/synced-ids
+// ArchiSync calls this before syncing to know which message_ids already exist
+app.get("/api/projects/:id/emails/synced-ids", requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("project_emails")
+      .select("message_id")
+      .eq("project_id", req.params.id);
+    if (error) throw error;
+    res.json({ message_ids: (data || []).map(r => r.message_id) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/:id/emails/search
+// Frontend calls this with a natural language question + optional filters
+app.post("/api/projects/:id/emails/search", requireAuth, async (req, res) => {
+  const { query, filters = {}, limit = 30 } = req.body;
+
+  try {
+    // If there's a query, embed it and do similarity search
+    if (query && query.trim()) {
+      const queryEmbedding = await generateEmbedding(query.trim());
+
+      // Build filter conditions for the RPC call
+      const filterConditions = { p_project_id: req.params.id, p_limit: limit };
+
+      // We do the similarity search via a raw Supabase RPC (pgvector)
+      // then filter in JS for simplicity — acceptable at this scale
+      const { data, error } = await supabase.rpc("search_project_emails", {
+        p_project_id: req.params.id,
+        p_embedding: queryEmbedding,
+        p_limit: Math.min(limit * 3, 100), // fetch more, then filter down
+      });
+
+      if (error) throw error;
+
+      // Apply manual filters on top of semantic results
+      let results = data || [];
+      if (filters.from) {
+        const f = filters.from.toLowerCase();
+        results = results.filter(e =>
+          (e.from_address || "").toLowerCase().includes(f) ||
+          (e.from_name || "").toLowerCase().includes(f)
+        );
+      }
+      if (filters.to) {
+        const f = filters.to.toLowerCase();
+        results = results.filter(e =>
+          (e.to_addresses || []).some(a => a.toLowerCase().includes(f))
+        );
+      }
+      if (filters.subject) {
+        const f = filters.subject.toLowerCase();
+        results = results.filter(e => (e.subject || "").toLowerCase().includes(f));
+      }
+      if (filters.has_attachments !== undefined) {
+        results = results.filter(e => e.has_attachments === filters.has_attachments);
+      }
+      if (filters.date_from) {
+        results = results.filter(e => e.sent_at && e.sent_at >= filters.date_from);
+      }
+      if (filters.date_to) {
+        results = results.filter(e => e.sent_at && e.sent_at <= filters.date_to);
+      }
+
+      return res.json({ emails: results.slice(0, limit) });
+    }
+
+    // No query — just apply filters and return most recent
+    let q = supabase
+      .from("project_emails")
+      .select("id, subject, from_address, from_name, to_addresses, cc_addresses, sent_at, has_attachments, attachment_names")
+      .eq("project_id", req.params.id)
+      .order("sent_at", { ascending: false })
+      .limit(limit);
+
+    if (filters.from) q = q.or(`from_address.ilike.%${filters.from}%,from_name.ilike.%${filters.from}%`);
+    if (filters.to) q = q.contains("to_addresses", [filters.to]);
+    if (filters.subject) q = q.ilike("subject", `%${filters.subject}%`);
+    if (filters.has_attachments !== undefined) q = q.eq("has_attachments", filters.has_attachments);
+    if (filters.date_from) q = q.gte("sent_at", filters.date_from);
+    if (filters.date_to) q = q.lte("sent_at", filters.date_to);
+
+    const { data, error } = await q;
+    if (error) throw error;
+    res.json({ emails: data || [] });
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/projects/:id/emails/:eid
+// Frontend calls this to get the full body text for the preview pane
+app.get("/api/projects/:id/emails/:eid", requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("project_emails")
+      .select("*")
+      .eq("id", req.params.eid)
+      .eq("project_id", req.params.id)
+      .single();
+    if (error) throw error;
+    // Don't send the embedding vector back to the client — it's large and useless in the UI
+    const { embedding, ...emailData } = data;
+    res.json({ email: emailData });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/projects/:id/emails/:eid
+app.delete("/api/projects/:id/emails/:eid", requireAuth, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from("project_emails")
+      .delete()
+      .eq("id", req.params.eid)
       .eq("project_id", req.params.id);
     if (error) throw error;
     res.json({ deleted: true });

@@ -105,12 +105,10 @@ export async function callClaude(messages, systemPrompt, maxTokens = 1000, retri
   clearTimeout(timeoutId);
 
   if (res.status === 429 && retries > 0) {
-    console.log(`Rate limit hit, waiting 15 seconds before retry (${retries} retries left)…`);
     await new Promise(r => setTimeout(r, 15000));
     return callClaude(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs, options);
   }
   if ((res.status === 504 || res.status === 502) && retries > 0) {
-    console.log(`Gateway error ${res.status}, retrying in 5 seconds…`);
     await new Promise(r => setTimeout(r, 5000));
     return callClaude(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs, options);
   }

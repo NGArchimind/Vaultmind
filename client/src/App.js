@@ -8,53 +8,12 @@ import LandingPage from "./components/LandingPage";
 import ProjectsSection from "./components/ProjectsSection";
 import DatasheetsLibrarySection from "./components/DatasheetsLibrarySection";
 import AdminSection from "./components/AdminSection";
-import { AD_GREEN, AD_GREEN_LIGHT, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, MAX_PAGES_PER_CHUNK } from "./constants";
-
-const IS_DEMO = false;
-const MAX_PAGES_PER_CHUNK_LOCAL = MAX_PAGES_PER_CHUNK;
-
-async function splitPdfIntoChunks(base64Data, chunkSize) {
-  try {
-    if (!window.PDFLib) {
-      await new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js";
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.appendChild(script);
-      });
-    }
-    const { PDFDocument } = window.PDFLib;
-    const pdfBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-    const srcDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-    const totalPages = srcDoc.getPageCount();
-    const chunks = [];
-    for (let start = 0; start < totalPages; start += chunkSize) {
-      const end = Math.min(start + chunkSize, totalPages);
-      const chunkDoc = await PDFDocument.create();
-      const pages = await chunkDoc.copyPages(srcDoc, Array.from({ length: end - start }, (_, i) => start + i));
-      pages.forEach(p => chunkDoc.addPage(p));
-      const chunkBytes = await chunkDoc.save();
-      const chunkBase64 = await new Promise((resolve) => {
-        const blob = new Blob([chunkBytes], { type: "application/pdf" });
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(",")[1]);
-        reader.readAsDataURL(blob);
-      });
-      chunks.push({ base64: chunkBase64, startPage: start + 1, endPage: end, totalPages });
-    }
-    return chunks;
-  } catch (e) {
-    console.warn("PDF splitting failed:", e);
-    return [{ base64: base64Data, startPage: 1, endPage: "?", totalPages: "?" }];
-  }
-}
+import { AD_GREEN, AD_GREEN_MID, AD_GREEN_GRASS, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, BOILERPLATE_HEADINGS, isBoilerplate } from "./constants";
 
 // ── Vault PDF Viewer Modal ────────────────────────────────────────────────────
 function VaultPdfViewer({ base64, fileName, page, onClose }) {
   const iframeRef = useRef(null);
   const [blobUrl, setBlobUrl] = useState(null);
-  const [viewerUrl, setViewerUrl] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -63,11 +22,6 @@ function VaultPdfViewer({ base64, fileName, page, onClose }) {
     const blob = new Blob([bytes], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
     setBlobUrl(url);
-    // Use PDF.js CDN viewer — supports ?file= and #page= reliably across browsers
-    const pdfJsViewer = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf_viewer.min.js`;
-    // Use mozilla's hosted viewer which accepts a file param
-    const encodedUrl = encodeURIComponent(url);
-    setViewerUrl(`https://mozilla.github.io/pdf.js/web/viewer.html?file=${encodedUrl}#page=${page || 1}`);
     return () => URL.revokeObjectURL(url);
   }, [base64, page]);
 
@@ -77,12 +31,6 @@ function VaultPdfViewer({ base64, fileName, page, onClose }) {
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
   }, [onClose]);
-
-  // mozilla.github.io pdf.js viewer blocks cross-origin blob URLs.
-  // Instead render the PDF directly in the iframe and use a page param approach.
-  // We use a self-contained HTML page written into the iframe via srcdoc,
-  // which embeds PDF.js from CDN and renders the PDF from base64 at the correct page.
-  const srcdoc = viewerUrl ? null : null; // built below
 
   // Build a self-contained viewer page using PDF.js from cdnjs
   const viewerHtml = blobUrl ? `<!DOCTYPE html>
@@ -718,17 +666,6 @@ export default function App() {
       // ── PASS 1: Score index ──────────────────────────────────────────────────
       setStatusMsg("Pass 1/3 · Scoring index — identifying relevant sections…");
 
-      const BOILERPLATE_HEADINGS = [
-        "the approved documents", "what is an approved document", "approved documents",
-        "list of approved documents", "use of guidance", "how to use this approved document",
-        "other guidance", "the building regulations", "online version", "hm government",
-        "main changes", "approved document", "list of approved documents"
-      ];
-      const isBoilerplate = (title) => {
-        const t = title.toLowerCase().trim();
-        return BOILERPLATE_HEADINGS.some(b => t === b || t === b + "s");
-      };
-
       const indexSummary = (activeIndex.documents || []).map(doc => {
         const contentsPages = new Set(
           (doc.headings || [])
@@ -1139,7 +1076,7 @@ export default function App() {
     .btn { cursor: pointer; transition: all 0.2s; border: none; font-family: Inter, Arial, sans-serif; letter-spacing: 0.01em; }
     .btn:hover { opacity: 0.85; }
     .btn:disabled { cursor: not-allowed; opacity: 0.35; }
-    .arc-input:focus { outline: 2px solid #0d6478; outline-offset: 0; }
+    .arc-input:focus { outline: 2px solid ${AD_GREEN}; outline-offset: 0; }
     body { font-family: Inter, Arial, sans-serif; }
   `;
 
@@ -1559,7 +1496,7 @@ export default function App() {
                           {vaultHistory.map((h, i) => (
                             <div key={i} style={{ marginBottom: 8 }}>
                               <div style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                                <span style={{ color: "#4a7c20", fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                                <span style={{ color: "${AD_GREEN_GRASS}", fontWeight: 700, flexShrink: 0 }}>Q:</span>
                                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.question}</span>
                                 <span style={{ fontSize: 11, color: "#6f777b", flexShrink: 0 }}>{new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                               </div>
@@ -1580,7 +1517,7 @@ export default function App() {
 
                       {answer && (
                         <div style={{ animation: "fadeIn 0.4s ease" }}>
-                          <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid #4a7c20", padding: "24px 28px" }}>
+                          <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid ${AD_GREEN_GRASS}", padding: "24px 28px" }}>
                             <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                               Response — {answerVaultName || (queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name)}
                             </p>

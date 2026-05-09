@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api, callClaude } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
@@ -133,22 +133,25 @@ function PdfViewerModal({ drawing: initialDrawing, projectId, onClose, drawings:
   const [pdfUrl, setPdfUrl] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const pdfUrlRef = useRef(null);
 
   useEffect(() => {
     async function load() {
       setLoading(true); setPdfUrl(null); setError("");
       try {
-        const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
+        const { base64 } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
         const binary = atob(base64);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         const blob = new Blob([bytes], { type: "application/pdf" });
-        setPdfUrl(URL.createObjectURL(blob));
+        const url = URL.createObjectURL(blob);
+        pdfUrlRef.current = url;
+        setPdfUrl(url);
       } catch (e) { setError("Failed to load drawing: " + e.message); }
       setLoading(false);
     }
     load();
-    return () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); };
+    return () => { if (pdfUrlRef.current) { URL.revokeObjectURL(pdfUrlRef.current); pdfUrlRef.current = null; } };
   }, [drawing.id]);
 
   useEffect(() => {
@@ -2136,7 +2139,518 @@ function ProductsTab({ projectId, isAdmin }) {
     </div>
   );
 }
+// ── Emails tab ────────────────────────────────────────────────────────────────
+function EmailsTab({ projectId }) {
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [query, setQuery] = useState("");
+  const [showFilters, setShowFilters] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [emails, setEmails] = useState([]); // starts as empty, loaded on mount
+  const [allEmails, setAllEmails] = useState([]); // full inbox — loaded on mount
+  const [isSearchMode, setIsSearchMode] = useState(false); // true after a search
+  const [selectedEmail, setSelectedEmail] = useState(null);
+  const [loadingEmail, setLoadingEmail] = useState(false);
+  const [emailBody, setEmailBody] = useState(null);
+  const [searchError, setSearchError] = useState(null);
+  const [loadingInbox, setLoadingInbox] = useState(true);
 
+  // Similarity threshold slider (0–100, stored as integer percentage)
+  const [threshold, setThreshold] = useState(55);
+
+  // Filter field state
+  const [filterFrom, setFilterFrom] = useState("");
+  const [filterTo, setFilterTo] = useState("");
+  const [filterSubject, setFilterSubject] = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterHasAttachments, setFilterHasAttachments] = useState("");
+
+  // Load full inbox on mount
+  useEffect(() => {
+    setLoadingInbox(true);
+    api(`/api/projects/${projectId}/emails/search`, {
+      method: "POST",
+      body: { query: "", filters: {}, limit: 1000 },
+    })
+      .then(d => {
+        const sorted = (d.emails || []).sort((a, b) => {
+          if (!a.sent_at) return 1;
+          if (!b.sent_at) return -1;
+          return new Date(b.sent_at) - new Date(a.sent_at);
+        });
+        setAllEmails(sorted);
+        setEmails(sorted);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingInbox(false));
+  }, [projectId]);
+
+  function buildFilters() {
+    const f = {};
+    if (filterFrom.trim()) f.from = filterFrom.trim();
+    if (filterTo.trim()) f.to = filterTo.trim();
+    if (filterSubject.trim()) f.subject = filterSubject.trim();
+    if (filterDateFrom) f.date_from = filterDateFrom;
+    if (filterDateTo) f.date_to = filterDateTo;
+    if (filterHasAttachments === "yes") f.has_attachments = true;
+    if (filterHasAttachments === "no") f.has_attachments = false;
+    return f;
+  }
+
+  async function handleSearch() {
+    if (!query.trim()) {
+      // Empty query — go back to inbox view with any active filters applied
+      setIsSearchMode(false);
+      applyFiltersToInbox();
+      return;
+    }
+    setSearchError(null);
+    setSearching(true);
+    setIsSearchMode(true);
+    setSelectedEmail(null);
+    setEmailBody(null);
+    try {
+      const f = buildFilters();
+      const { emails: results } = await api(`/api/projects/${projectId}/emails/search`, {
+        method: "POST",
+        body: { query: query.trim(), filters: f, limit: 100 },
+      });
+      setEmails(results || []);
+    } catch (err) {
+      setSearchError(err.message);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function applyFiltersToInbox() {
+    let filtered = [...allEmails];
+    if (filterFrom.trim()) {
+      const f = filterFrom.trim().toLowerCase();
+      filtered = filtered.filter(e =>
+        (e.from_address || "").toLowerCase().includes(f) ||
+        (e.from_name || "").toLowerCase().includes(f)
+      );
+    }
+    if (filterTo.trim()) {
+      const f = filterTo.trim().toLowerCase();
+      filtered = filtered.filter(e =>
+        (e.to_addresses || []).some(a => a.toLowerCase().includes(f))
+      );
+    }
+    if (filterSubject.trim()) {
+      const f = filterSubject.trim().toLowerCase();
+      filtered = filtered.filter(e => (e.subject || "").toLowerCase().includes(f));
+    }
+    if (filterHasAttachments === "yes") filtered = filtered.filter(e => e.has_attachments);
+    if (filterHasAttachments === "no") filtered = filtered.filter(e => !e.has_attachments);
+    if (filterDateFrom) filtered = filtered.filter(e => e.sent_at && e.sent_at >= filterDateFrom);
+    if (filterDateTo) filtered = filtered.filter(e => e.sent_at && e.sent_at <= filterDateTo);
+    setEmails(filtered);
+  }
+
+  function handleClearSearch() {
+    setQuery("");
+    setIsSearchMode(false);
+    setSelectedEmail(null);
+    setEmailBody(null);
+    setSearchError(null);
+    applyFiltersToInbox();
+  }
+
+  async function handleSelectEmail(email) {
+    setSelectedEmail(email);
+    setEmailBody(null);
+    setLoadingEmail(true);
+    try {
+      const { email: full } = await api(`/api/projects/${projectId}/emails/${email.id}`);
+      setEmailBody(full);
+    } catch (err) {
+      setEmailBody({ error: err.message });
+    } finally {
+      setLoadingEmail(false);
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === "Enter") handleSearch();
+  }
+
+  function clearFilters() {
+    setFilterFrom("");
+    setFilterTo("");
+    setFilterSubject("");
+    setFilterDateFrom("");
+    setFilterDateTo("");
+    setFilterHasAttachments("");
+    if (!isSearchMode) {
+      setEmails(allEmails);
+    }
+  }
+
+  const hasActiveFilters = filterFrom || filterTo || filterSubject || filterDateFrom || filterDateTo || filterHasAttachments;
+
+  // Apply threshold filter only in search mode
+  const displayedEmails = isSearchMode
+    ? emails.filter(e => e.similarity === undefined || e.similarity >= threshold / 100)
+    : emails;
+
+  const filteredOutCount = isSearchMode
+    ? emails.length - displayedEmails.length
+    : 0;
+
+  const inputStyle = {
+    width: "100%",
+    border: "1px solid #ddd8d0",
+    padding: "7px 10px",
+    fontSize: 12,
+    fontFamily: "Inter, Arial, sans-serif",
+    color: ARC_NAVY,
+    outline: "none",
+    background: "#fff",
+    boxSizing: "border-box",
+  };
+
+  const labelStyle = {
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: "0.06em",
+    textTransform: "uppercase",
+    color: "#9a9088",
+    marginBottom: 4,
+    display: "block",
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden" }}>
+
+      {/* ── Search bar ────────────────────────────────────────────────────── */}
+      <div style={{ padding: "16px 24px", background: "#fff", borderBottom: "1px solid #e8e0d5", flexShrink: 0 }}>
+
+        {/* Count */}
+        {allEmails.length > 0 && (
+          <div style={{ fontSize: 11, color: "#9a9088", marginBottom: 10, letterSpacing: "0.04em" }}>
+            {allEmails.length} email{allEmails.length !== 1 ? "s" : ""} indexed for this project
+          </div>
+        )}
+
+        {/* AI search input */}
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Describe what you're looking for… e.g. 'discussion about party wall consent' or 'emails from the structural engineer about foundations'"
+            style={{ ...inputStyle, flex: 1, padding: "10px 14px", fontSize: 13 }}
+          />
+          <button
+            className="btn"
+            onClick={handleSearch}
+            disabled={searching}
+            style={{ background: ARC_NAVY, color: "#fff", padding: "10px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap", flexShrink: 0 }}
+          >
+            {searching ? <Spinner size={11} /> : "Search"}
+          </button>
+          {isSearchMode && (
+            <button
+              className="btn"
+              onClick={handleClearSearch}
+              style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "10px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", whiteSpace: "nowrap", flexShrink: 0 }}
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        {/* Second row — filters toggle + threshold slider + result count */}
+        <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <button
+            className="btn"
+            onClick={() => setShowFilters(f => !f)}
+            style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 12px", fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}
+          >
+            {showFilters ? "Hide Filters" : "Filters"}{hasActiveFilters ? " ●" : ""}
+          </button>
+          {hasActiveFilters && (
+            <button
+              className="btn"
+              onClick={clearFilters}
+              style={{ background: "none", border: "none", color: ARC_TERRACOTTA, fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", padding: "4px 0" }}
+            >
+              Clear filters
+            </button>
+          )}
+
+          {/* Threshold slider — only visible in search mode */}
+          {isSearchMode && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginLeft: "auto" }}>
+              <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9a9088" }}>
+                Min match
+              </span>
+              <input
+                type="range"
+                min={0}
+                max={95}
+                step={5}
+                value={threshold}
+                onChange={e => setThreshold(Number(e.target.value))}
+                style={{ width: 100, accentColor: ARC_NAVY, cursor: "pointer" }}
+              />
+              <span style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, minWidth: 32 }}>
+                {threshold}%
+              </span>
+              {filteredOutCount > 0 && (
+                <span style={{ fontSize: 10, color: "#b0a8a0" }}>
+                  ({filteredOutCount} below threshold)
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Result count */}
+          {!isSearchMode && !loadingInbox && (
+            <span style={{ fontSize: 11, color: "#9a9088", marginLeft: "auto" }}>
+              {displayedEmails.length} email{displayedEmails.length !== 1 ? "s" : ""}
+              {hasActiveFilters ? ` (filtered from ${allEmails.length})` : ""}
+            </span>
+          )}
+          {isSearchMode && !searching && (
+            <span style={{ fontSize: 11, color: "#9a9088" }}>
+              {displayedEmails.length} result{displayedEmails.length !== 1 ? "s" : ""}
+            </span>
+          )}
+        </div>
+
+        {/* Filter panel */}
+        {showFilters && (
+          <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, padding: 16, background: "#faf8f5", border: "1px solid #e8e0d5" }}>
+            <div>
+              <label style={labelStyle}>From</label>
+              <input value={filterFrom} onChange={e => setFilterFrom(e.target.value)} placeholder="Name or email address…" style={inputStyle}
+                onKeyDown={e => { if (e.key === "Enter") { applyFiltersToInbox(); } }} />
+            </div>
+            <div>
+              <label style={labelStyle}>To</label>
+              <input value={filterTo} onChange={e => setFilterTo(e.target.value)} placeholder="Email address…" style={inputStyle}
+                onKeyDown={e => { if (e.key === "Enter") { applyFiltersToInbox(); } }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Subject contains</label>
+              <input value={filterSubject} onChange={e => setFilterSubject(e.target.value)} placeholder="Keywords in subject…" style={inputStyle}
+                onKeyDown={e => { if (e.key === "Enter") { applyFiltersToInbox(); } }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Date from</label>
+              <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Date to</label>
+              <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Attachments</label>
+              <select value={filterHasAttachments} onChange={e => setFilterHasAttachments(e.target.value)}
+                style={{ ...inputStyle, appearance: "none" }}>
+                <option value="">Any</option>
+                <option value="yes">Has attachments</option>
+                <option value="no">No attachments</option>
+              </select>
+            </div>
+            {!isSearchMode && (
+              <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "flex-end" }}>
+                <button className="btn" onClick={applyFiltersToInbox}
+                  style={{ background: ARC_NAVY, color: "#fff", padding: "6px 16px", fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  Apply
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Error */}
+        {searchError && (
+          <div style={{ marginTop: 10, padding: "8px 12px", background: "#fdf0ee", border: "1px solid #e8c0b8", color: ARC_TERRACOTTA, fontSize: 12 }}>
+            ✗ {searchError}
+          </div>
+        )}
+      </div>
+
+      {/* ── Results + preview pane ────────────────────────────────────────── */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+
+        {/* Results list */}
+        <div style={{
+          width: selectedEmail ? 380 : "100%",
+          minWidth: selectedEmail ? 280 : undefined,
+          borderRight: selectedEmail ? "1px solid #e8e0d5" : "none",
+          overflowY: "auto",
+          flexShrink: 0,
+        }}>
+          {loadingInbox && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 24, color: "#9a9088", fontSize: 13 }}>
+              <Spinner size={13} /> Loading emails…
+            </div>
+          )}
+
+          {searching && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, padding: 24, color: "#9a9088", fontSize: 13 }}>
+              <Spinner size={13} /> Searching…
+            </div>
+          )}
+
+          {!loadingInbox && !searching && displayedEmails.length === 0 && (
+            <div style={{ padding: "40px 24px", textAlign: "center" }}>
+              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
+                {isSearchMode ? "No emails matched your search" : allEmails.length === 0 ? "No emails synced yet" : "No emails match your filters"}
+              </p>
+              <p style={{ fontSize: 12, color: "#9a9088" }}>
+                {isSearchMode ? `Try different search terms or lower the match threshold below ${threshold}%` : allEmails.length === 0 ? "Use ArchiSync to sync emails for this project" : "Try adjusting your filters"}
+              </p>
+            </div>
+          )}
+
+          {!loadingInbox && !searching && displayedEmails.length > 0 && (
+            <div>
+              {displayedEmails.map(email => (
+                <EmailRow
+                  key={email.id}
+                  email={email}
+                  selected={selectedEmail?.id === email.id}
+                  isSearchMode={isSearchMode}
+                  onClick={() => handleSelectEmail(email)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Preview pane */}
+        {selectedEmail && (
+          <div style={{ flex: 1, overflowY: "auto", padding: "20px 24px", background: "#fff" }}>
+            {loadingEmail ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#9a9088", fontSize: 13 }}>
+                <Spinner size={13} /> Loading…
+              </div>
+            ) : emailBody ? (
+              <EmailPreview email={emailBody} />
+            ) : null}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EmailRow({ email, selected, isSearchMode, onClick }) {
+  const sentDate = email.sent_at ? new Date(email.sent_at) : null;
+  const dateStr = sentDate ? sentDate.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+  const fromDisplay = email.from_name || email.from_address || "Unknown sender";
+
+  // Colour-code match percentage
+  const pct = email.similarity !== undefined ? Math.round(email.similarity * 100) : null;
+  const matchColor = pct >= 80 ? AD_GREEN : pct >= 65 ? "#c28a20" : "#9a9088";
+
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        padding: "12px 16px",
+        borderBottom: "1px solid #f0ede8",
+        cursor: "pointer",
+        background: selected ? "#f0ede8" : "#fff",
+        borderLeft: selected ? `3px solid ${ARC_NAVY}` : "3px solid transparent",
+        transition: "background 0.1s",
+      }}
+      onMouseEnter={e => { if (!selected) e.currentTarget.style.background = "#faf8f5"; }}
+      onMouseLeave={e => { if (!selected) e.currentTarget.style.background = "#fff"; }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, flex: 1, marginRight: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {fromDisplay}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+          {isSearchMode && pct !== null && (
+            <span style={{ fontSize: 10, fontWeight: 700, color: matchColor }}>
+              {pct}%
+            </span>
+          )}
+          <span style={{ fontSize: 10, color: "#9a9088" }}>{dateStr}</span>
+        </div>
+      </div>
+      <div style={{ fontSize: 12, color: ARC_NAVY, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {email.subject || "(no subject)"}
+      </div>
+      {email.has_attachments && (
+        <span style={{ fontSize: 10, color: "#9a9088" }}>📎 {email.attachment_names?.length > 1 ? `${email.attachment_names.length} attachments` : "1 attachment"}</span>
+      )}
+    </div>
+  );
+}
+
+function EmailPreview({ email }) {
+  if (email.error) {
+    return <div style={{ color: ARC_TERRACOTTA, fontSize: 13 }}>Failed to load email: {email.error}</div>;
+  }
+
+  const sentDate = email.sent_at ? new Date(email.sent_at).toLocaleString("en-GB", {
+    day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"
+  }) : "—";
+
+  const metaStyle = { fontSize: 11, color: "#9a9088", marginBottom: 4 };
+  const metaLabelStyle = { fontWeight: 600, color: ARC_NAVY, marginRight: 6 };
+
+  return (
+    <div>
+      {/* Header */}
+      <div style={{ marginBottom: 20, paddingBottom: 16, borderBottom: "1px solid #e8e0d5" }}>
+        <h2 style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif", marginBottom: 12, lineHeight: 1.4 }}>
+          {email.subject || "(no subject)"}
+        </h2>
+        <div style={metaStyle}>
+          <span style={metaLabelStyle}>From</span>
+          {email.from_name ? `${email.from_name} <${email.from_address}>` : email.from_address || "—"}
+        </div>
+        {email.to_addresses?.length > 0 && (
+          <div style={metaStyle}>
+            <span style={metaLabelStyle}>To</span>
+            {email.to_addresses.join(", ")}
+          </div>
+        )}
+        {email.cc_addresses?.length > 0 && (
+          <div style={metaStyle}>
+            <span style={metaLabelStyle}>CC</span>
+            {email.cc_addresses.join(", ")}
+          </div>
+        )}
+        <div style={metaStyle}>
+          <span style={metaLabelStyle}>Date</span>
+          {sentDate}
+        </div>
+        {email.has_attachments && email.attachment_names?.length > 0 && (
+          <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {email.attachment_names.map((name, i) => (
+              <span key={i} style={{ fontSize: 10, background: "#f0ede8", border: "1px solid #e8e0d5", padding: "2px 8px", color: ARC_NAVY }}>
+                📎 {name}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Body */}
+      <div style={{
+        fontSize: 13,
+        color: ARC_NAVY,
+        lineHeight: 1.7,
+        fontFamily: "Inter, Arial, sans-serif",
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+      }}>
+        {email.body_text || "(no body text)"}
+      </div>
+    </div>
+  );
+}
 // ── Placeholder tab ───────────────────────────────────────────────────────────
 function PlaceholderTab({ icon, title, description }) {
   return (
@@ -2897,7 +3411,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
           <ProductsTab projectId={projectId} isAdmin={isAdmin} />
         )}
         {activeTab === "minutes" && <PlaceholderTab icon="📝" title="Meeting Minutes" description="Upload or paste meeting minutes. Search and query them using the Q&A bar below to find decisions, actions, and key discussion points." />}
-        {activeTab === "emails" && <PlaceholderTab icon="✉️" title="Emails" description="Connect your email to index project correspondence. Search threads, find attachments, and ask questions across the full project email history." />}
+        {activeTab === "emails" && <EmailsTab projectId={projectId} />}
 
       </div>
 
