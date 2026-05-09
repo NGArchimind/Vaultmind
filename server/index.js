@@ -2542,33 +2542,6 @@ app.get("/api/colours", requireAuth, async (req, res) => {
 });
 
 // ── Transmittal PDF — save snapshot to R2 and return key ─────────────────────
-// POST /api/projects/:id/transmittal/pdf
-// Body: { html: string } — the print-ready HTML generated client-side
-app.post("/api/projects/:id/transmittal/pdf", requireAuth, async (req, res) => {
-  const { html } = req.body;
-  if (!html) return res.status(400).json({ error: "html required" });
-  try {
-    const prefix = `projects/${req.params.id}/documents/transmittals/`;
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const baseKey = `${prefix}schedule_${dateStr}`;
-    let key = `${baseKey}.html`;
-    const existingKeys = await listAllKeys(prefix);
-    if (existingKeys.includes(key)) {
-      let n = 2;
-      while (existingKeys.includes(`${baseKey}_${n}.html`)) n++;
-      key = `${baseKey}_${n}.html`;
-    }
-    await r2.send(new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: key,
-      Body: Buffer.from(html, "utf-8"),
-      ContentType: "text/html",
-    }));
-    res.json({ key, saved: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ── Transmittal files listing (PDF snapshots) ─────────────────────────────────
 // GET /api/projects/:id/transmittals/files

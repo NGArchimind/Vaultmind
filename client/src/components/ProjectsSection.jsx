@@ -4,6 +4,11 @@ import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
 import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
 
+// Module-level toast dispatcher — set by ProjectsSection on mount so all
+// sub-components can call showToast() without prop-drilling.
+let _showToast = (text) => console.warn("[toast]", text);
+function showToast(text) { _showToast(text); }
+
 const DRAWING_TYPE_OPTIONS = [
   'Plan', 'Floor Plan', 'Roof Plan', 'Reflected Ceiling Plan', 'Site Plan',
   'Elevation', 'Section', 'Detail', 'GA', 'Setting Out',
@@ -332,7 +337,7 @@ function DocumentsTab({ projectId, isAdmin }) {
       const data = await api(`/api/projects/${projectId}/transmittals/files`);
       setFiles(data.files || []);
       setSelectedKeys(new Set());
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to load transmittal files"); }
     setLoading(false);
   }
 
@@ -348,7 +353,7 @@ function DocumentsTab({ projectId, isAdmin }) {
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 15000);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to open file"); }
     setOpening(null);
   }
 
@@ -369,7 +374,7 @@ function DocumentsTab({ projectId, isAdmin }) {
       await api(`/api/projects/${projectId}/transmittals/files?keys=${keysParam}`, { method: "DELETE" });
       setFiles(prev => prev.filter(f => !selectedKeys.has(f.key)));
       setSelectedKeys(new Set());
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to delete files"); }
     setDeleting(false);
   }
 
@@ -562,7 +567,7 @@ function TransmittalTab({ projectId, isAdmin }) {
         }
         return { ...prev, issues: newIssues, revMap: newRevMap, autoBforward: newAutoBforward };
       });
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to save revision"); }
   }
 
   // Fixed widths for sticky pinned columns — sized to content
@@ -581,7 +586,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       setNotes(d.notes || "");
       setNotesDraft(d.notes || "");
       setBfOverrides(d.bforwardOverrides || {});
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to load transmittal"); }
     setLoading(false);
   }
 
@@ -608,7 +613,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       });
       setNotes(notesDraft);
       setEditingNotes(false);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to save notes"); }
     setSavingNotes(false);
   }
 
@@ -646,7 +651,7 @@ function TransmittalTab({ projectId, isAdmin }) {
         newAutoBforward[drawingNumber] = highest || "";
         return { ...prev, revMap: newRevMap, autoBforward: newAutoBforward };
       });
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to save edit"); }
   }
 
   // Simple revision string comparison: stage letter order P<T<C then number
@@ -912,6 +917,7 @@ function TransmittalTab({ projectId, isAdmin }) {
 
     } catch (e) {
       console.error(e);
+      showToast("Failed to export PDF");
     }
     setExportingPdf(false);
   }
@@ -930,7 +936,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       a.href = url; a.download = result.name;
       document.body.appendChild(a); a.click();
       document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to export Excel"); }
     setExportingExcel(false);
   }
 
@@ -1511,7 +1517,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = file_name || drawing.file_name || "drawing";
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { console.error("Download failed:", e); }
+    } catch (e) { console.error("Download failed:", e); showToast("Failed to download drawing"); }
     setDownloadingId(null);
   }
 
@@ -1542,7 +1548,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
       const safeName = (lastQuestion || "drawings").replace(/[^a-z0-9]/gi, "-").slice(0, 40);
       a.download = `drawings-${safeName}.zip`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { console.error("Download all failed:", e); }
+    } catch (e) { console.error("Download all failed:", e); showToast("Failed to download drawings"); }
     setDownloadingAll(false);
   }
 
@@ -1651,7 +1657,7 @@ Rules:
       const arr = new Uint8Array(bytes.length);
       for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
       setPdfUrl(URL.createObjectURL(new Blob([arr], { type: "application/pdf" })));
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to load datasheet"); }
     setPdfLoading(false);
   }
 
@@ -1860,7 +1866,7 @@ function ProductsTab({ projectId, isAdmin }) {
       setCategories(catData.categories || []);
       setAssignments(assignData.products || []);
       setAllProducts(libData.products || []);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to load products"); }
     setLoading(false);
   }
 
@@ -1874,7 +1880,7 @@ function ProductsTab({ projectId, isAdmin }) {
       });
       setCategories(prev => [...prev, category]);
       setNewCategoryName(""); setAddingCategory(false);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to create category"); }
     setSavingCategory(false);
   }
 
@@ -1884,7 +1890,7 @@ function ProductsTab({ projectId, isAdmin }) {
     try {
       await api(`/api/projects/${projectId}/categories/${catId}`, { method: "DELETE" });
       await load();
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to delete category"); }
   }
 
   async function assignProduct(productId, categoryId) {
@@ -1897,6 +1903,7 @@ function ProductsTab({ projectId, isAdmin }) {
     } catch (e) {
       if (e.message?.includes("409") || e.message?.includes("already")) return;
       console.error(e);
+      showToast("Failed to assign product");
     }
     setPickerCategoryId(null); setPickerSearch("");
   }
@@ -1905,7 +1912,7 @@ function ProductsTab({ projectId, isAdmin }) {
     try {
       await api(`/api/projects/${projectId}/products/${assignmentId}`, { method: "DELETE" });
       setAssignments(prev => prev.filter(a => a.id !== assignmentId));
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to remove assignment"); }
   }
 
   async function moveAssignment(assignmentId, newCategoryId) {
@@ -1915,7 +1922,7 @@ function ProductsTab({ projectId, isAdmin }) {
         body: { category_id: newCategoryId },
       });
       setAssignments(prev => prev.map(a => a.id === assignmentId ? product : a));
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to move product"); }
     setMovingId(null);
   }
 
@@ -1927,7 +1934,7 @@ function ProductsTab({ projectId, isAdmin }) {
       const arr = new Uint8Array(bytes.length);
       for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
       setPdfUrl(URL.createObjectURL(new Blob([arr], { type: "application/pdf" })));
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to load datasheet"); }
     setPdfLoading(false);
   }
 
@@ -2699,7 +2706,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       const loaded = data || [];
       setDrawings(loaded);
       if (onDrawingsLoaded) onDrawingsLoaded(loaded);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to load drawings"); }
     setLoading(false);
   }
 
@@ -2744,7 +2751,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = file_name || drawing.file_name || "drawing";
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { console.error("Download failed:", e); }
+    } catch (e) { console.error("Download failed:", e); showToast("Failed to download drawing"); }
     setDownloadingId(null);
   }
 
@@ -2755,7 +2762,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       const updated = drawings.filter(d => d.id !== drawingId);
       setDrawings(updated);
       if (onDrawingsLoaded) onDrawingsLoaded(updated);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to delete drawing"); }
   }
 
   async function updateField(drawingId, field, value) {
@@ -2764,7 +2771,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       const updated = drawings.map(d => d.id === drawingId ? drawing : d);
       setDrawings(updated);
       if (onDrawingsLoaded) onDrawingsLoaded(updated);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to save changes"); }
   }
 
   function cancelUpload() {
@@ -2815,7 +2822,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
     if (!window.confirm(`Delete ${selectedIds.size} drawing${selectedIds.size !== 1 ? "s" : ""}? This cannot be undone.`)) return;
     setDeletingSelected(true);
     for (const id of [...selectedIds]) {
-      try { await api(`/api/projects/${projectId}/drawings/${id}`, { method: "DELETE" }); } catch (e) { console.error(e); }
+      try { await api(`/api/projects/${projectId}/drawings/${id}`, { method: "DELETE" }); } catch (e) { console.error(e); showToast("Failed to delete drawing"); }
     }
     const updated = drawings.filter(d => !selectedIds.has(d.id));
     setDrawings(updated);
@@ -2847,7 +2854,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = "drawings-selection.zip";
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to download drawings"); }
     setDownloadingSelected(false);
   }
 
@@ -3065,7 +3072,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
 
   async function load() {
     setLoading(true);
-    try { const d = await api(`/api/projects/${projectId}`); setData(d); } catch (e) { console.error(e); }
+    try { const d = await api(`/api/projects/${projectId}`); setData(d); } catch (e) { console.error(e); showToast("Failed to load project"); }
     setLoading(false);
   }
 
@@ -3073,7 +3080,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
 
   async function saveEditForm() {
     setSavingKey("editForm", true);
-    try { const { project } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: editForm }); setData(d => ({ ...d, project })); setEditingProject(false); } catch (e) { console.error(e); }
+    try { const { project } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: editForm }); setData(d => ({ ...d, project })); setEditingProject(false); } catch (e) { console.error(e); showToast("Failed to save project"); }
     setSavingKey("editForm", false);
   }
 
@@ -3085,18 +3092,18 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
       setData(d => ({ ...d, consultants: [...d.consultants, consultant] }));
       setNewConsultant({ discipline: "", company: "", contact_name: "", email: "", phone: "" });
       setAddingConsultant(false);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to add consultant"); }
     setSavingKey("consultant", false);
   }
 
   async function deleteConsultant(cid) {
-    try { await api(`/api/projects/${projectId}/consultants/${cid}`, { method: "DELETE" }); setData(d => ({ ...d, consultants: d.consultants.filter(c => c.id !== cid) })); } catch (e) { console.error(e); }
+    try { await api(`/api/projects/${projectId}/consultants/${cid}`, { method: "DELETE" }); setData(d => ({ ...d, consultants: d.consultants.filter(c => c.id !== cid) })); } catch (e) { console.error(e); showToast("Failed to remove consultant"); }
   }
 
   async function updateUvalue(uid, field, value) {
     const uv = data.uvalues.find(u => u.id === uid);
     const updated = { ...uv, [field]: value === "" ? null : parseFloat(value) || value };
-    try { await api(`/api/projects/${projectId}/uvalues/${uid}`, { method: "PATCH", body: updated }); setData(d => ({ ...d, uvalues: d.uvalues.map(u => u.id === uid ? updated : u) })); } catch (e) { console.error(e); }
+    try { await api(`/api/projects/${projectId}/uvalues/${uid}`, { method: "PATCH", body: updated }); setData(d => ({ ...d, uvalues: d.uvalues.map(u => u.id === uid ? updated : u) })); } catch (e) { console.error(e); showToast("Failed to save U-value"); }
   }
 
   async function addUvalue() {
@@ -3106,12 +3113,12 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
       const { uvalue } = await api(`/api/projects/${projectId}/uvalues`, { method: "POST", body: { element: newUvalueElement.trim() } });
       setData(d => ({ ...d, uvalues: [...d.uvalues, uvalue] }));
       setNewUvalueElement(""); setAddingUvalue(false);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to add U-value"); }
     setSavingKey("uvalue", false);
   }
 
   async function deleteUvalue(uid) {
-    try { await api(`/api/projects/${projectId}/uvalues/${uid}`, { method: "DELETE" }); setData(d => ({ ...d, uvalues: d.uvalues.filter(u => u.id !== uid) })); } catch (e) { console.error(e); }
+    try { await api(`/api/projects/${projectId}/uvalues/${uid}`, { method: "DELETE" }); setData(d => ({ ...d, uvalues: d.uvalues.filter(u => u.id !== uid) })); } catch (e) { console.error(e); showToast("Failed to delete U-value"); }
   }
 
   async function addNote() {
@@ -3128,11 +3135,11 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
   async function updateNote(nid, field, value) {
     const note = data.notes.find(n => n.id === nid);
     const updated = { ...note, [field]: value };
-    try { await api(`/api/projects/${projectId}/notes/${nid}`, { method: "PATCH", body: updated }); setData(d => ({ ...d, notes: d.notes.map(n => n.id === nid ? updated : n) })); } catch (e) { console.error(e); }
+    try { await api(`/api/projects/${projectId}/notes/${nid}`, { method: "PATCH", body: updated }); setData(d => ({ ...d, notes: d.notes.map(n => n.id === nid ? updated : n) })); } catch (e) { console.error(e); showToast("Failed to save note"); }
   }
 
   async function deleteNote(nid) {
-    try { await api(`/api/projects/${projectId}/notes/${nid}`, { method: "DELETE" }); setData(d => ({ ...d, notes: d.notes.filter(n => n.id !== nid) })); } catch (e) { console.error(e); }
+    try { await api(`/api/projects/${projectId}/notes/${nid}`, { method: "DELETE" }); setData(d => ({ ...d, notes: d.notes.filter(n => n.id !== nid) })); } catch (e) { console.error(e); showToast("Failed to delete note"); }
   }
 
   if (loading) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#9a9088" }}><Spinner size={14} /> Loading project…</div>;
@@ -3247,7 +3254,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", width: 120, flexShrink: 0, paddingTop: 2 }}>{label}</div>
                   <div style={{ flex: 1, fontSize: 13, color: ARC_NAVY }}>
                     {isAdmin
-                      ? <EditableField value={project[field]} onSave={async v => { try { const { project: p } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { [field]: v } }); setData(d => ({ ...d, project: p })); } catch (e) { console.error(e); } }} placeholder={`Click to add ${label.toLowerCase()}…`} multiline={field === "description"} />
+                      ? <EditableField value={project[field]} onSave={async v => { try { const { project: p } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { [field]: v } }); setData(d => ({ ...d, project: p })); } catch (e) { console.error(e); showToast("Failed to save"); } }} placeholder={`Click to add ${label.toLowerCase()}…`} multiline={field === "description"} />
                       : <span style={{ color: project[field] ? ARC_NAVY : "#b0a8a0", fontStyle: project[field] ? "normal" : "italic" }}>{project[field] || `No ${label.toLowerCase()} set`}</span>
                     }
                   </div>
@@ -3257,7 +3264,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", width: 120, flexShrink: 0, paddingTop: 2 }}>RIBA Stage</div>
                 <div style={{ flex: 1 }}>
                   {isAdmin ? (
-                    <select value={project.stage || ""} onChange={async e => { try { const { project: p } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { stage: e.target.value } }); setData(d => ({ ...d, project: p })); } catch (err) { console.error(err); } }}
+                    <select value={project.stage || ""} onChange={async e => { try { const { project: p } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { stage: e.target.value } }); setData(d => ({ ...d, project: p })); } catch (err) { console.error(err); showToast("Failed to save stage"); } }}
                       style={{ border: "1px solid #ddd8d0", padding: "5px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: project.stage ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff" }}>
                       <option value="">Select stage…</option>
                       {RIBA_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -3427,12 +3434,19 @@ export default function ProjectsSection({ isAdmin }) {
   const [selectedId, setSelectedId] = useState(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [filterStatus, setFilterStatus] = useState("active");
+  const [toast, setToast] = useState(null);
+
+  // Wire module-level dispatcher to this component's state setter
+  _showToast = (text) => {
+    setToast(text);
+    setTimeout(() => setToast(null), 4000);
+  };
 
   useEffect(() => { loadProjects(); }, []);
 
   async function loadProjects() {
     setLoading(true);
-    try { const { projects: data } = await api("/api/projects"); setProjects(data || []); } catch (e) { console.error(e); }
+    try { const { projects: data } = await api("/api/projects"); setProjects(data || []); } catch (e) { console.error(e); showToast("Failed to load projects"); }
     setLoading(false);
   }
 
@@ -3442,7 +3456,7 @@ export default function ProjectsSection({ isAdmin }) {
       setProjects(prev => [project, ...prev]);
       setShowNewForm(false);
       setSelectedId(project.id);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to create project"); }
   }
 
   if (selectedId) {
@@ -3457,6 +3471,19 @@ export default function ProjectsSection({ isAdmin }) {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 24, right: 24, zIndex: 9999,
+          background: ARC_TERRACOTTA, color: "#fff",
+          padding: "12px 20px", fontSize: 13,
+          fontFamily: "Inter, Arial, sans-serif",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          maxWidth: 360, lineHeight: 1.5,
+          animation: "fadeIn 0.2s ease"
+        }}>
+          {toast}
+        </div>
+      )}
       <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "20px 32px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
