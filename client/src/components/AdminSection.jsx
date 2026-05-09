@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "../api/client";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE } from "../constants";
+import { ARC_NAVY, ARC_TERRACOTTA, AD_GREEN_FOREST } from "../constants";
 
-const AD_GREEN = "#2e7d4f";
+const AD_GREEN = AD_GREEN_FOREST;
 
 const DEFAULT_COLOURS = {
   header:      "#1a2332",

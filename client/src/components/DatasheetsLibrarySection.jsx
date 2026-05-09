@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { api, callClaude, fileToBase64 } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, LIBRARY_BLUE, LIBRARY_BLUE_LIGHT } from "../constants";
+import { ARC_NAVY, ARC_TERRACOTTA, LIBRARY_BLUE, LIBRARY_BLUE_LIGHT, AD_GREEN_FOREST } from "../constants";
 
 export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [products, setProducts] = useState([]);
@@ -68,7 +68,7 @@ export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   }
 
   // Load a map of productId → [projectName, ...] for assignment badges
-  async function loadAssignmentMap(productList) {
+  async function loadAssignmentMap() {
     try {
       const { projects } = await api("/api/projects");
       if (!projects || projects.length === 0) return;
@@ -844,7 +844,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
           )}
           {selectedIds.size > 1 && (
             <button className="btn" onClick={openBulkAssignModal}
-              style={{ background: "#2e7d4f", color: "#fff", border: "none", padding: "6px 14px", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+              style={{ background: AD_GREEN_FOREST, color: "#fff", border: "none", padding: "6px 14px", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
               + Assign {selectedIds.size} to Project
             </button>
           )}
@@ -945,13 +945,13 @@ Use only the provided document pages. Do not speculate beyond what the documents
                       {/* Assignment badge */}
                       {assignmentMap[product.id]?.length > 0 && (
                         <span title={assignmentMap[product.id].join(", ")}
-                          style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", color: "#2e7d4f", background: "#e6f4ec", padding: "2px 8px", flexShrink: 0, cursor: "default", whiteSpace: "nowrap" }}>
+                          style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", color: AD_GREEN_FOREST, background: "#e6f4ec", padding: "2px 8px", flexShrink: 0, cursor: "default", whiteSpace: "nowrap" }}>
                           {assignmentMap[product.id].length} project{assignmentMap[product.id].length !== 1 ? "s" : ""}
                         </span>
                       )}
                       {/* Assign to project button */}
                       <button className="btn" onClick={() => openAssignModal(product)}
-                        style={{ fontSize: 11, color: "#2e7d4f", background: "none", border: "1px solid #2e7d4f", padding: "2px 10px", flexShrink: 0, fontWeight: 500, whiteSpace: "nowrap" }}>
+                        style={{ fontSize: 11, color: AD_GREEN_FOREST, background: "none", border: `1px solid ${AD_GREEN_FOREST}`, padding: "2px 10px", flexShrink: 0, fontWeight: 500, whiteSpace: "nowrap" }}>
                         + Assign
                       </button>
                       <button className="btn" onClick={() => handleExpand(product.id)}
@@ -1060,7 +1060,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
       {/* ── Assign to project modal ─────────────────────────────────────────── */}
       {(assigningProduct || assigningBulk) && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", width: 460, borderTop: "3px solid #2e7d4f", fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column" }}>
+          <div style={{ background: "#fff", width: 460, borderTop: `3px solid ${AD_GREEN_FOREST}`, fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column" }}>
             {/* Modal header */}
             <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #e8e0d5" }}>
               <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#9a9088", marginBottom: 4 }}>Assign to Project</div>
@@ -1120,10 +1120,10 @@ Use only the provided document pages. Do not speculate beyond what the documents
                             onChange={e => setAssignNewCatName(e.target.value)}
                             onKeyDown={e => { if (e.key === "Enter") createAssignCategory(); if (e.key === "Escape") { setAssignAddingCat(false); setAssignNewCatName(""); } }}
                             placeholder="New category name…"
-                            style={{ flex: 1, border: "1px solid #2e7d4f", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none" }} />
+                            style={{ flex: 1, border: `1px solid ${AD_GREEN_FOREST}`, padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none" }} />
                           <button className="btn" onClick={createAssignCategory}
                             disabled={!assignNewCatName.trim() || assignSavingCat}
-                            style={{ background: "#2e7d4f", color: "#fff", padding: "7px 14px", fontSize: 11, fontWeight: 600, flexShrink: 0, opacity: !assignNewCatName.trim() || assignSavingCat ? 0.5 : 1 }}>
+                            style={{ background: AD_GREEN_FOREST, color: "#fff", padding: "7px 14px", fontSize: 11, fontWeight: 600, flexShrink: 0, opacity: !assignNewCatName.trim() || assignSavingCat ? 0.5 : 1 }}>
                             {assignSavingCat ? <Spinner size={11} /> : "Add"}
                           </button>
                           <button className="btn" onClick={() => { setAssignAddingCat(false); setAssignNewCatName(""); }}
@@ -1144,7 +1144,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
                   style={{ background: "none", color: "#9a9088", padding: "8px 16px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
                 <button className="btn" onClick={confirmAssign}
                   disabled={!assignProjectId || !assignCategoryId || assigning}
-                  style={{ background: assignProjectId && assignCategoryId && !assigning ? "#2e7d4f" : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  style={{ background: assignProjectId && assignCategoryId && !assigning ? AD_GREEN_FOREST : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                   {assigning ? <Spinner size={11} /> : "Assign"}
                 </button>
               </div>

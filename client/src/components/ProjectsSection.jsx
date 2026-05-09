@@ -133,22 +133,25 @@ function PdfViewerModal({ drawing: initialDrawing, projectId, onClose, drawings:
   const [pdfUrl, setPdfUrl] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const pdfUrlRef = useRef(null);
 
   useEffect(() => {
     async function load() {
       setLoading(true); setPdfUrl(null); setError("");
       try {
-        const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
+        const { base64 } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
         const binary = atob(base64);
         const bytes = new Uint8Array(binary.length);
         for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
         const blob = new Blob([bytes], { type: "application/pdf" });
-        setPdfUrl(URL.createObjectURL(blob));
+        const url = URL.createObjectURL(blob);
+        pdfUrlRef.current = url;
+        setPdfUrl(url);
       } catch (e) { setError("Failed to load drawing: " + e.message); }
       setLoading(false);
     }
     load();
-    return () => { if (pdfUrl) URL.revokeObjectURL(pdfUrl); };
+    return () => { if (pdfUrlRef.current) { URL.revokeObjectURL(pdfUrlRef.current); pdfUrlRef.current = null; } };
   }, [drawing.id]);
 
   useEffect(() => {
