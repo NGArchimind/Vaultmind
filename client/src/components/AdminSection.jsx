@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "../api/client";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, AD_GREEN_FOREST } from "../constants";
+import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN_FOREST } from "../constants";
 
 const AD_GREEN = AD_GREEN_FOREST;
 
