@@ -5,6 +5,26 @@ const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
 
 const app = express();
+
+const rateLimitMap = new Map();
+function rateLimit(maxRequests, windowMs) {
+  return (req, res, next) => {
+    const key = req.user?.id || req.ip;
+    const now = Date.now();
+    const entry = rateLimitMap.get(key) || { count: 0, start: now };
+    if (now - entry.start > windowMs) {
+      entry.count = 0;
+      entry.start = now;
+    }
+    entry.count++;
+    rateLimitMap.set(key, entry);
+    if (entry.count > maxRequests) {
+      return res.status(429).json({ error: "Too many requests — please slow down." });
+    }
+    next();
+  };
+}
+
 app.use(cors({
   origin: [
     "https://archimind-omega.vercel.app",
@@ -107,7 +127,7 @@ async function requireAuth(req, res, next) {
 }
 
 // ── Gemini AI proxy ───────────────────────────────────────────────────────────
-app.post("/api/claude", requireAuth, async (req, res) => {
+app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "GEMINI_API_KEY not set." });
 
