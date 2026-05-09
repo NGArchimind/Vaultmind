@@ -1174,7 +1174,7 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
 
   // Fire and forget — record transmittal issue from sync results
   recordTransmittalIssue(req.params.id, results).catch(err =>
-    console.error("Transmittal issue recording error (non-fatal):", err.message)
+    console.error(`Transmittal issue recording error (non-fatal) — project: ${req.params.id}, time: ${new Date().toISOString()}, error: ${err.message}`)
   );
 });
 
