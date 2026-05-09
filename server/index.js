@@ -1585,7 +1585,6 @@ async function recordTransmittalIssue(projectId, syncResults) {
     if (revError) throw revError;
   }
 
-  console.log(`Transmittal issue recorded for project ${projectId}: ${issueDate}, ${changedNumbers.length} drawings`);
 }
 
 // ── GET /api/projects/:id/transmittal — full transmittal data for frontend render
