@@ -5,7 +5,13 @@ const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
 
 const app = express();
-app.use(cors());
+app.use(cors({
+  origin: [
+    "https://archimind-omega.vercel.app",
+    "https://archimind-git-develop-nathan-greens-projects-192281d0.vercel.app"
+  ],
+  credentials: true
+}));
 app.use(express.json({ limit: "100mb" }));
 
 // Extend timeout to 5 minutes to handle large Gemini requests
