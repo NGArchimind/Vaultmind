@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE } from "../constants";
+import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, LIBRARY_BLUE } from "../constants";
 
 export default function LandingPage({ onSelect, isAdmin }) {
   const [hoverVault, setHoverVault] = useState(false);
@@ -71,8 +71,8 @@ export default function LandingPage({ onSelect, isAdmin }) {
           onMouseEnter={() => setHoverLibrary(true)}
           onMouseLeave={() => setHoverLibrary(false)}
           style={{
-            flex: 1, background: hoverLibrary ? "#2a6496" : "#ffffff",
-            border: `2px solid ${hoverLibrary ? "#2a6496" : "#ddd8d0"}`,
+            flex: 1, background: hoverLibrary ? LIBRARY_BLUE : "#ffffff",
+            border: `2px solid ${hoverLibrary ? LIBRARY_BLUE : "#ddd8d0"}`,
             padding: "48px 32px", textAlign: "left", cursor: "pointer",
             transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 16,
           }}>
@@ -86,7 +86,7 @@ export default function LandingPage({ onSelect, isAdmin }) {
             </div>
           </div>
           <div style={{ marginTop: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: hoverLibrary ? "#c8dce8" : "#2a6496", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: hoverLibrary ? "#c8dce8" : LIBRARY_BLUE, display: "flex", alignItems: "center", gap: 6 }}>
               Open Library →
             </span>
           </div>
