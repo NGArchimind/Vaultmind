@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "../api/client";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN_FOREST } from "../constants";
-
-const AD_GREEN = AD_GREEN_FOREST;
+import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN_FOREST_FOREST } from "../constants";
 
 const DEFAULT_COLOURS = {
   header:      "#1a2332",
@@ -541,7 +539,7 @@ export default function AdminSection() {
                 <button
                   onClick={copyArchisyncCode}
                   style={{
-                    background: archisyncCopied ? AD_GREEN : ARC_NAVY,
+                    background: archisyncCopied ? AD_GREEN_FOREST : ARC_NAVY,
                     color: "#fff", border: "none", padding: "9px 20px",
                     fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
                     textTransform: "uppercase", cursor: "pointer",
@@ -552,9 +550,9 @@ export default function AdminSection() {
                 <button
                   onClick={copyArchisyncPassword}
                   style={{
-                    background: archisyncPasswordCopied ? AD_GREEN : "none",
+                    background: archisyncPasswordCopied ? AD_GREEN_FOREST : "none",
                     color: archisyncPasswordCopied ? "#fff" : ARC_NAVY,
-                    border: `1px solid ${archisyncPasswordCopied ? AD_GREEN : ARC_NAVY}`,
+                    border: `1px solid ${archisyncPasswordCopied ? AD_GREEN_FOREST : ARC_NAVY}`,
                     padding: "8px 16px", fontSize: 11, fontWeight: 600,
                     letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer",
                     fontFamily: "Inter, Arial, sans-serif", transition: "all 0.2s"
