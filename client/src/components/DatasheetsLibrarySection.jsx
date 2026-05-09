@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { api, callClaude, fileToBase64 } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, LIBRARY_BLUE, LIBRARY_BLUE_LIGHT, AD_GREEN_FOREST, BOILERPLATE_HEADINGS, isBoilerplate } from "../constants";
+import { ARC_NAVY, ARC_TERRACOTTA, LIBRARY_BLUE, LIBRARY_BLUE_LIGHT, AD_GREEN_FOREST, isBoilerplate } from "../constants";
 
 export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [products, setProducts] = useState([]);
