@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
 
@@ -1072,6 +1073,25 @@ app.delete("/api/projects/:id/drawings/:did", requireAuth, async (req, res) => {
   }
 });
 
+// ── Drawing upload URL (ArchiSync direct-to-R2 upload) ───────────────────────
+app.post("/api/projects/:id/drawings/upload-url", requireAuth, async (req, res) => {
+  const { file_name } = req.body;
+  if (!file_name) return res.status(400).json({ error: "file_name required" });
+
+  const safeFileName = file_name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const ext = file_name.split(".").pop().toLowerCase();
+  const contentType = ext === "dwg" ? "application/acad" : "application/pdf";
+  const file_key = `projects/${req.params.id}/drawings/${Date.now()}-${safeFileName}`;
+
+  try {
+    const command = new PutObjectCommand({ Bucket: BUCKET, Key: file_key, ContentType: contentType });
+    const upload_url = await getSignedUrl(r2, command, { expiresIn: 3600 });
+    res.json({ upload_url, file_key });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Drawing sync (bulk upsert from desktop sync tool) ────────────────────────
 app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
   const { drawings: incoming } = req.body;
@@ -1093,17 +1113,13 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
   const results = [];
 
   for (const item of incoming) {
-    const { title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, base64 } = item;
-    if (!title || !drawing_number || !file_name || !base64) {
+    const { title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, file_key } = item;
+    if (!title || !drawing_number || !file_name || !file_key) {
       results.push({ drawing_number, action: "skipped", error: "Missing required fields" });
       continue;
     }
 
-    const ext = file_name.split(".").pop().toLowerCase();
-    const contentType = ext === "dwg" ? "application/acad" : "application/pdf";
     const safeFileName = file_name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const r2Key = `projects/${req.params.id}/drawings/${Date.now()}-${safeFileName}`;
-    const buffer = Buffer.from(base64, "base64");
 
     try {
       const existingRecord = existingMap[drawing_number];
@@ -1113,10 +1129,6 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
           results.push({ drawing_number, action: "skipped", reason: "Same revision already in register" });
           continue;
         }
-
-        await r2.send(new PutObjectCommand({
-          Bucket: BUCKET, Key: r2Key, Body: buffer, ContentType: contentType,
-        }));
 
         if (existingRecord.file_key) {
           try { await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: existingRecord.file_key })); } catch (_) {}
@@ -1130,8 +1142,8 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
             volume: volume || null,
             level: level || null,
             drawing_type: drawing_type || null,
-            file_key: r2Key, file_name: safeFileName,
-            file_size: file_size || buffer.length,
+            file_key, file_name: safeFileName,
+            file_size: file_size || 0,
             uploaded_at: new Date().toISOString(),
           })
           .eq("id", existingRecord.id)
@@ -1142,10 +1154,6 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
         results.push({ drawing_number, action: "updated", previous_revision: existingRecord.revision, drawing: updated });
 
       } else {
-        await r2.send(new PutObjectCommand({
-          Bucket: BUCKET, Key: r2Key, Body: buffer, ContentType: contentType,
-        }));
-
         const { data: created, error: insertError } = await supabase
           .from("project_drawings")
           .insert({
@@ -1155,8 +1163,8 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
             volume: volume || null,
             level: level || null,
             drawing_type: drawing_type || null,
-            file_key: r2Key, file_name: safeFileName,
-            file_size: file_size || buffer.length,
+            file_key, file_name: safeFileName,
+            file_size: file_size || 0,
             uploaded_at: new Date().toISOString(),
           })
           .select()
