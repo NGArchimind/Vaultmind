@@ -2697,6 +2697,17 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
   const [form, setForm] = useState(emptyForm);
   const [selectedFile, setSelectedFile] = useState(null);
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searchDone, setSearchDone] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+  const [searchFilterType, setSearchFilterType] = useState("");
+  const [searchFilterLevel, setSearchFilterLevel] = useState("");
+  const [searchFilterVolume, setSearchFilterVolume] = useState("");
+  const [searchFilterStatus, setSearchFilterStatus] = useState("");
+  const [searchViewingDrawing, setSearchViewingDrawing] = useState(null);
+
   useEffect(() => { loadDrawings(); }, [projectId]);
 
   async function loadDrawings() {
@@ -2858,6 +2869,26 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
     setDownloadingSelected(false);
   }
 
+  async function handleDrawingSearch() {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    setSearchError(null);
+    setSearchDone(false);
+    setSearchFilterType(""); setSearchFilterLevel(""); setSearchFilterVolume(""); setSearchFilterStatus("");
+    try {
+      const { results } = await api(`/api/projects/${projectId}/drawings/search`, {
+        method: "POST",
+        body: { query: searchQuery.trim() },
+      });
+      setSearchResults(results || []);
+      setSearchDone(true);
+    } catch (e) {
+      setSearchError("Search failed — please try again.");
+      setSearchResults([]);
+    }
+    setSearching(false);
+  }
+
   const labelStyle = { fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
   const inputStyle = { width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" };
   const filterSelectStyle = { border: "1px solid #ddd8d0", padding: "6px 8px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", outline: "none", background: "#fff", color: "#9a9088" };
@@ -2881,6 +2912,9 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
         </button>
         <button className="btn" style={subTabStyle("transmittal")} onClick={() => setDrawingSubTab("transmittal")}>
           Drawing Schedule
+        </button>
+        <button className="btn" style={subTabStyle("search")} onClick={() => setDrawingSubTab("search")}>
+          Content Search
         </button>
       </div>
 
@@ -3047,6 +3081,119 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       {/* Transmittal sub-tab */}
       {drawingSubTab === "transmittal" && (
         <TransmittalTab projectId={projectId} isAdmin={isAdmin} />
+      )}
+
+      {/* Content Search sub-tab */}
+      {drawingSubTab === "search" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            <input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleDrawingSearch()}
+              placeholder="e.g. fire escape routes, external doors, structural columns…"
+              style={{ flex: 1, border: "1px solid #ddd8d0", padding: "9px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" }}
+            />
+            <button className="btn" onClick={handleDrawingSearch} disabled={!searchQuery.trim() || searching}
+              style={{ background: searchQuery.trim() && !searching ? ARC_NAVY : "#b0a8a0", color: "#fff", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", border: "none", cursor: searchQuery.trim() && !searching ? "pointer" : "default" }}>
+              {searching ? <><Spinner size={11} />&nbsp;Searching…</> : "Search"}
+            </button>
+          </div>
+
+          {searchError && <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 16 }}>{searchError}</p>}
+
+          {!searchDone && !searching && (
+            <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
+              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif" }}>Search across drawing contents</p>
+              <p style={{ fontSize: 12, color: "#9a9088", marginTop: 6 }}>Type a description of what you're looking for — rooms, materials, notes, or anything visible on the drawings.</p>
+            </div>
+          )}
+
+          {searchDone && !searching && searchResults.length === 0 && (
+            <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
+              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif" }}>No drawings matched your search.</p>
+              <p style={{ fontSize: 12, color: "#9a9088", marginTop: 6 }}>Try different keywords, or note that drawings without indexed content won't appear yet.</p>
+            </div>
+          )}
+
+          {searchDone && !searching && searchResults.length > 0 && (() => {
+            const typeOpts   = [...new Set(searchResults.map(r => r.drawing_type).filter(Boolean))].sort();
+            const levelOpts  = [...new Set(searchResults.map(r => r.level).filter(Boolean))].sort();
+            const volumeOpts = [...new Set(searchResults.map(r => r.volume).filter(Boolean))].sort();
+            const statusOpts = [...new Set(searchResults.map(r => r.status).filter(Boolean))].sort();
+            const filtered = searchResults.filter(r => {
+              if (searchFilterType   && r.drawing_type !== searchFilterType)   return false;
+              if (searchFilterLevel  && r.level        !== searchFilterLevel)  return false;
+              if (searchFilterVolume && r.volume       !== searchFilterVolume) return false;
+              if (searchFilterStatus && r.status       !== searchFilterStatus) return false;
+              return true;
+            });
+            const chipStyle = (active) => ({
+              fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase",
+              padding: "3px 10px", cursor: "pointer",
+              border: `1px solid ${active ? ARC_NAVY : "#ddd8d0"}`,
+              background: active ? ARC_NAVY : "#fff",
+              color: active ? "#fff" : "#9a9088",
+              fontFamily: "Inter, Arial, sans-serif",
+            });
+            const hasActiveFilter = searchFilterType || searchFilterLevel || searchFilterVolume || searchFilterStatus;
+            return (
+              <div>
+                {(typeOpts.length > 0 || levelOpts.length > 0 || volumeOpts.length > 0 || statusOpts.length > 0) && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.06em" }}>Filter:</span>
+                    {typeOpts.map(t   => <button key={t} className="btn" style={chipStyle(searchFilterType   === t)} onClick={() => setSearchFilterType(searchFilterType     === t ? "" : t)}>{t}</button>)}
+                    {levelOpts.map(l  => <button key={l} className="btn" style={chipStyle(searchFilterLevel  === l)} onClick={() => setSearchFilterLevel(searchFilterLevel   === l ? "" : l)}>{l}</button>)}
+                    {volumeOpts.map(v => <button key={v} className="btn" style={chipStyle(searchFilterVolume === v)} onClick={() => setSearchFilterVolume(searchFilterVolume === v ? "" : v)}>{v}</button>)}
+                    {statusOpts.map(s => <button key={s} className="btn" style={chipStyle(searchFilterStatus === s)} onClick={() => setSearchFilterStatus(searchFilterStatus === s ? "" : s)}>{s}</button>)}
+                    {hasActiveFilter && (
+                      <button className="btn" style={{ ...chipStyle(false), color: ARC_TERRACOTTA, borderColor: ARC_TERRACOTTA }}
+                        onClick={() => { setSearchFilterType(""); setSearchFilterLevel(""); setSearchFilterVolume(""); setSearchFilterStatus(""); }}>
+                        Clear filters
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 10 }}>
+                  {filtered.length} result{filtered.length !== 1 ? "s" : ""}
+                  {filtered.length < searchResults.length ? ` (filtered from ${searchResults.length})` : ""}
+                </p>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  {filtered.map(r => (
+                    <div key={r.id}
+                      style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}
+                      onClick={() => setSearchViewingDrawing(r)}
+                      onMouseEnter={e => e.currentTarget.style.background = "#faf8f5"}
+                      onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title}</div>
+                        <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>{r.drawing_number || "—"}</div>
+                      </div>
+                      {r.drawing_type && <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#2a6496", background: "#e8f0f8", padding: "2px 7px", flexShrink: 0 }}>{r.drawing_type}</span>}
+                      {r.level        && <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0 }}>{r.level}</span>}
+                      {r.revision     && <span style={{ fontSize: 10, fontWeight: 700, color: ARC_NAVY, flexShrink: 0 }}>Rev. {r.revision}</span>}
+                      {r.status       && <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0 }}>{r.status}</span>}
+                      <span style={{ fontSize: 10, color: "#b0a8a0", flexShrink: 0 }}>{Math.round(r.similarity * 100)}% match</span>
+                      <span style={{ fontSize: 16, color: "#ddd8d0", flexShrink: 0 }}>›</span>
+                    </div>
+                  ))}
+                </div>
+
+                {searchViewingDrawing && (
+                  <PdfViewerModal
+                    drawing={searchViewingDrawing}
+                    projectId={projectId}
+                    onClose={() => setSearchViewingDrawing(null)}
+                    drawings={filtered}
+                    currentIndex={filtered.findIndex(r => r.id === searchViewingDrawing.id)}
+                  />
+                )}
+              </div>
+            );
+          })()}
+        </div>
       )}
     </div>
   );
