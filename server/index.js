@@ -122,6 +122,10 @@ async function geminiExtractDrawingText(pdfBuffer) {
       generationConfig: { temperature: 0 }
     })
   });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`Gemini extract API ${response.status}: ${errText.slice(0, 200)}`);
+  }
   const data = await response.json();
   return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
@@ -136,11 +140,16 @@ async function geminiEmbed(text, taskType = "RETRIEVAL_DOCUMENT") {
       taskType,
     })
   });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`Gemini embed API ${response.status}: ${errText.slice(0, 200)}`);
+  }
   const data = await response.json();
   return data?.embedding?.values || null;
 }
 
 async function indexDrawing(drawing) {
+  console.log(`Drawing indexing start — id: ${drawing.id}, number: ${drawing.drawing_number}`);
   try {
     const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: drawing.file_key }));
     const buffer = await streamToBuffer(result.Body);
@@ -154,8 +163,11 @@ async function indexDrawing(drawing) {
       extractedText,
     ].filter(Boolean).join("\n");
     const embedding = await geminiEmbed(indexText);
-    if (!embedding) return;
-    await supabase.from("project_drawings").update({ embedding }).eq("id", drawing.id);
+    if (!embedding) { console.error(`Drawing indexing — no embedding returned for id: ${drawing.id}`); return; }
+    const embeddingStr = `[${embedding.join(",")}]`;
+    const { error } = await supabase.from("project_drawings").update({ embedding: embeddingStr }).eq("id", drawing.id);
+    if (error) throw new Error(error.message);
+    console.log(`Drawing indexing complete — id: ${drawing.id}`);
   } catch (err) {
     console.error(`Drawing indexing error — id: ${drawing.id}, error: ${err.message}`);
   }
