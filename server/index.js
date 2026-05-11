@@ -106,6 +106,61 @@ async function deletePrefix(prefix) {
   }
 }
 
+// ── Gemini helpers ────────────────────────────────────────────────────────────
+
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+
+async function geminiExtractDrawingText(pdfBuffer) {
+  const response = await fetch(`${GEMINI_BASE}/gemini-2.5-flash:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+    body: JSON.stringify({
+      contents: [{ parts: [
+        { inline_data: { mime_type: "application/pdf", data: pdfBuffer.toString("base64") } },
+        { text: "Extract all text content from this architectural drawing. Include all visible text: notes, labels, dimensions, room names, material callouts, specifications, legends, and schedules. Be thorough." }
+      ]}],
+      generationConfig: { temperature: 0 }
+    })
+  });
+  const data = await response.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
+async function geminiEmbed(text, taskType = "RETRIEVAL_DOCUMENT") {
+  const response = await fetch(`${GEMINI_BASE}/gemini-embedding-001:embedContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+    body: JSON.stringify({
+      model: "models/gemini-embedding-001",
+      content: { parts: [{ text }] },
+      taskType,
+    })
+  });
+  const data = await response.json();
+  return data?.embedding?.values || null;
+}
+
+async function indexDrawing(drawing) {
+  try {
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: drawing.file_key }));
+    const buffer = await streamToBuffer(result.Body);
+    const extractedText = await geminiExtractDrawingText(buffer);
+    const indexText = [
+      `Drawing: ${drawing.title} (${drawing.drawing_number})`,
+      drawing.drawing_type && `Type: ${drawing.drawing_type}`,
+      drawing.level         && `Level: ${drawing.level}`,
+      drawing.volume        && `Volume: ${drawing.volume}`,
+      drawing.status        && `Status: ${drawing.status}`,
+      extractedText,
+    ].filter(Boolean).join("\n");
+    const embedding = await geminiEmbed(indexText);
+    if (!embedding) return;
+    await supabase.from("project_drawings").update({ embedding }).eq("id", drawing.id);
+  } catch (err) {
+    console.error(`Drawing indexing error — id: ${drawing.id}, error: ${err.message}`);
+  }
+}
+
 // ── JWT auth middleware ───────────────────────────────────────────────────────
 async function requireAuth(req, res, next) {
   const authHeader = req.headers["authorization"];
@@ -1184,6 +1239,33 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
   recordTransmittalIssue(req.params.id, results).catch(err =>
     console.error(`Transmittal issue recording error (non-fatal) — project: ${req.params.id}, time: ${new Date().toISOString()}, error: ${err.message}`)
   );
+
+  // Fire and forget — index drawing content for semantic search
+  for (const r of results) {
+    if ((r.action === "created" || r.action === "updated") && r.drawing?.id && r.drawing?.file_key) {
+      indexDrawing(r.drawing).catch(() => {});
+    }
+  }
+});
+
+// ── Drawing content search ────────────────────────────────────────────────────
+app.post("/api/projects/:id/drawings/search", requireAuth, async (req, res) => {
+  const { query } = req.body;
+  if (!query || !query.trim()) return res.status(400).json({ error: "query required" });
+  try {
+    const embedding = await geminiEmbed(query.trim(), "RETRIEVAL_QUERY");
+    if (!embedding) return res.status(500).json({ error: "Failed to generate query embedding" });
+    const { data, error } = await supabase.rpc("match_drawings", {
+      query_embedding: embedding,
+      match_project_id: req.params.id,
+      match_threshold: 0.4,
+      match_count: 50,
+    });
+    if (error) throw error;
+    res.json({ results: data || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Todos ─────────────────────────────────────────────────────────────────────
