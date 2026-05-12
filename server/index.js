@@ -138,6 +138,7 @@ async function geminiEmbed(text, taskType = "RETRIEVAL_DOCUMENT") {
       model: "models/gemini-embedding-001",
       content: { parts: [{ text }] },
       taskType,
+      outputDimensionality: 768,
     })
   });
   if (!response.ok) {
@@ -1250,7 +1251,7 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
 
   // Update project custom drawing types if provided
   if (Array.isArray(custom_drawing_types) && custom_drawing_types.length > 0) {
-    supabase.from("projects").update({ custom_drawing_types }).eq("id", req.params.id).catch(() => {});
+    (async () => { await supabase.from("projects").update({ custom_drawing_types }).eq("id", req.params.id); })().catch(() => {});
   }
 
   // Fire and forget — record transmittal issue from sync results
