@@ -236,7 +236,7 @@ function StatusBadge({ status }) {
 }
 
 // ── Drawing row ───────────────────────────────────────────────────────────────
-function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, onReindex, highlight = false, selectable = false, selected = false, onSelect }) {
+function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, onReindex, highlight = false, selectable = false, selected = false, onSelect, typeOptions }) {
   const COLS = selectable
     ? "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px 36px"
     : "minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px 36px";
@@ -276,7 +276,7 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
           <select value={d.drawing_type || ""} onChange={e => onUpdate(d.id, "drawing_type", e.target.value)}
             style={{ width: "100%", border: "1px solid #ddd8d0", padding: "3px 5px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: d.drawing_type ? ARC_NAVY : "#b0a8a0", outline: "none", background: "#fff" }}>
             <option value="">— type —</option>
-            {DRAWING_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+            {(typeOptions || DRAWING_TYPE_OPTIONS).map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         ) : (
           <span style={{ fontSize: 11, color: d.drawing_type ? ARC_NAVY : "#b0a8a0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
@@ -2679,7 +2679,7 @@ function PlaceholderTab({ icon, title, description }) {
 }
 
 // ── Drawings tab (with Register / Transmittal sub-tabs) ───────────────────────
-function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
+function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes = [] }) {
   const [drawingSubTab, setDrawingSubTab] = useState("register");
   const [drawings, setDrawings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2821,6 +2821,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
     return true;
   });
 
+  const allDrawingTypeOptions = [...new Set([...DRAWING_TYPE_OPTIONS, ...customDrawingTypes, ...drawings.map(d => d.drawing_type).filter(Boolean)])];
   const drawingTypeOptions = [...new Set(drawings.map(d => d.drawing_type).filter(Boolean))].sort();
   const volumeOptions = [...new Set(drawings.map(d => d.volume).filter(Boolean))].sort();
   const levelOptions = [...new Set(drawings.map(d => d.level).filter(Boolean))].sort();
@@ -3070,7 +3071,8 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
                     onUpdate={updateField} onDelete={handleDelete}
                     onView={setViewingDrawing} downloadingId={downloadingId} onDownload={handleDownload}
                     onReindex={handleReindex}
-                    selectable={true} selected={selectedIds.has(d.id)} onSelect={toggleSelect} />
+                    selectable={true} selected={selectedIds.has(d.id)} onSelect={toggleSelect}
+                    typeOptions={allDrawingTypeOptions} />
                 </div>
               ))}
             </div>
@@ -3573,7 +3575,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
         )}
 
         {activeTab === "drawings" && (
-          <DrawingsTab projectId={projectId} isAdmin={isAdmin} onDrawingsLoaded={setDrawings} />
+          <DrawingsTab projectId={projectId} isAdmin={isAdmin} onDrawingsLoaded={setDrawings} customDrawingTypes={data?.project?.custom_drawing_types || []} />
         )}
 
         {activeTab === "documents" && <DocumentsTab projectId={projectId} isAdmin={isAdmin} />}

@@ -765,7 +765,7 @@ app.get("/api/projects", requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("projects")
-      .select("id, name, job_number, client, location, stage, status, created_at")
+      .select("id, name, job_number, client, location, stage, status, created_at, custom_drawing_types")
       .order("created_at", { ascending: false });
     if (error) throw error;
     res.json({ projects: data });
@@ -1162,7 +1162,7 @@ app.post("/api/projects/:id/drawings/upload-url", requireAuth, async (req, res) 
 
 // ── Drawing sync (bulk upsert from desktop sync tool) ────────────────────────
 app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
-  const { drawings: incoming } = req.body;
+  const { drawings: incoming, custom_drawing_types } = req.body;
   if (!Array.isArray(incoming) || incoming.length === 0) {
     return res.status(400).json({ error: "drawings array required" });
   }
@@ -1247,6 +1247,11 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
   }
 
   res.json({ results });
+
+  // Update project custom drawing types if provided
+  if (Array.isArray(custom_drawing_types) && custom_drawing_types.length > 0) {
+    supabase.from("projects").update({ custom_drawing_types }).eq("id", req.params.id).catch(() => {});
+  }
 
   // Fire and forget — record transmittal issue from sync results
   recordTransmittalIssue(req.params.id, results).catch(err =>
