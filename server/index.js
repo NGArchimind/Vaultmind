@@ -1268,19 +1268,46 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
 });
 
 // ── Drawing content search ────────────────────────────────────────────────────
+
+async function extractSearchTerms(query) {
+  try {
+    const response = await fetch(`${GEMINI_BASE}/gemini-2.5-flash:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `You are helping search architectural drawing content. Extract the key search terms from this query and expand abbreviations and synonyms so the search is thorough. Return ONLY a JSON array of strings with no other text.\n\nExamples:\n- "WC drawings" → ["WC","water closet","toilet","bathroom","sanitary"]\n- "show me xtrabacker" → ["xtrabacker"]\n- "bathroom" → ["bathroom","en-suite","WC","wet room","sanitary"]\n- "fire escape routes" → ["fire escape","escape route","evacuation","exit","emergency exit"]\n- "structural columns" → ["column","structural column","RC column","steel column","post"]\n\nQuery: "${query.replace(/"/g, "'")}"` }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 200 }
+      })
+    });
+    if (!response.ok) return [query];
+    const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const match = text.match(/\[[\s\S]*\]/);
+    const terms = match ? JSON.parse(match[0]) : [query];
+    return Array.isArray(terms) && terms.length > 0 ? terms : [query];
+  } catch {
+    return [query];
+  }
+}
+
 app.post("/api/projects/:id/drawings/search", requireAuth, async (req, res) => {
   const { query } = req.body;
   if (!query || !query.trim()) return res.status(400).json({ error: "query required" });
   try {
-    const q = query.trim();
+    const terms = await extractSearchTerms(query.trim());
+    const orParts = terms.flatMap(t => [
+      `content_text.ilike.%${t}%`,
+      `title.ilike.%${t}%`,
+      `drawing_number.ilike.%${t}%`,
+    ]);
     const { data, error } = await supabase
       .from("project_drawings")
       .select("id, title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, uploaded_at, content_text")
       .eq("project_id", req.params.id)
-      .or(`content_text.ilike.%${q}%,title.ilike.%${q}%,drawing_number.ilike.%${q}%`)
+      .or(orParts.join(","))
       .order("drawing_number", { ascending: true });
     if (error) throw error;
-    res.json({ results: data || [] });
+    res.json({ results: data || [], terms });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

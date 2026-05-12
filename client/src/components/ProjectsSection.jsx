@@ -2731,10 +2731,13 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
   const [searching, setSearching] = useState(false);
   const [searchDone, setSearchDone] = useState(false);
   const [searchError, setSearchError] = useState(null);
+  const [searchTermsUsed, setSearchTermsUsed] = useState([]);
   const [searchFilterType, setSearchFilterType] = useState("");
   const [searchFilterLevel, setSearchFilterLevel] = useState("");
   const [searchFilterVolume, setSearchFilterVolume] = useState("");
   const [searchFilterStatus, setSearchFilterStatus] = useState("");
+  const [searchSelectedIds, setSearchSelectedIds] = useState(new Set());
+  const [searchDownloading, setSearchDownloading] = useState(false);
   const [searchViewingDrawing, setSearchViewingDrawing] = useState(null);
 
   useEffect(() => { loadDrawings(); }, [projectId]);
@@ -2937,19 +2940,48 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
     setSearching(true);
     setSearchError(null);
     setSearchDone(false);
+    setSearchSelectedIds(new Set());
     setSearchFilterType(""); setSearchFilterLevel(""); setSearchFilterVolume(""); setSearchFilterStatus("");
     try {
-      const { results } = await api(`/api/projects/${projectId}/drawings/search`, {
+      const { results, terms } = await api(`/api/projects/${projectId}/drawings/search`, {
         method: "POST",
         body: { query: searchQuery.trim() },
       });
       setSearchResults(results || []);
+      setSearchTermsUsed(terms || []);
       setSearchDone(true);
     } catch (e) {
       setSearchError("Search failed — please try again.");
       setSearchResults([]);
     }
     setSearching(false);
+  }
+
+  async function handleSearchDownloadSelected(selectedDrawings) {
+    if (selectedDrawings.length === 0 || searchDownloading) return;
+    setSearchDownloading(true);
+    try {
+      if (!window.JSZip) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+          script.onload = resolve; script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+      const zip = new window.JSZip();
+      for (const drawing of selectedDrawings) {
+        try {
+          const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
+          zip.file(file_name || drawing.file_name || `${drawing.drawing_number || drawing.id}.pdf`, base64, { base64: true });
+        } catch (e) { console.error("Failed:", drawing.id, e); }
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = "search-results.zip";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (e) { showToast("Failed to download drawings"); }
+    setSearchDownloading(false);
   }
 
   const labelStyle = { fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
@@ -3224,41 +3256,75 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
                   </div>
                 )}
 
-                <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 10 }}>
-                  {filtered.length} result{filtered.length !== 1 ? "s" : ""}
-                  {filtered.length < searchResults.length ? ` (filtered from ${searchResults.length})` : ""}
-                </p>
+                {searchTermsUsed.length > 0 && (
+                  <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 8 }}>
+                    Searched for: {searchTermsUsed.map((t, i) => <span key={i} style={{ background: "#f0ede8", padding: "1px 6px", marginRight: 4, borderRadius: 2 }}>{t}</span>)}
+                  </p>
+                )}
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                  {filtered.map(r => (
-                    <div key={r.id}
-                      style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "12px 16px", display: "flex", alignItems: "center", gap: 12, cursor: "pointer" }}
-                      onClick={() => setSearchViewingDrawing(r)}
-                      onMouseEnter={e => e.currentTarget.style.background = "#faf8f5"}
-                      onMouseLeave={e => e.currentTarget.style.background = "#fff"}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title}</div>
-                        <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>{r.drawing_number || "—"}</div>
-                      </div>
-                      {r.drawing_type && <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#2a6496", background: "#e8f0f8", padding: "2px 7px", flexShrink: 0 }}>{r.drawing_type}</span>}
-                      {r.level        && <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0 }}>{r.level}</span>}
-                      {r.revision     && <span style={{ fontSize: 10, fontWeight: 700, color: ARC_NAVY, flexShrink: 0 }}>Rev. {r.revision}</span>}
-                      {r.status       && <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0 }}>{r.status}</span>}
-                      <span style={{ fontSize: 10, color: "#b0a8a0", flexShrink: 0 }}>{Math.round(r.similarity * 100)}% match</span>
-                      <span style={{ fontSize: 16, color: "#ddd8d0", flexShrink: 0 }}>›</span>
-                    </div>
-                  ))}
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <p style={{ fontSize: 11, color: "#9a9088" }}>
+                    {filtered.length} result{filtered.length !== 1 ? "s" : ""}
+                    {filtered.length < searchResults.length ? ` (filtered from ${searchResults.length})` : ""}
+                  </p>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {searchSelectedIds.size > 0 && (
+                      <>
+                        <span style={{ fontSize: 11, color: "#9a9088" }}>{searchSelectedIds.size} selected</span>
+                        <button className="btn" onClick={() => setSearchViewingDrawing(filtered.find(r => searchSelectedIds.has(r.id)))}
+                          style={{ fontSize: 11, color: ARC_NAVY, background: "none", border: `1px solid ${ARC_NAVY}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+                          Open Selected
+                        </button>
+                        <button className="btn" onClick={() => handleSearchDownloadSelected(filtered.filter(r => searchSelectedIds.has(r.id)))} disabled={searchDownloading}
+                          style={{ fontSize: 11, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+                          {searchDownloading ? "Downloading…" : "↓ Download Selected"}
+                        </button>
+                        <button className="btn" onClick={() => setSearchSelectedIds(new Set())}
+                          style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 8px" }}>
+                          Clear
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
 
-                {searchViewingDrawing && (
-                  <PdfViewerModal
-                    drawing={searchViewingDrawing}
-                    projectId={projectId}
-                    onClose={() => setSearchViewingDrawing(null)}
-                    drawings={filtered}
-                    currentIndex={filtered.findIndex(r => r.id === searchViewingDrawing.id)}
-                  />
-                )}
+                <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  {filtered.map(r => {
+                    const isSelected = searchSelectedIds.has(r.id);
+                    return (
+                      <div key={r.id}
+                        style={{ background: isSelected ? "#eef6ff" : "#fff", border: `1px solid ${isSelected ? "#2a6496" : "#e8e0d5"}`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                        <input type="checkbox" checked={isSelected}
+                          onChange={() => setSearchSelectedIds(prev => { const n = new Set(prev); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n; })}
+                          style={{ cursor: "pointer", width: 14, height: 14, flexShrink: 0, accentColor: ARC_NAVY }} />
+                        <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => setSearchViewingDrawing(r)}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title}</div>
+                          <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>{r.drawing_number || "—"}</div>
+                        </div>
+                        {r.drawing_type && <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#2a6496", background: "#e8f0f8", padding: "2px 7px", flexShrink: 0 }}>{r.drawing_type}</span>}
+                        {r.level        && <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0 }}>{r.level}</span>}
+                        {r.revision     && <span style={{ fontSize: 10, fontWeight: 700, color: ARC_NAVY, flexShrink: 0 }}>Rev. {r.revision}</span>}
+                        {r.status       && <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0 }}>{r.status}</span>}
+                        <span style={{ fontSize: 16, color: "#ddd8d0", flexShrink: 0, cursor: "pointer" }} onClick={() => setSearchViewingDrawing(r)}>›</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {searchViewingDrawing && (() => {
+                  const viewList = searchSelectedIds.size > 0
+                    ? filtered.filter(r => searchSelectedIds.has(r.id))
+                    : filtered;
+                  return (
+                    <PdfViewerModal
+                      drawing={searchViewingDrawing}
+                      projectId={projectId}
+                      onClose={() => setSearchViewingDrawing(null)}
+                      drawings={viewList}
+                      currentIndex={viewList.findIndex(r => r.id === searchViewingDrawing.id)}
+                    />
+                  );
+                })()}
               </div>
             );
           })()}
