@@ -316,12 +316,10 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
         )}
       </div>
       <div style={{ display: "flex", justifyContent: "center" }}>
-        {d.is_indexed
-          ? <span title="Content indexed — searchable" style={{ fontSize: 10, color: "#2e7d4f" }}>●</span>
-          : <button className="btn" onClick={() => onReindex && onReindex(d.id)} title="Not indexed — click to index now"
-              style={{ background: "none", border: "none", color: "#c8c0b8", fontSize: 10, padding: "0 4px", lineHeight: 1, cursor: "pointer" }}
-              onMouseEnter={e => e.currentTarget.style.color = AD_GREEN} onMouseLeave={e => e.currentTarget.style.color = "#c8c0b8"}>●</button>
-        }
+        <button className="btn" onClick={() => onReindex && onReindex(d.id)}
+          title={d.is_indexed ? "Indexed — click to re-index" : "Not indexed — click to index now"}
+          style={{ background: "none", border: "none", color: d.is_indexed ? "#2e7d4f" : "#c8c0b8", fontSize: 10, padding: "0 4px", lineHeight: 1, cursor: "pointer" }}
+          onMouseEnter={e => e.currentTarget.style.color = AD_GREEN} onMouseLeave={e => e.currentTarget.style.color = d.is_indexed ? "#2e7d4f" : "#c8c0b8"}>●</button>
       </div>
     </div>
   );
@@ -2781,6 +2779,13 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
     } catch (e) { showToast("Failed to start indexing: " + e.message); }
   }
 
+  async function handleReindexAll() {
+    try {
+      const { count } = await api(`/api/projects/${projectId}/drawings/reindex-all`, { method: "POST" });
+      showToast(`Re-indexing ${count} drawing${count !== 1 ? "s" : ""} — refresh the page in a few minutes to see updated status.`);
+    } catch (e) { showToast("Failed to start re-indexing: " + e.message); }
+  }
+
   async function handleDelete(drawingId) {
     if (!window.confirm("Delete this drawing? This cannot be undone.")) return;
     try {
@@ -2941,6 +2946,10 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Drawing Register</h3>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button className="btn" onClick={handleReindexAll}
+                style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+                ↺ Re-index All
+              </button>
               {isAdmin && !showUpload && (
                 <button className="btn" onClick={() => setShowUpload(true)}
                   style={{ fontSize: 11, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>

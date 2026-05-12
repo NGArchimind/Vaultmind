@@ -1286,6 +1286,24 @@ app.post("/api/projects/:id/drawings/search", requireAuth, async (req, res) => {
   }
 });
 
+// ── Reindex all drawings for a project ───────────────────────────────────────
+app.post("/api/projects/:id/drawings/reindex-all", requireAuth, async (req, res) => {
+  try {
+    const { data: drawings, error } = await supabase
+      .from("project_drawings")
+      .select("id, drawing_number, title, drawing_type, level, volume, status, file_key")
+      .eq("project_id", req.params.id)
+      .not("file_key", "is", null);
+    if (error) throw error;
+    res.json({ ok: true, count: drawings.length });
+    for (const drawing of drawings) {
+      indexDrawing(drawing).catch(() => {});
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Drawing reindex (on-demand) ───────────────────────────────────────────────
 app.post("/api/projects/:id/drawings/:did/reindex", requireAuth, async (req, res) => {
   try {
