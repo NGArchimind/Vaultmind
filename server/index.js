@@ -166,7 +166,7 @@ async function indexDrawing(drawing) {
     const embedding = await geminiEmbed(indexText);
     if (!embedding) { console.error(`Drawing indexing — no embedding returned for id: ${drawing.id}`); return; }
     const embeddingStr = `[${embedding.join(",")}]`;
-    const { error } = await supabase.from("project_drawings").update({ embedding: embeddingStr }).eq("id", drawing.id);
+    const { error } = await supabase.from("project_drawings").update({ embedding: embeddingStr, content_text: extractedText }).eq("id", drawing.id);
     if (error) throw new Error(error.message);
     console.log(`Drawing indexing complete — id: ${drawing.id}`);
   } catch (err) {
@@ -1272,14 +1272,13 @@ app.post("/api/projects/:id/drawings/search", requireAuth, async (req, res) => {
   const { query } = req.body;
   if (!query || !query.trim()) return res.status(400).json({ error: "query required" });
   try {
-    const embedding = await geminiEmbed(query.trim(), "RETRIEVAL_QUERY");
-    if (!embedding) return res.status(500).json({ error: "Failed to generate query embedding" });
-    const { data, error } = await supabase.rpc("match_drawings", {
-      query_embedding: embedding,
-      match_project_id: req.params.id,
-      match_threshold: 0.4,
-      match_count: 50,
-    });
+    const q = query.trim();
+    const { data, error } = await supabase
+      .from("project_drawings")
+      .select("id, title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, uploaded_at")
+      .eq("project_id", req.params.id)
+      .or(`content_text.ilike.%${q}%,title.ilike.%${q}%,drawing_number.ilike.%${q}%`)
+      .order("drawing_number", { ascending: true });
     if (error) throw error;
     res.json({ results: data || [] });
   } catch (err) {
