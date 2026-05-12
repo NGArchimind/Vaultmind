@@ -1019,12 +1019,13 @@ app.get("/api/projects/:id/drawings", requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("project_drawings")
-      .select("id, title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, uploaded_at, created_at")
+      .select("id, title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, uploaded_at, created_at, embedding")
       .eq("project_id", req.params.id)
       .order("drawing_number", { ascending: true })
       .order("created_at", { ascending: false });
     if (error) throw error;
-    res.json({ drawings: data });
+    const drawings = (data || []).map(({ embedding, ...d }) => ({ ...d, is_indexed: embedding !== null }));
+    res.json({ drawings });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1275,6 +1276,24 @@ app.post("/api/projects/:id/drawings/search", requireAuth, async (req, res) => {
     });
     if (error) throw error;
     res.json({ results: data || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Drawing reindex (on-demand) ───────────────────────────────────────────────
+app.post("/api/projects/:id/drawings/:did/reindex", requireAuth, async (req, res) => {
+  try {
+    const { data: drawing, error } = await supabase
+      .from("project_drawings")
+      .select("id, drawing_number, title, drawing_type, level, volume, status, file_key")
+      .eq("id", req.params.did)
+      .eq("project_id", req.params.id)
+      .single();
+    if (error || !drawing) return res.status(404).json({ error: "Drawing not found" });
+    if (!drawing.file_key) return res.status(400).json({ error: "Drawing has no file to index" });
+    res.json({ ok: true });
+    indexDrawing(drawing).catch(() => {});
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

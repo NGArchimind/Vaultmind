@@ -236,10 +236,10 @@ function StatusBadge({ status }) {
 }
 
 // ── Drawing row ───────────────────────────────────────────────────────────────
-function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, highlight = false, selectable = false, selected = false, onSelect }) {
+function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, onReindex, highlight = false, selectable = false, selected = false, onSelect }) {
   const COLS = selectable
-    ? "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px"
-    : "minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px";
+    ? "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px 36px"
+    : "minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px 36px";
   return (
     <div style={{
       display: "grid", gridTemplateColumns: COLS,
@@ -314,6 +314,14 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
             style={{ background: "none", border: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", lineHeight: 1 }}
             onMouseEnter={e => e.currentTarget.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.currentTarget.style.color = "#c8c0b8"}>×</button>
         )}
+      </div>
+      <div style={{ display: "flex", justifyContent: "center" }}>
+        {d.is_indexed
+          ? <span title="Content indexed — searchable" style={{ fontSize: 10, color: "#2e7d4f" }}>●</span>
+          : <button className="btn" onClick={() => onReindex && onReindex(d.id)} title="Not indexed — click to index now"
+              style={{ background: "none", border: "none", color: "#c8c0b8", fontSize: 10, padding: "0 4px", lineHeight: 1, cursor: "pointer" }}
+              onMouseEnter={e => e.currentTarget.style.color = AD_GREEN} onMouseLeave={e => e.currentTarget.style.color = "#c8c0b8"}>●</button>
+        }
       </div>
     </div>
   );
@@ -2766,6 +2774,13 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
     setDownloadingId(null);
   }
 
+  async function handleReindex(drawingId) {
+    try {
+      await api(`/api/projects/${projectId}/drawings/${drawingId}/reindex`, { method: "POST" });
+      showToast("Indexing started — the drawing will be searchable in a minute or two.");
+    } catch (e) { showToast("Failed to start indexing: " + e.message); }
+  }
+
   async function handleDelete(drawingId) {
     if (!window.confirm("Delete this drawing? This cannot be undone.")) return;
     try {
@@ -2892,7 +2907,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
   const labelStyle = { fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
   const inputStyle = { width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" };
   const filterSelectStyle = { border: "1px solid #ddd8d0", padding: "6px 8px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", outline: "none", background: "#fff", color: "#9a9088" };
-  const COLS = "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px";
+  const COLS = "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px 36px";
 
   const subTabStyle = (id) => ({
     padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase",
@@ -3045,7 +3060,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
                   <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
                     style={{ cursor: "pointer", width: 14, height: 14, accentColor: "#fff" }} />
                 </div>
-                {["Drawing No.", "Title", "Rev.", "Status", "Scale", "Type", "Volume", "Level", "", "", ""].map((h, i) => (
+                {["Drawing No.", "Title", "Rev.", "Status", "Scale", "Type", "Volume", "Level", "", "", "", ""].map((h, i) => (
                   <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
                 ))}
               </div>
@@ -3054,6 +3069,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
                   <DrawingRow d={d} projectId={projectId} isAdmin={isAdmin}
                     onUpdate={updateField} onDelete={handleDelete}
                     onView={setViewingDrawing} downloadingId={downloadingId} onDownload={handleDownload}
+                    onReindex={handleReindex}
                     selectable={true} selected={selectedIds.has(d.id)} onSelect={toggleSelect} />
                 </div>
               ))}
