@@ -236,7 +236,7 @@ function StatusBadge({ status }) {
 }
 
 // ── Drawing row ───────────────────────────────────────────────────────────────
-function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, onReindex, highlight = false, selectable = false, selected = false, onSelect, typeOptions }) {
+function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, onReindex, highlight = false, selectable = false, selected = false, onSelect, typeOptions, isIndexing = false }) {
   const COLS = selectable
     ? "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px 36px"
     : "minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px 36px";
@@ -315,11 +315,16 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
             onMouseEnter={e => e.currentTarget.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.currentTarget.style.color = "#c8c0b8"}>×</button>
         )}
       </div>
-      <div style={{ display: "flex", justifyContent: "center" }}>
-        <button className="btn" onClick={() => onReindex && onReindex(d.id)}
-          title={d.is_indexed ? "Indexed — click to re-index" : "Not indexed — click to index now"}
-          style={{ background: "none", border: "none", color: d.is_indexed ? "#2e7d4f" : "#c8c0b8", fontSize: 10, padding: "0 4px", lineHeight: 1, cursor: "pointer" }}
-          onMouseEnter={e => e.currentTarget.style.color = AD_GREEN} onMouseLeave={e => e.currentTarget.style.color = d.is_indexed ? "#2e7d4f" : "#c8c0b8"}>●</button>
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+        {isIndexing
+          ? <span title="Indexing…" style={{ display: "flex", alignItems: "center" }}><Spinner size={9} /></span>
+          : <button className="btn" onClick={() => onReindex && onReindex(d.id)}
+              title={d.is_indexed ? "Indexed — click to re-index" : "Not indexed — click to index now"}
+              style={{ background: "none", border: "none", color: d.is_indexed ? "#2e7d4f" : "#c8c0b8", fontSize: d.is_indexed ? 12 : 10, padding: "0 4px", lineHeight: 1, cursor: "pointer", fontWeight: d.is_indexed ? 700 : 400 }}
+              onMouseEnter={e => e.currentTarget.style.color = AD_GREEN} onMouseLeave={e => e.currentTarget.style.color = d.is_indexed ? "#2e7d4f" : "#c8c0b8"}>
+              {d.is_indexed ? "✓" : "●"}
+            </button>
+        }
       </div>
     </div>
   );
@@ -1562,13 +1567,29 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
     if (!question.trim() || running) return;
     const q = question.trim();
     setLastQuestion(q);
-    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setExpanded(true); setStatus("Thinking…");
+    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setExpanded(true); setStatus("Searching drawings…");
 
     const drawingContext = drawings.length === 0
       ? "No drawings in register."
       : drawings.map(d =>
-          `ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} | Rev:${d.revision || "—"} | Status:${d.status || "—"} | Scale:${d.scale || "—"} | Date:${d.issue_date || "—"} | File:${d.file_name || "—"}`
+          `ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} | Rev:${d.revision || "—"} | Status:${d.status || "—"} | Scale:${d.scale || "—"} | Type:${d.drawing_type || "—"} | Level:${d.level || "—"} | Volume:${d.volume || "—"}`
         ).join("\n");
+
+    // Search indexed drawing content for anything relevant to the question
+    let drawingContentContext = "";
+    try {
+      const { results: contentMatches } = await api(`/api/projects/${projectId}/drawings/search`, {
+        method: "POST",
+        body: { query: q },
+      });
+      if (contentMatches && contentMatches.length > 0) {
+        drawingContentContext = "\n\nINDEXED DRAWING CONTENT (drawings whose content is relevant to this question):\n" +
+          contentMatches.map(d =>
+            `--- ${d.drawing_number || "—"} | ${d.title || "Untitled"} ---\n${(d.content_text || "").slice(0, 3000)}`
+          ).join("\n\n");
+      }
+    } catch (e) { /* non-fatal — QA continues without drawing content */ }
+    setStatus("Thinking…");
 
     const productsContext = assignedProducts.length === 0
       ? "No products assigned."
@@ -1605,9 +1626,11 @@ SPECIFIED PRODUCTS:
 ${productsContext}
 
 DRAWING REGISTER (${drawings.length} drawings):
-${drawingContext}`;
+${drawingContext}${drawingContentContext}`;
 
-    const systemPrompt = `You are a project assistant for an architectural practice. You have full access to the project data provided — including project info, consultants, U-values, notes, specified products (with full technical attributes), and the drawing register.
+    const systemPrompt = `You are a project assistant for an architectural practice. You have full access to the project data provided — including project info, consultants, U-values, notes, specified products (with full technical attributes), the drawing register, and extracted content from indexed drawings.
+
+When INDEXED DRAWING CONTENT is present in the context, use it to answer questions about what is shown or noted within specific drawings — room names, materials, annotations, schedules, specifications, and other drawing content. Reference the drawing number when citing content from a specific drawing.
 
 Answer questions with appropriate detail based on the project data. Do not say you cannot access information — everything you need is in the context provided.
 
@@ -2772,17 +2795,36 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
     setDownloadingId(null);
   }
 
+  const [indexingIds, setIndexingIds] = useState(new Set());
+
   async function handleReindex(drawingId) {
     try {
       await api(`/api/projects/${projectId}/drawings/${drawingId}/reindex`, { method: "POST" });
-      showToast("Indexing started — the drawing will be searchable in a minute or two.");
+      setIndexingIds(prev => new Set([...prev, drawingId]));
+      setTimeout(async () => {
+        try {
+          const { drawings: data } = await api(`/api/projects/${projectId}/drawings`);
+          setDrawings(data || []);
+          if (onDrawingsLoaded) onDrawingsLoaded(data || []);
+        } catch (e) {}
+        setIndexingIds(prev => { const n = new Set(prev); n.delete(drawingId); return n; });
+      }, 60000);
     } catch (e) { showToast("Failed to start indexing: " + e.message); }
   }
 
   async function handleReindexAll() {
     try {
       const { count } = await api(`/api/projects/${projectId}/drawings/reindex-all`, { method: "POST" });
-      showToast(`Re-indexing ${count} drawing${count !== 1 ? "s" : ""} — refresh the page in a few minutes to see updated status.`);
+      setIndexingIds(new Set(drawings.map(d => d.id)));
+      showToast(`Re-indexing ${count} drawing${count !== 1 ? "s" : ""}…`);
+      setTimeout(async () => {
+        try {
+          const { drawings: data } = await api(`/api/projects/${projectId}/drawings`);
+          setDrawings(data || []);
+          if (onDrawingsLoaded) onDrawingsLoaded(data || []);
+        } catch (e) {}
+        setIndexingIds(new Set());
+      }, 120000);
     } catch (e) { showToast("Failed to start re-indexing: " + e.message); }
   }
 
@@ -3081,7 +3123,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
                     onView={setViewingDrawing} downloadingId={downloadingId} onDownload={handleDownload}
                     onReindex={handleReindex}
                     selectable={true} selected={selectedIds.has(d.id)} onSelect={toggleSelect}
-                    typeOptions={allDrawingTypeOptions} />
+                    typeOptions={allDrawingTypeOptions} isIndexing={indexingIds.has(d.id)} />
                 </div>
               ))}
             </div>

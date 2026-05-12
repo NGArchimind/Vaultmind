@@ -1275,7 +1275,7 @@ app.post("/api/projects/:id/drawings/search", requireAuth, async (req, res) => {
     const q = query.trim();
     const { data, error } = await supabase
       .from("project_drawings")
-      .select("id, title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, uploaded_at")
+      .select("id, title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, uploaded_at, content_text")
       .eq("project_id", req.params.id)
       .or(`content_text.ilike.%${q}%,title.ilike.%${q}%,drawing_number.ilike.%${q}%`)
       .order("drawing_number", { ascending: true });
