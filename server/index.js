@@ -117,7 +117,7 @@ async function geminiExtractDrawingText(pdfBuffer) {
     body: JSON.stringify({
       contents: [{ parts: [
         { inline_data: { mime_type: "application/pdf", data: pdfBuffer.toString("base64") } },
-        { text: "Extract all text content from this architectural drawing. Include all visible text: notes, labels, dimensions, room names, material callouts, specifications, legends, and schedules. Be thorough." }
+        { text: "Extract all text content from this architectural drawing. Include room names, space labels, material callouts, specifications, notes, legends, schedules, and annotations. Skip all dimensions, grid line references, and title block information (drawing number, title, revision, date, scale, status, drawn by, approved by). Return only the content text." }
       ]}],
       generationConfig: { temperature: 0 }
     })
