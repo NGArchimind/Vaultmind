@@ -472,7 +472,7 @@ export default function App() {
     }
 
     // ── PDF-binary fallback (scanned / image-only PDFs) ──────────────────────────
-    const PDF_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.\r\n\r\nDo not extract body text or bullet points.\r\n\r\nFor pageHint, use only the position of the page within this PDF file — page 1 is the first page of this file, page 2 is the second, etc. Ignore all printed page numbers on the pages.\r\n\r\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
+    const PDF_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.\r\n\r\nDo not extract body text or bullet points.\r\n\r\nFor pageHint, count pages in order from the start of this PDF file — page 1 is the first physical page (cover or title page), page 2 is the second, and so on. Use this physical position, not any number printed on the page.\r\n\r\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
 
     try {
       const { text: result } = await callClaude(
