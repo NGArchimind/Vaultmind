@@ -1269,24 +1269,43 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
 
 // ── Drawing content search ────────────────────────────────────────────────────
 
+const SEARCH_STOP_WORDS = new Set([
+  'a','an','the','and','or','but','in','on','at','to','for','with','of','by','from',
+  'what','which','where','who','how','when','why','are','is','was','were','be','been',
+  'have','has','had','do','does','did','show','me','find','get','give','list','tell',
+  'drawings','drawing','all','any','some','this','that','these','those','i','my','we',
+  'our','it','its','they','their','can','could','would','should','will','may','might',
+  'please','just','only','also','too','very','quite','really','there','here','used',
+]);
+
+function baselineTerms(query) {
+  return [...new Set(
+    query.split(/\s+/)
+      .map(w => w.replace(/[^a-zA-Z0-9-]/g, ''))
+      .filter(w => w.length >= 2 && !SEARCH_STOP_WORDS.has(w.toLowerCase()))
+  )];
+}
+
 async function extractSearchTerms(query) {
+  const baseline = baselineTerms(query);
   try {
     const response = await fetch(`${GEMINI_BASE}/gemini-2.5-flash:generateContent`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: `You are helping search architectural drawing content. Extract the key search terms from this query and expand abbreviations and synonyms so the search is thorough. Return ONLY a JSON array of strings with no other text.\n\nExamples:\n- "WC drawings" → ["WC","water closet","toilet","bathroom","sanitary"]\n- "show me xtrabacker" → ["xtrabacker"]\n- "bathroom" → ["bathroom","en-suite","WC","wet room","sanitary"]\n- "fire escape routes" → ["fire escape","escape route","evacuation","exit","emergency exit"]\n- "structural columns" → ["column","structural column","RC column","steel column","post"]\n\nQuery: "${query.replace(/"/g, "'")}"` }] }],
+        contents: [{ parts: [{ text: `You are helping search architectural drawing content. Given this query, return synonyms and expansions to broaden the search. Always preserve the original meaningful words exactly as given. Return ONLY a JSON array of strings.\n\nExamples:\n- "basin" → ["basin","washbasin","vanity unit","sink"]\n- "WC" → ["WC","water closet","toilet","bathroom"]\n- "bathroom" → ["bathroom","en-suite","WC","wet room","sanitary"]\n- "fire escape" → ["fire escape","escape route","exit","evacuation"]\n- "Xtrabacker" → ["Xtrabacker"]\n\nQuery: "${query.replace(/"/g, "'")}"` }] }],
         generationConfig: { temperature: 0, maxOutputTokens: 200 }
       })
     });
-    if (!response.ok) return [query];
+    if (!response.ok) return baseline.length > 0 ? baseline : [query];
     const data = await response.json();
     const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
     const match = text.match(/\[[\s\S]*\]/);
-    const terms = match ? JSON.parse(match[0]) : [query];
-    return Array.isArray(terms) && terms.length > 0 ? terms : [query];
+    const llmTerms = match ? JSON.parse(match[0]) : [];
+    const merged = [...new Set([...baseline, ...(Array.isArray(llmTerms) ? llmTerms : [])])];
+    return merged.length > 0 ? merged : [query];
   } catch {
-    return [query];
+    return baseline.length > 0 ? baseline : [query];
   }
 }
 
