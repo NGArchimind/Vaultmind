@@ -1038,52 +1038,70 @@ export default function App() {
 
   // ── Open PDF viewer at page from citation ────────────────────────────────────
   const handleCitationClick = async (docName, heading) => {
-    const headingKey = `${docName}||${(heading || "").toLowerCase().trim()}`;
-    const entry = citationPageMap[headingKey] || citationPageMap[docName];
+    const needle = docName.toLowerCase().replace(/\.pdf$/i, "");
 
-    let resolved = entry;
-    if (!resolved) {
-      const lower = docName.toLowerCase();
+    // Step 1 — resolve vaultId + fileName
+    // Try citationPageMap first (already has vaultId/fileName when pipeline resolved correctly)
+    const headingKey = `${docName}||${(heading || "").toLowerCase().trim()}`;
+    const mapEntry = citationPageMap[headingKey] || citationPageMap[docName];
+    let resolvedEntry = mapEntry;
+    if (!resolvedEntry) {
       const fallbackKey = Object.keys(citationPageMap).find(k =>
-        k.toLowerCase().includes(lower) || lower.includes(k.toLowerCase().split("||")[0])
+        k.toLowerCase().includes(needle) || needle.includes(k.toLowerCase().split("||")[0])
       );
-      resolved = fallbackKey ? citationPageMap[fallbackKey] : null;
+      resolvedEntry = fallbackKey ? citationPageMap[fallbackKey] : null;
     }
 
-    // citationPageMap entry found but vaultId/fileName not resolved (doc name mismatch during pipeline)
-    // Fall back to fuzzy-matching the docName against the current vault's PDF list
-    if (!resolved || !resolved.vaultId || !resolved.fileName) {
-      const needle = docName.toLowerCase().replace(/\.pdf$/i, "");
+    let vaultId, fileName;
+    if (resolvedEntry?.vaultId && resolvedEntry?.fileName) {
+      vaultId = resolvedEntry.vaultId;
+      fileName = resolvedEntry.fileName;
+    } else {
+      // Pipeline didn't resolve the doc — fuzzy match against the vault PDF list directly
       const matchedPdf = pdfs.find(p => {
         const hay = p.name.toLowerCase().replace(/\.pdf$/i, "");
         return hay.includes(needle) || needle.includes(hay);
       });
-      const activeVault = vault;
-      if (matchedPdf && activeVault) {
-        const page = resolved?.page || 1;
-        try {
-          const pdfData = await api(`/api/vaults/${encodeURIComponent(activeVault.id)}/pdfs/${encodeURIComponent(matchedPdf.name)}`);
-          if (!pdfData.base64) { alert("Could not load the PDF."); return; }
-          setCitationViewer({ base64: pdfData.base64, fileName: matchedPdf.name, page });
-        } catch (e) {
-          alert("Failed to load PDF: " + e.message);
-        }
+      if (!matchedPdf || !vault) {
+        alert("Sorry — could not locate the source document for this citation.");
         return;
       }
-      alert("Sorry — could not locate the source document for this citation.");
-      return;
+      vaultId = vault.id;
+      fileName = matchedPdf.name;
     }
 
+    // Step 2 — find the best page via vault index heading lookup
+    // The citationPageMap page is the highest-probability section page (often wrong for a specific clause).
+    // The vaultIndex has every heading with its correct page — match on the clause prefix (e.g. "D2D8", "1.2").
+    let page = resolvedEntry?.page || 1;
+    if (heading) {
+      const headingLower = heading.toLowerCase();
+      const clausePrefix = headingLower.split(/[\s(–—]/)[0]; // e.g. "d2d8" or "1.2"
+      const indexDoc = (vaultIndex?.documents || []).find(d => {
+        const dLower = d.name.toLowerCase().replace(/\.pdf$/i, "");
+        return dLower.includes(needle) || needle.includes(dLower);
+      });
+      if (indexDoc?.headings?.length && clausePrefix) {
+        const matched =
+          // Exact clause prefix match first
+          indexDoc.headings.find(h => h.title.toLowerCase().split(/[\s(–—]/)[0] === clausePrefix) ||
+          // Fallback: heading title contains the clause prefix
+          indexDoc.headings.find(h => h.title.toLowerCase().includes(clausePrefix));
+        if (matched?.pageHint) page = matched.pageHint;
+      }
+    }
+
+    // Step 3 — fetch and open
     try {
       let base64;
-      if (resolved.vaultId === "__temp__") {
+      if (vaultId === "__temp__") {
         base64 = tempDoc?.base64;
       } else {
-        const pdfData = await api(`/api/vaults/${encodeURIComponent(resolved.vaultId)}/pdfs/${encodeURIComponent(resolved.fileName)}`);
+        const pdfData = await api(`/api/vaults/${encodeURIComponent(vaultId)}/pdfs/${encodeURIComponent(fileName)}`);
         base64 = pdfData.base64;
       }
       if (!base64) { alert("Could not load the PDF."); return; }
-      setCitationViewer({ base64, fileName: resolved.fileName, page: resolved.page || 1 });
+      setCitationViewer({ base64, fileName, page });
     } catch (e) {
       alert("Failed to load PDF: " + e.message);
     }
