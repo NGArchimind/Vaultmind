@@ -1050,7 +1050,26 @@ export default function App() {
       resolved = fallbackKey ? citationPageMap[fallbackKey] : null;
     }
 
+    // citationPageMap entry found but vaultId/fileName not resolved (doc name mismatch during pipeline)
+    // Fall back to fuzzy-matching the docName against the current vault's PDF list
     if (!resolved || !resolved.vaultId || !resolved.fileName) {
+      const needle = docName.toLowerCase().replace(/\.pdf$/i, "");
+      const matchedPdf = pdfs.find(p => {
+        const hay = p.name.toLowerCase().replace(/\.pdf$/i, "");
+        return hay.includes(needle) || needle.includes(hay);
+      });
+      const activeVault = vault;
+      if (matchedPdf && activeVault) {
+        const page = resolved?.page || 1;
+        try {
+          const pdfData = await api(`/api/vaults/${encodeURIComponent(activeVault.id)}/pdfs/${encodeURIComponent(matchedPdf.name)}`);
+          if (!pdfData.base64) { alert("Could not load the PDF."); return; }
+          setCitationViewer({ base64: pdfData.base64, fileName: matchedPdf.name, page });
+        } catch (e) {
+          alert("Failed to load PDF: " + e.message);
+        }
+        return;
+      }
       alert("Sorry — could not locate the source document for this citation.");
       return;
     }
