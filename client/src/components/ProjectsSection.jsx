@@ -1577,15 +1577,17 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
 
     // Search indexed drawing content for anything relevant to the question
     let drawingContentContext = "";
+    let contentMatches = [];
     try {
-      const { results: contentMatches } = await api(`/api/projects/${projectId}/drawings/search`, {
+      const { results } = await api(`/api/projects/${projectId}/drawings/search`, {
         method: "POST",
         body: { query: q },
       });
-      if (contentMatches && contentMatches.length > 0) {
+      contentMatches = results || [];
+      if (contentMatches.length > 0) {
         drawingContentContext = "\n\nINDEXED DRAWING CONTENT (drawings whose content is relevant to this question):\n" +
           contentMatches.map(d =>
-            `--- ${d.drawing_number || "—"} | ${d.title || "Untitled"} ---\n${(d.content_text || "").slice(0, 3000)}`
+            `--- ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} ---\n${(d.content_text || "").slice(0, 3000)}`
           ).join("\n\n");
       }
     } catch (e) { /* non-fatal — QA continues without drawing content */ }
@@ -1643,7 +1645,7 @@ Return a JSON object with this exact structure:
 
 Rules:
 - Always populate "answer" with a helpful, direct response. For technical questions (fire ratings, U-values, certifications etc) include the specific values from the product attributes.
-- Only populate "drawing_ids" when the question is specifically about finding or listing drawings
+- Populate "drawing_ids" with the ID of every drawing you reference or cite in your answer — including drawings from INDEXED DRAWING CONTENT that informed your response
 - Only populate "product_ids" when the answer references one or more specific products — use the product IDs from the SPECIFIED PRODUCTS context (the id field in the products join, format: uuid)
 - Never say you don't have access to information — use what is in the context
 - Do not include any text outside the JSON object`;
@@ -1667,7 +1669,15 @@ Rules:
         }
       } catch (parseErr) {}
       setAnswer(answerText);
-      if (matchedDrawingIds.length > 0) setMatchedDrawings(drawings.filter(d => matchedDrawingIds.includes(d.id)));
+      // Merge AI-referenced drawings with content search results — deduplicated
+      const fromAI = drawings.filter(d => matchedDrawingIds.includes(d.id));
+      const merged = [...fromAI];
+      for (const d of contentMatches) {
+        if (!merged.find(x => x.id === d.id)) {
+          merged.push(drawings.find(x => x.id === d.id) || d);
+        }
+      }
+      if (merged.length > 0) setMatchedDrawings(merged);
       if (matchedProductIds.length > 0) setMatchedProducts(assignedProducts.filter(a => a.products && matchedProductIds.includes(a.products.id)));
       setStatus("");
     } catch (e) {
