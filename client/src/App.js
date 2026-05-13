@@ -396,7 +396,6 @@ export default function App() {
 
   const indexOnePdf = async (pdfName, base64) => {
     const SYSTEM = "You are a document indexer. Extract only structural metadata. Return pure JSON only, no markdown, no explanation.";
-    const INDEX_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.\r\n\r\nDo not extract body text or bullet points.\r\n\r\nFor pageHint, use only the position of the page within this PDF file — page 1 is the first page of this file, page 2 is the second, etc. Ignore all printed page numbers on the pages.\r\n\r\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
 
     const tryParse = (text) => {
       const clean = text.replace(/```json|```/g, "").trim();
@@ -415,18 +414,77 @@ export default function App() {
       return Object.values(map);
     };
 
+    // ── Text-based indexing (accurate page numbers via mupdf) ────────────────────
+    // mupdf extracts text with [Page X] markers based on actual file position,
+    // not printed page numbers. Gemini reads these markers directly — no guessing.
+    try {
+      const { text: extractedText, hasText } = await api("/api/extract-text", { method: "POST", body: { base64 } });
+
+      if (hasText && extractedText) {
+        const TEXT_PROMPT = `Extract structural headings from this document text — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.\n\nDo not extract body text or bullet points.\n\nThe text contains [Page X] markers showing the exact page number in the PDF file. Use these markers to set pageHint — use the [Page X] number of the page the heading appears on.\n\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
+
+        // Split on [Page X] markers so each chunk boundary is a clean page start
+        const PAGE_CHUNK_SIZE = 80;
+        const pageSplit = extractedText.split(/(?=\[Page \d+\])/);
+        const chunks = [];
+        for (let i = 0; i < pageSplit.length; i += PAGE_CHUNK_SIZE) {
+          chunks.push(pageSplit.slice(i, i + PAGE_CHUNK_SIZE).join(""));
+        }
+
+        const allHeadings = [];
+        for (let c = 0; c < chunks.length; c++) {
+          const chunkText = chunks[c];
+          if (chunks.length > 1) {
+            const startMatch = chunkText.match(/\[Page (\d+)\]/);
+            const endMatch = chunks[c + 1]?.match(/\[Page (\d+)\]/);
+            setStatusMsg(`Indexing ${pdfName} — pages ${startMatch?.[1] ?? "?"}–${endMatch ? String(Number(endMatch[1]) - 1) : "end"}…`);
+          }
+          try {
+            const { text: result } = await callClaude(
+              [{ role: "user", content: TEXT_PROMPT + "\n\n" + chunkText }],
+              SYSTEM, 65000, 2, "gemini-2.5-flash-lite"
+            );
+            const parsed = tryParse(result);
+            if (parsed?.headings) allHeadings.push(...parsed.headings);
+          } catch (e) {
+            console.warn(`${pdfName} text chunk ${c + 1} failed:`, e.message);
+            if (e.message?.includes("503") || e.message?.includes("UNAVAILABLE")) {
+              try {
+                await new Promise(r => setTimeout(r, 3000));
+                const { text: result2 } = await callClaude(
+                  [{ role: "user", content: TEXT_PROMPT + "\n\n" + chunkText }],
+                  SYSTEM, 65000, 1, "gemini-2.5-flash-lite"
+                );
+                const parsed2 = tryParse(result2);
+                if (parsed2?.headings) allHeadings.push(...parsed2.headings);
+              } catch (e2) {
+                console.warn(`${pdfName} text chunk ${c + 1} retry also failed:`, e2.message);
+              }
+            }
+          }
+        }
+
+        if (allHeadings.length > 0) return { headings: dedupe(allHeadings) };
+        console.warn(`${pdfName}: text-based indexing returned no headings, falling back to PDF…`);
+      }
+    } catch (e) {
+      console.warn(`${pdfName}: text extraction failed (${e.message}), falling back to PDF…`);
+    }
+
+    // ── PDF-binary fallback (scanned / image-only PDFs) ──────────────────────────
+    const PDF_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.\r\n\r\nDo not extract body text or bullet points.\r\n\r\nFor pageHint, use only the position of the page within this PDF file — page 1 is the first page of this file, page 2 is the second, etc. Ignore all printed page numbers on the pages.\r\n\r\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
+
     try {
       const { text: result } = await callClaude(
         [{ role: "user", content: [
           { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 }, title: pdfName },
-          { type: "text", text: INDEX_PROMPT }
+          { type: "text", text: PDF_PROMPT }
         ]}],
         SYSTEM, 65000, 2, "gemini-2.5-flash-lite"
       );
       const parsed = tryParse(result);
       if (parsed?.headings?.length > 0) {
-        const deduped = dedupe(parsed.headings);
-        return { headings: deduped };
+        return { headings: dedupe(parsed.headings) };
       }
       console.warn(`${pdfName}: full-PDF index returned no headings, trying chunked…`);
     } catch (e) {
@@ -1040,8 +1098,7 @@ export default function App() {
   const handleCitationClick = async (docName, heading) => {
     const needle = docName.toLowerCase().replace(/\.pdf$/i, "");
 
-    // Step 1 — resolve vaultId + fileName
-    // Try citationPageMap first (already has vaultId/fileName when pipeline resolved correctly)
+    // Resolve citationPageMap entry — try heading-specific key first, then doc key, then fuzzy
     const headingKey = `${docName}||${(heading || "").toLowerCase().trim()}`;
     const mapEntry = citationPageMap[headingKey] || citationPageMap[docName];
     let resolvedEntry = mapEntry;
@@ -1052,12 +1109,12 @@ export default function App() {
       resolvedEntry = fallbackKey ? citationPageMap[fallbackKey] : null;
     }
 
+    // Resolve vaultId + fileName from map, or fuzzy-match against the vault PDF list
     let vaultId, fileName;
     if (resolvedEntry?.vaultId && resolvedEntry?.fileName) {
       vaultId = resolvedEntry.vaultId;
       fileName = resolvedEntry.fileName;
     } else {
-      // Pipeline didn't resolve the doc — fuzzy match against the vault PDF list directly
       const matchedPdf = pdfs.find(p => {
         const hay = p.name.toLowerCase().replace(/\.pdf$/i, "");
         return hay.includes(needle) || needle.includes(hay);
@@ -1070,28 +1127,8 @@ export default function App() {
       fileName = matchedPdf.name;
     }
 
-    // Step 2 — find the best page via vault index heading lookup
-    // The citationPageMap page is the highest-probability section page (often wrong for a specific clause).
-    // The vaultIndex has every heading with its correct page — match on the clause prefix (e.g. "D2D8", "1.2").
-    let page = resolvedEntry?.page || 1;
-    if (heading) {
-      const headingLower = heading.toLowerCase();
-      const clausePrefix = headingLower.split(/[\s(–—]/)[0]; // e.g. "d2d8" or "1.2"
-      const indexDoc = (vaultIndex?.documents || []).find(d => {
-        const dLower = d.name.toLowerCase().replace(/\.pdf$/i, "");
-        return dLower.includes(needle) || needle.includes(dLower);
-      });
-      if (indexDoc?.headings?.length && clausePrefix) {
-        const matched =
-          // Exact clause prefix match first
-          indexDoc.headings.find(h => h.title.toLowerCase().split(/[\s(–—]/)[0] === clausePrefix) ||
-          // Fallback: heading title contains the clause prefix
-          indexDoc.headings.find(h => h.title.toLowerCase().includes(clausePrefix));
-        if (matched?.pageHint) page = matched.pageHint;
-      }
-    }
+    const page = resolvedEntry?.page || 1;
 
-    // Step 3 — fetch and open
     try {
       let base64;
       if (vaultId === "__temp__") {
