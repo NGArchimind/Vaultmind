@@ -9,6 +9,7 @@ function formatInline(text) {
   });
 }
 
+// Parse "Document Name | Clause Title (Parent)" into { docName, heading }
 function parseCitation(citationText) {
   const pipeIdx = citationText.indexOf("|");
   if (pipeIdx === -1) return { docName: citationText.trim(), heading: "" };
@@ -17,117 +18,30 @@ function parseCitation(citationText) {
   return { docName, heading };
 }
 
-function isCitationLine(trimmed) {
-  return (
-    trimmed.startsWith("*") && trimmed.endsWith("*") &&
-    trimmed.length > 2 && !trimmed.startsWith("**") &&
-    trimmed.includes("|")
-  );
-}
-
-function extractCitationText(trimmed) {
-  if (trimmed.startsWith("*") && trimmed.endsWith("*")) return trimmed.slice(1, -1);
-  return trimmed.slice(1).trim();
-}
-
-function SectionHeader({ text }) {
-  const lower = text.toLowerCase();
-  let bg, borderColor, labelColor;
-  if (lower.includes("summary")) {
-    bg = "#f0f5f6"; borderColor = "#3d9970"; labelColor = "#3d9970";
-  } else if (lower.includes("detailed")) {
-    bg = "#f5f7fa"; borderColor = ARC_NAVY; labelColor = ARC_NAVY;
-  } else if (lower.includes("regulatory")) {
-    bg = "#faf6f0"; borderColor = ARC_TERRACOTTA; labelColor = ARC_TERRACOTTA;
-  } else if (lower.includes("contradiction") || lower.includes("conflict")) {
-    bg = "#fdf5f5"; borderColor = "#9a3030"; labelColor = "#9a3030";
-  } else {
-    bg = "#f5f7fa"; borderColor = ARC_NAVY; labelColor = ARC_NAVY;
-  }
-  return (
-    <div style={{
-      display: "flex", alignItems: "center",
-      padding: "10px 16px", margin: "24px 0 12px",
-      background: bg, borderLeft: `3px solid ${borderColor}`, borderRadius: "0 3px 3px 0"
-    }}>
-      <span style={{
-        fontSize: 11, fontWeight: 700, letterSpacing: "0.1em",
-        textTransform: "uppercase", color: labelColor
-      }}>{text}</span>
-    </div>
-  );
-}
-
-function SourceCard({ quoteText, citationText, onCitationClick }) {
+function CitationLine({ citationText, onCitationClick, keyProp }) {
   const { docName, heading } = parseCitation(citationText);
   return (
-    <div style={{
-      border: "1px solid #e0dcd6", borderLeft: "3px solid #c8c0b8",
-      borderRadius: "0 3px 3px 0", margin: "8px 0 14px", overflow: "hidden"
-    }}>
-      <div style={{
-        padding: "10px 14px", fontStyle: "italic", fontSize: 13,
-        color: "#3a4a5a", lineHeight: 1.7, background: "#fafaf9",
-        borderBottom: "1px solid #e8e4e0"
-      }}>
-        {quoteText}
-      </div>
-      <div style={{ display: "flex", alignItems: "stretch", background: "#fff" }}>
-        <div style={{ padding: "7px 12px", flex: 1 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, letterSpacing: "0.02em" }}>{docName}</div>
-          {heading && <div style={{ fontSize: 11, color: "#6b6560", marginTop: 2 }}>{heading}</div>}
-        </div>
-        {onCitationClick && (
-          <button
-            onClick={() => onCitationClick(docName, heading)}
-            style={{
-              background: ARC_NAVY, color: "#fff", border: "none", cursor: "pointer",
-              fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase",
-              fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: 2,
-              minWidth: 84, padding: "0 14px", transition: "background 0.15s", flexShrink: 0
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = "#2a3a52"}
-            onMouseLeave={e => e.currentTarget.style.background = ARC_NAVY}
-          >
-            <span>Open PDF</span>
-            <span style={{ fontSize: 10, fontWeight: 400, opacity: 0.7 }}>↗ source</span>
-          </button>
-        )}
-      </div>
-    </div>
+    <p key={keyProp} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif", display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+      <span>{citationText}</span>
+      {onCitationClick && (
+        <button
+          onClick={() => onCitationClick(docName, heading)}
+          title="Open source PDF"
+          style={{ background: "none", border: "none", cursor: "pointer", color: "#9a9088", fontSize: 10, padding: "0 2px", fontStyle: "normal", lineHeight: 1, flexShrink: 0, textDecoration: "underline", fontFamily: "Inter, Arial, sans-serif" }}
+          onMouseEnter={e => e.target.style.color = ARC_NAVY}
+          onMouseLeave={e => e.target.style.color = "#9a9088"}
+        >↗ open</button>
+      )}
+    </p>
   );
 }
 
-function CitationChip({ citationText, onCitationClick }) {
-  const { docName, heading } = parseCitation(citationText);
-  return (
-    <div
-      onClick={() => onCitationClick && onCitationClick(docName, heading)}
-      style={{
-        display: "inline-flex", alignItems: "center", gap: 6,
-        background: "#f0f4f8", border: "1px solid #d0dce8", borderRadius: 3,
-        padding: "3px 8px 3px 10px", margin: "3px 0 8px",
-        fontSize: 11, cursor: onCitationClick ? "pointer" : "default",
-        transition: "background 0.15s", fontFamily: "Inter, Arial, sans-serif"
-      }}
-      onMouseEnter={e => { if (onCitationClick) e.currentTarget.style.background = "#e4ecf4"; }}
-      onMouseLeave={e => { e.currentTarget.style.background = "#f0f4f8"; }}
-    >
-      <span style={{ fontWeight: 600, color: ARC_NAVY }}>{docName}</span>
-      {heading && <span style={{ color: "#5a6a7a" }}>· {heading}</span>}
-      {onCitationClick && <span style={{ color: ARC_NAVY, fontSize: 12 }}>↗</span>}
-    </div>
-  );
-}
-
-export default function AnswerRenderer({ text, onCitationClick, answerStats }) {
+export default function AnswerRenderer({ text, onCitationClick }) {
   if (!text) return null;
   const lines = text.split("\n");
   const elements = [];
   let tableBuffer = [];
   let inTable = false;
-  let lastCitationKey = null;
 
   const flushTable = (key) => {
     if (tableBuffer.length === 0) return;
@@ -174,192 +88,144 @@ export default function AnswerRenderer({ text, onCitationClick, answerStats }) {
     tableBuffer = []; inTable = false;
   };
 
-  let i = 0;
-  while (i < lines.length) {
-    const line = lines[i];
-
-    // ── Table rows ───────────────────────────────────────────────────────────
+  lines.forEach((line, i) => {
     if (line.startsWith(">> ")) {
       inTable = true;
-      if (tableBuffer._pendingTitle) { tableBuffer._title = tableBuffer._pendingTitle; delete tableBuffer._pendingTitle; }
+      if (tableBuffer._pendingTitle) {
+        tableBuffer._title = tableBuffer._pendingTitle;
+        delete tableBuffer._pendingTitle;
+      }
       const chevronContent = line.slice(3).trim();
       const normalised = chevronContent.startsWith("|") ? `>> ${chevronContent}` : `>> | ${chevronContent} |`;
       tableBuffer.push(normalised);
-      i++; continue;
+      return;
     }
     if (line.startsWith("|")) {
       inTable = true;
-      if (tableBuffer._pendingTitle) { tableBuffer._title = tableBuffer._pendingTitle; delete tableBuffer._pendingTitle; }
+      if (tableBuffer._pendingTitle) {
+        tableBuffer._title = tableBuffer._pendingTitle;
+        delete tableBuffer._pendingTitle;
+      }
       tableBuffer.push(line);
-      i++; continue;
+      return;
     }
     if (inTable) flushTable(i);
 
     const trimmedLine = line.trim();
-
-    // ── Table title detection ────────────────────────────────────────────────
     const isBoldTitle = (trimmedLine.startsWith("**") && trimmedLine.endsWith("**") && /table|figure/i.test(trimmedLine));
     const isPlainTitle = (!trimmedLine.startsWith("|") && !trimmedLine.startsWith(">") && !trimmedLine.startsWith("*") && /^(table|figure)\s+\d+/i.test(trimmedLine) && !trimmedLine.includes("  "));
     if (isBoldTitle || isPlainTitle) {
       tableBuffer._pendingTitle = trimmedLine.replace(/\*\*/g, "").trim();
-      i++; continue;
+      return;
     }
+
     if (!trimmedLine.startsWith("|") && !trimmedLine.startsWith(">") && trimmedLine.includes(" | ") && tableBuffer._pendingTitle && !inTable) {
       inTable = true;
-      if (tableBuffer._pendingTitle) { tableBuffer._title = tableBuffer._pendingTitle; delete tableBuffer._pendingTitle; }
+      if (tableBuffer._pendingTitle) {
+        tableBuffer._title = tableBuffer._pendingTitle;
+        delete tableBuffer._pendingTitle;
+      }
       tableBuffer.push(`| ${trimmedLine} |`);
       const colCount = trimmedLine.split(" | ").length;
       tableBuffer.push(`|${Array(colCount).fill("---").join("|")}|`);
-      i++; continue;
+      return;
     }
 
-    // ── Section headers ──────────────────────────────────────────────────────
-    if (line.startsWith("## ")) {
-      elements.push(<SectionHeader key={i} text={line.slice(3)} />);
-      lastCitationKey = null;
-      i++; continue;
-    }
     if (line.startsWith("### ")) {
       elements.push(
         <h3 key={i} style={{ color: ARC_TERRACOTTA, fontSize: 11, fontWeight: 600, margin: "20px 0 6px", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "Inter, Arial, sans-serif" }}>
           {line.slice(4)}
         </h3>
       );
-      i++; continue;
-    }
-    if (line.startsWith("# ")) {
+    } else if (line.startsWith("## ")) {
+      const text = line.slice(3);
+      const isSummary = text.toLowerCase().includes("summary");
+      const isContext = text.toLowerCase().includes("regulatory context");
+      if (isSummary) {
+        elements.push(
+          <div key={i} style={{ background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${AD_GREEN}`, padding: "14px 18px", margin: "16px 0 8px" }}>
+            <h2 style={{ color: AD_GREEN, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
+          </div>
+        );
+      } else if (isContext) {
+        elements.push(
+          <div key={i} style={{ background: "#faf6f0", border: `1px solid #e0d5c5`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 18px", margin: "24px 0 8px" }}>
+            <h2 style={{ color: ARC_TERRACOTTA, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
+          </div>
+        );
+      } else {
+        elements.push(
+          <div key={i} style={{ borderBottom: `1px solid #e8e0d5`, marginTop: 28, marginBottom: 10, paddingBottom: 6 }}>
+            <h2 style={{ color: ARC_NAVY, fontSize: 16, fontWeight: 400, margin: 0, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.02em" }}>{text}</h2>
+          </div>
+        );
+      }
+    } else if (line.startsWith("# ")) {
       elements.push(
         <div key={i} style={{ borderBottom: `2px solid ${ARC_TERRACOTTA}`, marginTop: 32, marginBottom: 14, paddingBottom: 6 }}>
           <h1 style={{ color: ARC_NAVY, fontSize: 20, fontWeight: 300, margin: 0, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.02em" }}>{line.slice(2)}</h1>
         </div>
       );
-      i++; continue;
-    }
-
-    // ── Blockquote: pair with following citation if present ──────────────────
-    if (line.startsWith("> ")) {
+    } else if (line.startsWith("> ")) {
       const quoteText = line.slice(2);
-      const isInlineCitation = quoteText.startsWith("*") && quoteText.endsWith("*");
+      const isCitation = quoteText.startsWith("*") && quoteText.endsWith("*");
       const isTableRow = quoteText.startsWith("|");
       const isSeparatorRow = /^\|[\s:|-]+\|/.test(quoteText);
-
-      if (isInlineCitation) {
-        // Legacy: > *Citation* — render as chip
-        const citText = quoteText.slice(1, -1);
-        const citKey = citText.toLowerCase().replace(/\s+/g, " ").trim();
-        if (citKey !== lastCitationKey) {
-          elements.push(<CitationChip key={i} citationText={citText} onCitationClick={onCitationClick} />);
-          lastCitationKey = citKey;
-        }
-        i++; continue;
+      if (isCitation) {
+        elements.push(
+          <CitationLine key={i} keyProp={i} citationText={quoteText.slice(1, -1)} onCitationClick={onCitationClick} />
+        );
+      } else if (isTableRow && !isSeparatorRow) {
+        inTable = true; tableBuffer.push(quoteText);
+      } else if (isSeparatorRow) {
+        if (inTable) tableBuffer.push(quoteText);
+      } else {
+        elements.push(
+          <div key={i} style={{ borderLeft: `2px solid #d0ccc8`, padding: "2px 0 2px 14px", margin: "4px 0", fontStyle: "italic", fontSize: 13, color: "#4a5568", lineHeight: 1.8, fontFamily: "Inter, Arial, sans-serif" }}>
+            {quoteText}
+          </div>
+        );
       }
-      if (isTableRow && !isSeparatorRow) { inTable = true; tableBuffer.push(quoteText); i++; continue; }
-      if (isSeparatorRow) { if (inTable) tableBuffer.push(quoteText); i++; continue; }
-
-      // Look ahead for a citation on the next non-empty line
-      let nextIdx = i + 1;
-      while (nextIdx < lines.length && lines[nextIdx].trim() === "") nextIdx++;
-      const nextTrimmed = nextIdx < lines.length ? lines[nextIdx].trim() : "";
-
-      if (isCitationLine(nextTrimmed)) {
-        const citText = extractCitationText(nextTrimmed);
-        const citKey = citText.toLowerCase().replace(/\s+/g, " ").trim();
-        elements.push(<SourceCard key={i} quoteText={quoteText} citationText={citText} onCitationClick={onCitationClick} />);
-        lastCitationKey = citKey;
-        i = nextIdx + 1;
-        continue;
-      }
-
-      // Plain blockquote with no citation following
-      elements.push(
-        <div key={i} style={{ borderLeft: "2px solid #d0ccc8", padding: "2px 0 2px 14px", margin: "4px 0", fontStyle: "italic", fontSize: 13, color: "#4a5568", lineHeight: 1.8, fontFamily: "Inter, Arial, sans-serif" }}>
-          {quoteText}
-        </div>
-      );
-      i++; continue;
-    }
-
-    // ── Bullet points ────────────────────────────────────────────────────────
-    if (line.startsWith("- ") || line.startsWith("* ")) {
+    } else if (line.startsWith("- ") || line.startsWith("* ")) {
       const trimmedBullet = line.trim();
       const isBulletCitationWrapped = trimmedBullet.startsWith("*") && trimmedBullet.endsWith("*") && trimmedBullet.length > 2 && !trimmedBullet.startsWith("**");
       const isBulletCitationUnwrapped = trimmedBullet.startsWith("*") && !trimmedBullet.startsWith("**") && trimmedBullet.includes("|") && trimmedBullet.length > 10;
       if (isBulletCitationWrapped || isBulletCitationUnwrapped) {
-        const citText = isBulletCitationWrapped ? trimmedBullet.slice(1, -1) : trimmedBullet.slice(1).trim();
-        const citKey = citText.toLowerCase().replace(/\s+/g, " ").trim();
-        if (citKey !== lastCitationKey) {
-          elements.push(<CitationChip key={i} citationText={citText} onCitationClick={onCitationClick} />);
-          lastCitationKey = citKey;
-        }
+        const citationText = isBulletCitationWrapped ? trimmedBullet.slice(1, -1) : trimmedBullet.slice(1).trim();
+        elements.push(
+          <CitationLine key={i} keyProp={i} citationText={citationText} onCitationClick={onCitationClick} />
+        );
       } else {
-        lastCitationKey = null;
         elements.push(<li key={i} style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.7, marginLeft: 20, marginBottom: 4, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(line.slice(2))}</li>);
       }
-      i++; continue;
-    }
-
-    // ── Numbered sections ────────────────────────────────────────────────────
-    if (line.match(/^\d+\.\d+ /)) {
+    } else if (line.match(/^\d+\.\d+ /)) {
       const numMatch = line.match(/^(\d+\.\d+) (.+)/);
       if (numMatch) {
-        lastCitationKey = null;
         elements.push(
-          <div key={i} style={{ display: "flex", gap: 12, margin: "6px 0" }}>
+          <div key={i} style={{ display: "flex", gap: 12, margin: "6px 0", fontFamily: "Arial, sans-serif" }}>
             <span style={{ color: ARC_TERRACOTTA, fontWeight: 600, fontSize: 12, flexShrink: 0, minWidth: 28 }}>{numMatch[1]}</span>
             <p style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.7, margin: 0, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(numMatch[2])}</p>
           </div>
         );
       }
-      i++; continue;
-    }
-    if (line.match(/^\d+\. /)) {
-      lastCitationKey = null;
+    } else if (line.match(/^\d+\. /)) {
       elements.push(<li key={i} style={{ color: "#0b0c0c", fontSize: 14, lineHeight: 1.7, marginLeft: 20, marginBottom: 3, listStyleType: "decimal", fontFamily: "Arial, sans-serif" }}>{formatInline(line.replace(/^\d+\. /, ""))}</li>);
-      i++; continue;
-    }
-
-    // ── Empty lines ──────────────────────────────────────────────────────────
-    if (line === "") {
+    } else if (line === "") {
       elements.push(<div key={i} style={{ height: 10 }} />);
-      i++; continue;
-    }
-
-    // ── Standalone citation lines ────────────────────────────────────────────
-    const isWrappedCitation = trimmedLine.startsWith("*") && trimmedLine.endsWith("*") && trimmedLine.length > 2 && !trimmedLine.startsWith("**");
-    const isUnwrappedCitation = trimmedLine.startsWith("*") && !trimmedLine.startsWith("**") && trimmedLine.includes("|") && trimmedLine.length > 10;
-    if (isWrappedCitation || isUnwrappedCitation) {
-      const citText = isWrappedCitation ? trimmedLine.slice(1, -1) : trimmedLine.slice(1).trim();
-      const citKey = citText.toLowerCase().replace(/\s+/g, " ").trim();
-      if (citKey !== lastCitationKey) {
-        elements.push(<CitationChip key={i} citationText={citText} onCitationClick={onCitationClick} />);
-        lastCitationKey = citKey;
+    } else {
+      const trimmed = line.trim();
+      const isWrappedCitation = trimmed.startsWith("*") && trimmed.endsWith("*") && trimmed.length > 2 && !trimmed.startsWith("**");
+      const isUnwrappedCitation = trimmed.startsWith("*") && !trimmed.startsWith("**") && trimmed.includes("|") && trimmed.length > 10;
+      if (isWrappedCitation || isUnwrappedCitation) {
+        const citationText = isWrappedCitation ? trimmed.slice(1, -1) : trimmed.slice(1).trim();
+        elements.push(
+          <CitationLine key={i} keyProp={i} citationText={citationText} onCitationClick={onCitationClick} />
+        );
+      } else {
+        elements.push(<p key={i} style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.8, margin: "6px 0", fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.01em" }}>{formatInline(line)}</p>);
       }
-      i++; continue;
     }
-
-    // ── Regular paragraph ────────────────────────────────────────────────────
-    lastCitationKey = null;
-    elements.push(<p key={i} style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.8, margin: "6px 0", fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.01em" }}>{formatInline(line)}</p>);
-    i++;
-  }
-
+  });
   if (inTable) flushTable("end");
-
-  return (
-    <div>
-      {answerStats && (
-        <div style={{
-          fontSize: 11, color: "#6b8fa8", background: "#eef4f8",
-          border: "1px solid #c8dce8", borderRadius: 3,
-          padding: "4px 10px", display: "inline-block", marginBottom: 14,
-          fontFamily: "Inter, Arial, sans-serif"
-        }}>
-          {answerStats.docsTotal} document{answerStats.docsTotal !== 1 ? "s" : ""} searched
-          {" · "}{answerStats.docsRead} contained relevant content
-          {" · "}{answerStats.pagesRead} page{answerStats.pagesRead !== 1 ? "s" : ""} read
-        </div>
-      )}
-      {elements}
-    </div>
-  );
+  return <div>{elements}</div>;
 }

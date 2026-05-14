@@ -142,7 +142,6 @@ export default function App() {
   const [vaultIndex, setVaultIndex] = useState(null);
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState(null);
-  const [answerStats, setAnswerStats] = useState(null);
   const [stage, setStage] = useState(null);
   const [progress, setProgress] = useState({ index: 0, select: 0, read: 0, answer: 0 });
   const [statusMsg, setStatusMsg] = useState("");
@@ -396,6 +395,7 @@ export default function App() {
 
   const indexOnePdf = async (pdfName, base64) => {
     const SYSTEM = "You are a document indexer. Extract only structural metadata. Return pure JSON only, no markdown, no explanation.";
+    const INDEX_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.\r\n\r\nDo not extract body text or bullet points.\r\n\r\nFor pageHint, use only the position of the page within this PDF file — page 1 is the first page of this file, page 2 is the second, etc. Ignore all printed page numbers on the pages.\r\n\r\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
 
     const tryParse = (text) => {
       const clean = text.replace(/```json|```/g, "").trim();
@@ -414,77 +414,18 @@ export default function App() {
       return Object.values(map);
     };
 
-    // ── Text-based indexing (accurate page numbers via mupdf) ────────────────────
-    // mupdf extracts text with [Page X] markers based on actual file position,
-    // not printed page numbers. Gemini reads these markers directly — no guessing.
-    try {
-      const { text: extractedText, hasText } = await api("/api/extract-text", { method: "POST", body: { base64 } });
-
-      if (hasText && extractedText) {
-        const TEXT_PROMPT = `Extract structural headings from this document text — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.\n\nDo not extract body text or bullet points.\n\nThe text contains [Page X] markers showing the exact page number in the PDF file. Use these markers to set pageHint — use the [Page X] number of the page the heading appears on.\n\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
-
-        // Split on [Page X] markers so each chunk boundary is a clean page start
-        const PAGE_CHUNK_SIZE = 80;
-        const pageSplit = extractedText.split(/(?=\[Page \d+\])/);
-        const chunks = [];
-        for (let i = 0; i < pageSplit.length; i += PAGE_CHUNK_SIZE) {
-          chunks.push(pageSplit.slice(i, i + PAGE_CHUNK_SIZE).join(""));
-        }
-
-        const allHeadings = [];
-        for (let c = 0; c < chunks.length; c++) {
-          const chunkText = chunks[c];
-          if (chunks.length > 1) {
-            const startMatch = chunkText.match(/\[Page (\d+)\]/);
-            const endMatch = chunks[c + 1]?.match(/\[Page (\d+)\]/);
-            setStatusMsg(`Indexing ${pdfName} — pages ${startMatch?.[1] ?? "?"}–${endMatch ? String(Number(endMatch[1]) - 1) : "end"}…`);
-          }
-          try {
-            const { text: result } = await callClaude(
-              [{ role: "user", content: TEXT_PROMPT + "\n\n" + chunkText }],
-              SYSTEM, 65000, 2, "gemini-2.5-flash-lite"
-            );
-            const parsed = tryParse(result);
-            if (parsed?.headings) allHeadings.push(...parsed.headings);
-          } catch (e) {
-            console.warn(`${pdfName} text chunk ${c + 1} failed:`, e.message);
-            if (e.message?.includes("503") || e.message?.includes("UNAVAILABLE")) {
-              try {
-                await new Promise(r => setTimeout(r, 3000));
-                const { text: result2 } = await callClaude(
-                  [{ role: "user", content: TEXT_PROMPT + "\n\n" + chunkText }],
-                  SYSTEM, 65000, 1, "gemini-2.5-flash-lite"
-                );
-                const parsed2 = tryParse(result2);
-                if (parsed2?.headings) allHeadings.push(...parsed2.headings);
-              } catch (e2) {
-                console.warn(`${pdfName} text chunk ${c + 1} retry also failed:`, e2.message);
-              }
-            }
-          }
-        }
-
-        if (allHeadings.length > 0) return { headings: dedupe(allHeadings) };
-        console.warn(`${pdfName}: text-based indexing returned no headings, falling back to PDF…`);
-      }
-    } catch (e) {
-      console.warn(`${pdfName}: text extraction failed (${e.message}), falling back to PDF…`);
-    }
-
-    // ── PDF-binary fallback (scanned / image-only PDFs) ──────────────────────────
-    const PDF_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.\r\n\r\nDo not extract body text or bullet points.\r\n\r\nFor pageHint, count pages in order from the start of this PDF file — page 1 is the first physical page (cover or title page), page 2 is the second, and so on. Use this physical position, not any number printed on the page.\r\n\r\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
-
     try {
       const { text: result } = await callClaude(
         [{ role: "user", content: [
           { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 }, title: pdfName },
-          { type: "text", text: PDF_PROMPT }
+          { type: "text", text: INDEX_PROMPT }
         ]}],
         SYSTEM, 65000, 2, "gemini-2.5-flash-lite"
       );
       const parsed = tryParse(result);
       if (parsed?.headings?.length > 0) {
-        return { headings: dedupe(parsed.headings) };
+        const deduped = dedupe(parsed.headings);
+        return { headings: deduped };
       }
       console.warn(`${pdfName}: full-PDF index returned no headings, trying chunked…`);
     } catch (e) {
@@ -651,7 +592,6 @@ export default function App() {
     if ((!vault && !tempDoc) || !effectiveQuestion.trim()) return;
     const q = effectiveQuestion.trim();
     setAnswer(null);
-    setAnswerStats(null);
     setCostEst(null);
     setAnswerVaultName("");
     setCitationPageMap({});
@@ -1031,8 +971,7 @@ export default function App() {
         ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
         : "";
 
-      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `\n\nNOTE: A temporary document has been included for reference: "${tempDoc.name}". This is not part of the permanent vault — treat it as an additional reference document when answering.` : ""}\n\n${contextBlock}CURRENT QUESTION: ${q}\n\nPRIORITY SECTIONS: ${focusSections || "all sections"}\n\n---\n\nTABLES — GLOBAL RULE (applies to every section):\nWhen multiple documents contain tables that are near-identical in structure and content (e.g. minimum fire resistance performance tables across different versions of the same standard), do NOT reproduce each one separately. Instead:\n1. Reproduce the single most complete and relevant version in full\n2. After the citation, add a plain italic note: *Note: [Other Document] [Table X] contains equivalent/near-identical data. [Note any meaningful differences, e.g. if one table lacks a cavity barrier row.]*\n\nFor the one table you reproduce:\n1. Output the table title on its own line in bold: **Table X — Title of table**\n2. Reproduce the COMPLETE table — EVERY row, EVERY column, NO exceptions. Do not extract only the relevant row. Do not summarise. If the table has 30 rows, output all 30 rows. Every row starts and ends with | pipe characters.\n3. After the header row output a separator row: | --- | --- | --- |\n4. For the specific row(s) that directly answer the question, prefix that ENTIRE ROW with >> ONCE at the very start, before the first pipe: >> | cell | cell | cell |\n   CRITICAL: The >> prefix appears ONCE at the start of the row only. Do NOT put >> before each cell.\n5. Do NOT wrap tables in > block quote syntax\n6. Place the citation immediately below the table, then the equivalence note\n7. If the table spans multiple pages, combine ALL parts into one complete table — do not stop at the first page\n\nIf only one table is referenced, reproduce it in full without any equivalence note.\n\nRESPONSE FORMAT — output in this exact order every time:\n\n## Summary\n\nWRITE THIS FIRST. A confident, definitive answer in 2–4 sentences. Must:\n- Open with a direct answer in plain English\n- Cite ALL relevant documents provided — not just one\n- Build on any prior conversation context where relevant\n- Reproduce any table directly relevant to the answer\n- After any table include footnotes/qualifications as plain italic text\n\nFor each key fact, include the exact supporting phrase and citation as a consecutive pair:\n\n> "Exact short phrase from document."\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nCITATION FORMAT: *Document | Clause number and title (Parent section title)*\nCRITICAL: Citation MUST start AND end with * asterisk.\n\nCITATION PLACEMENT — strictly follow these rules:\n- Every citation goes on its OWN LINE, never embedded within a sentence\n- Never write: "Quote." *Citation* and more text continues here.\n- Never chain citations with "and": *Citation A* and *Citation B* — WRONG\n- If multiple documents support the same fact, each citation goes on its own separate line:\n  > "Quote."\n  *Document A | Clause*\n  *Document B | Clause*\n- A citation always ends a paragraph, never appears mid-sentence\n\n---\n\n## Detailed Analysis\n\nWRITE THIS SECOND. Only content that adds value beyond the summary.\n\nCheck ALL of the following — if ANY apply, write Case 2:\n- Location/scenario-specific requirements beyond the general rule?\n- Exceptions or conditions where the rule does NOT apply?\n- Construction/specification requirements beyond the fire rating?\n- Cross-references to other clauses, standards, or ADs?\n- Do the multiple documents differ or add to each other?\n- Inspection, testing, or certification requirements?\n\nCASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."\n\nCASE 2 — Concise bullet points. One sentence each. Reproduce any referenced table in full below the bullet. Citation after each bullet or table:\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nRULES:\n- No repetition of summary content\n- Citations: opening AND closing * required\n- Cite ALL documents where relevant — never rely on just one\n- Maximum 6 bullets\n\n---\n\n## Regulatory Context\n\nWRITE THIS THIRD. Broader background tightly scoped to the question. 2–4 bullets maximum.\nCitation after each bullet: *Document Name | X.X.X Clause Title (Parent Section Title)*\nIf nothing to add: "No additional context required."\n\n---\n\n## Contradictions & Conflicts\n\nWRITE THIS LAST. Conflicts: state conflict, quote both sides with citations, give practical conclusion.\nNo conflicts: "No contradictions identified."\n\n---\n\nRULES:\n- Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions\n- Use ONLY the provided document pages — no external knowledge\n- Every factual statement needs a citation with opening AND closing asterisks\n- Draw from ALL provided documents — never rely on just one
-- CITATION REPETITION: Where consecutive bullets or points all cite the same document and clause, place one citation after the final point rather than repeating after each`;
+      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `\n\nNOTE: A temporary document has been included for reference: "${tempDoc.name}". This is not part of the permanent vault — treat it as an additional reference document when answering.` : ""}\n\n${contextBlock}CURRENT QUESTION: ${q}\n\nPRIORITY SECTIONS: ${focusSections || "all sections"}\n\n---\n\nTABLES — GLOBAL RULE (applies to every section):\nWhen multiple documents contain tables that are near-identical in structure and content (e.g. minimum fire resistance performance tables across different versions of the same standard), do NOT reproduce each one separately. Instead:\n1. Reproduce the single most complete and relevant version in full\n2. After the citation, add a plain italic note: *Note: [Other Document] [Table X] contains equivalent/near-identical data. [Note any meaningful differences, e.g. if one table lacks a cavity barrier row.]*\n\nFor the one table you reproduce:\n1. Output the table title on its own line in bold: **Table X — Title of table**\n2. Reproduce the COMPLETE table — EVERY row, EVERY column, NO exceptions. Do not extract only the relevant row. Do not summarise. If the table has 30 rows, output all 30 rows. Every row starts and ends with | pipe characters.\n3. After the header row output a separator row: | --- | --- | --- |\n4. For the specific row(s) that directly answer the question, prefix that ENTIRE ROW with >> ONCE at the very start, before the first pipe: >> | cell | cell | cell |\n   CRITICAL: The >> prefix appears ONCE at the start of the row only. Do NOT put >> before each cell.\n5. Do NOT wrap tables in > block quote syntax\n6. Place the citation immediately below the table, then the equivalence note\n7. If the table spans multiple pages, combine ALL parts into one complete table — do not stop at the first page\n\nIf only one table is referenced, reproduce it in full without any equivalence note.\n\nRESPONSE FORMAT — output in this exact order every time:\n\n## Summary\n\nWRITE THIS FIRST. A confident, definitive answer in 2–4 sentences. Must:\n- Open with a direct answer in plain English\n- Cite ALL relevant documents provided — not just one\n- Build on any prior conversation context where relevant\n- Reproduce any table directly relevant to the answer\n- After any table include footnotes/qualifications as plain italic text\n\nFor each key fact, include the exact supporting phrase and citation as a consecutive pair:\n\n> "Exact short phrase from document."\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nCITATION FORMAT: *Document | Clause number and title (Parent section title)*\nCRITICAL: Citation MUST start AND end with * asterisk.\n\nCITATION PLACEMENT — strictly follow these rules:\n- Every citation goes on its OWN LINE, never embedded within a sentence\n- Never write: "Quote." *Citation* and more text continues here.\n- Never chain citations with "and": *Citation A* and *Citation B* — WRONG\n- If multiple documents support the same fact, each citation goes on its own separate line:\n  > "Quote."\n  *Document A | Clause*\n  *Document B | Clause*\n- A citation always ends a paragraph, never appears mid-sentence\n\n---\n\n## Detailed Analysis\n\nWRITE THIS SECOND. Only content that adds value beyond the summary.\n\nCheck ALL of the following — if ANY apply, write Case 2:\n- Location/scenario-specific requirements beyond the general rule?\n- Exceptions or conditions where the rule does NOT apply?\n- Construction/specification requirements beyond the fire rating?\n- Cross-references to other clauses, standards, or ADs?\n- Do the multiple documents differ or add to each other?\n- Inspection, testing, or certification requirements?\n\nCASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."\n\nCASE 2 — Concise bullet points. One sentence each. Reproduce any referenced table in full below the bullet. Citation after each bullet or table:\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nRULES:\n- No repetition of summary content\n- Citations: opening AND closing * required\n- Cite ALL documents where relevant — never rely on just one\n- Maximum 6 bullets\n\n---\n\n## Regulatory Context\n\nWRITE THIS THIRD. Broader background tightly scoped to the question. 2–4 bullets maximum.\nCitation after each bullet: *Document Name | X.X.X Clause Title (Parent Section Title)*\nIf nothing to add: "No additional context required."\n\n---\n\n## Contradictions & Conflicts\n\nWRITE THIS LAST. Conflicts: state conflict, quote both sides with citations, give practical conclusion.\nNo conflicts: "No contradictions identified."\n\n---\n\nRULES:\n- Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions\n- Use ONLY the provided document pages — no external knowledge\n- Every factual statement needs a citation with opening AND closing asterisks\n- Draw from ALL provided documents — never rely on just one`;
 
       const { text: finalAnswer, usage: answerUsage } = await withRetry(
         () => callClaude(
@@ -1044,11 +983,6 @@ export default function App() {
 
       setProgress(p => ({ ...p, answer: 100 }));
       setAnswer(finalAnswer);
-      setAnswerStats({
-        docsTotal: (activeIndex?.documents || []).length,
-        docsRead: Object.keys(docPageMap).length,
-        pagesRead: totalPagesExtracted,
-      });
       setAnswerVaultName(usingTempOnly ? "Temp Doc" : (effectiveVault?.name || vault?.name || ""));
       setCitationPageMap(newCitationPageMap);
       setFollowUpQuestion(q);
@@ -1096,49 +1030,33 @@ export default function App() {
 
   // ── Open PDF viewer at page from citation ────────────────────────────────────
   const handleCitationClick = async (docName, heading) => {
-    const needle = docName.toLowerCase().replace(/\.pdf$/i, "");
-
-    // Resolve citationPageMap entry — try heading-specific key first, then doc key, then fuzzy
     const headingKey = `${docName}||${(heading || "").toLowerCase().trim()}`;
-    const mapEntry = citationPageMap[headingKey] || citationPageMap[docName];
-    let resolvedEntry = mapEntry;
-    if (!resolvedEntry) {
+    const entry = citationPageMap[headingKey] || citationPageMap[docName];
+
+    let resolved = entry;
+    if (!resolved) {
+      const lower = docName.toLowerCase();
       const fallbackKey = Object.keys(citationPageMap).find(k =>
-        k.toLowerCase().includes(needle) || needle.includes(k.toLowerCase().split("||")[0])
+        k.toLowerCase().includes(lower) || lower.includes(k.toLowerCase().split("||")[0])
       );
-      resolvedEntry = fallbackKey ? citationPageMap[fallbackKey] : null;
+      resolved = fallbackKey ? citationPageMap[fallbackKey] : null;
     }
 
-    // Resolve vaultId + fileName from map, or fuzzy-match against the vault PDF list
-    let vaultId, fileName;
-    if (resolvedEntry?.vaultId && resolvedEntry?.fileName) {
-      vaultId = resolvedEntry.vaultId;
-      fileName = resolvedEntry.fileName;
-    } else {
-      const matchedPdf = pdfs.find(p => {
-        const hay = p.name.toLowerCase().replace(/\.pdf$/i, "");
-        return hay.includes(needle) || needle.includes(hay);
-      });
-      if (!matchedPdf || !vault) {
-        alert("Sorry — could not locate the source document for this citation.");
-        return;
-      }
-      vaultId = vault.id;
-      fileName = matchedPdf.name;
+    if (!resolved || !resolved.vaultId || !resolved.fileName) {
+      alert("Sorry — could not locate the source document for this citation.");
+      return;
     }
-
-    const page = resolvedEntry?.page || 1;
 
     try {
       let base64;
-      if (vaultId === "__temp__") {
+      if (resolved.vaultId === "__temp__") {
         base64 = tempDoc?.base64;
       } else {
-        const pdfData = await api(`/api/vaults/${encodeURIComponent(vaultId)}/pdfs/${encodeURIComponent(fileName)}`);
+        const pdfData = await api(`/api/vaults/${encodeURIComponent(resolved.vaultId)}/pdfs/${encodeURIComponent(resolved.fileName)}`);
         base64 = pdfData.base64;
       }
       if (!base64) { alert("Could not load the PDF."); return; }
-      setCitationViewer({ base64, fileName, page });
+      setCitationViewer({ base64, fileName: resolved.fileName, page: resolved.page || 1 });
     } catch (e) {
       alert("Failed to load PDF: " + e.message);
     }
@@ -1401,7 +1319,7 @@ export default function App() {
                       </div>
                     ) : answer ? (
                       <div style={{ maxWidth: 680, margin: "0 auto" }}>
-                        <AnswerRenderer text={answer} onCitationClick={handleCitationClick} answerStats={answerStats} />
+                        <AnswerRenderer text={answer} onCitationClick={handleCitationClick} />
                       </div>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
@@ -1578,7 +1496,7 @@ export default function App() {
                           {vaultHistory.map((h, i) => (
                             <div key={i} style={{ marginBottom: 8 }}>
                               <div style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                                <span style={{ color: AD_GREEN_GRASS, fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                                <span style={{ color: "${AD_GREEN_GRASS}", fontWeight: 700, flexShrink: 0 }}>Q:</span>
                                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.question}</span>
                                 <span style={{ fontSize: 11, color: "#6f777b", flexShrink: 0 }}>{new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                               </div>
@@ -1599,11 +1517,11 @@ export default function App() {
 
                       {answer && (
                         <div style={{ animation: "fadeIn 0.4s ease" }}>
-                          <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: `4px solid ${AD_GREEN_GRASS}`, padding: "24px 28px" }}>
+                          <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid ${AD_GREEN_GRASS}", padding: "24px 28px" }}>
                             <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                               Response — {answerVaultName || (queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name)}
                             </p>
-                            <AnswerRenderer text={answer} onCitationClick={handleCitationClick} answerStats={answerStats} />
+                            <AnswerRenderer text={answer} onCitationClick={handleCitationClick} />
                           </div>
 
                           {/* ── Follow-up: ask another vault ── */}
