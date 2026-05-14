@@ -1016,7 +1016,63 @@ export default function App() {
         ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
         : "";
 
-      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `\n\nNOTE: A temporary document has been included for reference: "${tempDoc.name}". This is not part of the permanent vault — treat it as an additional reference document when answering.` : ""}\n\n${contextBlock}CURRENT QUESTION: ${q}\n\nPRIORITY SECTIONS: ${focusSections || "all sections"}\n\n---\n\nTABLES — GLOBAL RULE (applies to every section):\nWhen multiple documents contain tables that are near-identical in structure and content (e.g. minimum fire resistance performance tables across different versions of the same standard), do NOT reproduce each one separately. Instead:\n1. Reproduce the single most complete and relevant version in full\n2. After the citation, add a plain italic note: *Note: [Other Document] [Table X] contains equivalent/near-identical data. [Note any meaningful differences, e.g. if one table lacks a cavity barrier row.]*\n\nFor the one table you reproduce:\n1. Output the table title on its own line in bold: **Table X — Title of table**\n2. Reproduce the COMPLETE table — EVERY row, EVERY column, NO exceptions. Do not extract only the relevant row. Do not summarise. If the table has 30 rows, output all 30 rows. Every row starts and ends with | pipe characters.\n3. After the header row output a separator row: | --- | --- | --- |\n4. For the specific row(s) that directly answer the question, prefix that ENTIRE ROW with >> ONCE at the very start, before the first pipe: >> | cell | cell | cell |\n   CRITICAL: The >> prefix appears ONCE at the start of the row only. Do NOT put >> before each cell.\n5. Do NOT wrap tables in > block quote syntax\n6. Place the citation immediately below the table, then the equivalence note\n7. If the table spans multiple pages, combine ALL parts into one complete table — do not stop at the first page\n\nIf only one table is referenced, reproduce it in full without any equivalence note.\n\nRESPONSE FORMAT — output in this exact order every time:\n\n## Summary\n\nWRITE THIS FIRST. A confident, definitive answer in 2–4 sentences. Must:\n- Open with a direct answer in plain English\n- Cite ALL relevant documents provided — not just one\n- Build on any prior conversation context where relevant\n- Reproduce any table directly relevant to the answer\n- After any table include footnotes/qualifications as plain italic text\n\nFor each key fact, include the exact supporting phrase and citation as a consecutive pair:\n\n> "Exact short phrase from document."\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nCITATION FORMAT: *Document | Clause number and title (Parent section title)*\nCRITICAL: Citation MUST start AND end with * asterisk.\n\nCITATION PLACEMENT — strictly follow these rules:\n- Every citation goes on its OWN LINE, never embedded within a sentence\n- Never write: "Quote." *Citation* and more text continues here.\n- Never chain citations with "and": *Citation A* and *Citation B* — WRONG\n- If multiple documents support the same fact, each citation goes on its own separate line:\n  > "Quote."\n  *Document A | Clause*\n  *Document B | Clause*\n- A citation always ends a paragraph, never appears mid-sentence\n\n---\n\n## Detailed Analysis\n\nWRITE THIS SECOND. Only content that adds value beyond the summary.\n\nCheck ALL of the following — if ANY apply, write Case 2:\n- Location/scenario-specific requirements beyond the general rule?\n- Exceptions or conditions where the rule does NOT apply?\n- Construction/specification requirements beyond the fire rating?\n- Cross-references to other clauses, standards, or ADs?\n- Do the multiple documents differ or add to each other?\n- Inspection, testing, or certification requirements?\n\nCASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."\n\nCASE 2 — Concise bullet points. One sentence each. Reproduce any referenced table in full below the bullet. Citation after each bullet or table:\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nRULES:\n- No repetition of summary content\n- Citations: opening AND closing * required\n- Cite ALL documents where relevant — never rely on just one\n- Maximum 6 bullets\n\n---\n\n## Regulatory Context\n\nWRITE THIS THIRD. Broader background tightly scoped to the question. 2–4 bullets maximum.\nCitation after each bullet: *Document Name | X.X.X Clause Title (Parent Section Title)*\nIf nothing to add: "No additional context required."\n\n---\n\n## Contradictions & Conflicts\n\nWRITE THIS LAST. Conflicts: state conflict, quote both sides with citations, give practical conclusion.\nNo conflicts: "No contradictions identified."\n\n---\n\nRULES:\n- Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions\n- Use ONLY the provided document pages — no external knowledge\n- Every factual statement needs a citation with opening AND closing asterisks\n- Draw from ALL provided documents — never rely on just one`;
+      const answerPrompt = `You are a building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `
+
+NOTE: A temporary document has been included: "${tempDoc.name}". Treat it as an additional reference document.` : ""}
+
+${contextBlock}QUESTION: ${q}
+PRIORITY SECTIONS: ${focusSections || "all sections"}
+
+---
+
+TABLES:
+1. Output the table title on its own line in bold: **Table X — Title**
+2. Reproduce EVERY row and EVERY column — no omissions, no summaries. Every row starts and ends with | pipe characters.
+3. After the header row output a separator: | --- | --- | --- |
+4. Prefix each row that directly answers the question with >>: >> | cell | cell | cell |
+   The >> appears ONCE at the row start only — do NOT repeat before each cell.
+5. Do NOT wrap tables in > blockquote syntax.
+6. Place the citation immediately below the table.
+7. If the table spans multiple pages, combine ALL parts into one complete table.
+8. If multiple documents contain near-identical tables: reproduce only the most complete version, then add as plain italic text below the citation: *Note: [Other Document] Table X contains equivalent data. [Note any meaningful differences.]*
+
+---
+
+RESPONSE FORMAT — always in this exact order:
+
+## Summary
+
+A confident, direct answer in 2–4 sentences. Cite ALL relevant documents provided — never just one.
+
+For each key fact, place the citation on its own line BEFORE the supporting quote:
+*Document Name | Clause number and title*
+> "Exact short phrase from the document."
+
+## Detailed Analysis
+
+Include ONLY content that adds value beyond the summary — exceptions, cross-references, construction requirements, or meaningful differences between documents. If nothing to add, write: "The summary above fully addresses this question."
+
+Maximum 6 bullet points. For each, citation before quote:
+*Document Name | Clause*
+> "Quote."
+
+## Regulatory Context
+
+Broader background directly relevant to this question. Maximum 4 bullets. Citation before each quote.
+If nothing to add: "No additional context required."
+
+## Contradictions & Conflicts
+
+Include ONLY if genuine conflicts exist between documents. State the conflict, quote both sides with citations, give a practical conclusion. If no conflicts: "No contradictions identified."
+
+---
+
+CITATION RULES:
+- Format: *Document Name | Clause number and title* — must start AND end with a single *
+- Always on its own line, never embedded within a sentence
+- Always placed BEFORE the content it supports
+- If multiple documents support the same fact, each citation goes on its own line before the shared quote
+- Draw from ALL provided documents across every section — never rely on just one`;
 
       const { text: finalAnswer, usage: answerUsage } = await withRetry(
         () => callClaude(
