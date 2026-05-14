@@ -1059,6 +1059,7 @@ export default function App() {
 
   // ── Open PDF viewer at page from citation ────────────────────────────────────
   const handleCitationClick = async (docName, heading) => {
+    console.log("[CitationClick] docName:", docName, "| heading:", heading, "| mapKeys:", Object.keys(citationPageMap), "| entry:", citationPageMap[`${docName}||${(heading||"").toLowerCase().trim()}`] || citationPageMap[docName]);
     const headingKey = `${docName}||${(heading || "").toLowerCase().trim()}`;
     const entry = citationPageMap[headingKey] || citationPageMap[docName];
 
