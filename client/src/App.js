@@ -413,80 +413,61 @@ export default function App() {
       return Object.values(map);
     };
 
-    // ── Primary: server-side mupdf chunked (accurate physical page numbers) ───
-    // Uses /api/extract-pages (mupdf) to split the PDF into 60-page chunks.
-    // Gemini counts pages within each chunk (1–60) and we add the physical
-    // offset, so pageHint always reflects the true file position.
+    // ── Primary: text-based indexing via mupdf [Page X] markers ────────────────
+    // /api/extract-text returns the full document text with physical [Page X]
+    // markers injected by mupdf. Gemini reads these directly as pageHint values,
+    // giving accurate physical page numbers with no offset arithmetic needed.
+    // Text chunks are ~10x smaller than PDF chunks — no 413 errors.
     try {
-      const { pageCount } = await api("/api/extract-text", { method: "POST", body: { base64 } });
-      if (pageCount > 0) {
-        const CHUNK_SIZE = 20;
-        const numChunks = Math.ceil(pageCount / CHUNK_SIZE);
+      const { text: extractedText, hasText } = await api("/api/extract-text", { method: "POST", body: { base64 } });
+      if (hasText && extractedText) {
+        const TEXT_PROMPT = `Extract structural headings from this document text — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.\n\nDo not extract body text or bullet points.\n\nThe text contains [Page X] markers showing the exact physical page number in the PDF file. Use the [Page X] number of the page the heading appears on as pageHint.\n\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
+
+        const PAGE_CHUNK_SIZE = 80;
+        const pageSplit = extractedText.split(/(?=\[Page \d+\])/);
+        const chunks = [];
+        for (let i = 0; i < pageSplit.length; i += PAGE_CHUNK_SIZE) {
+          chunks.push(pageSplit.slice(i, i + PAGE_CHUNK_SIZE).join(""));
+        }
+
         const allHeadings = [];
-
-        for (let chunk = 0; chunk < numChunks; chunk++) {
-          const startPage = chunk * CHUNK_SIZE;
-          const endPage = Math.min(startPage + CHUNK_SIZE, pageCount);
-          const pageList = Array.from({ length: endPage - startPage }, (_, i) => startPage + i + 1);
-          setStatusMsg(`Indexing ${pdfName} — pages ${startPage + 1}–${endPage} of ${pageCount}…`);
-
-          let chunkBase64;
-          try {
-            const extracted = await api("/api/extract-pages", { method: "POST", body: { base64, pages: pageList } });
-            chunkBase64 = extracted.base64;
-          } catch (e) {
-            console.warn(`${pdfName} chunk ${chunk + 1} extraction failed:`, e.message);
-            continue;
+        for (let c = 0; c < chunks.length; c++) {
+          const chunkText = chunks[c];
+          const startMatch = chunkText.match(/\[Page (\d+)\]/);
+          const endMatch = chunks[c + 1]?.match(/\[Page (\d+)\]/);
+          if (chunks.length > 1) {
+            setStatusMsg(`Indexing ${pdfName} — pages ${startMatch?.[1] ?? "?"}–${endMatch ? String(Number(endMatch[1]) - 1) : "end"}…`);
           }
-
-          const chunkPrompt = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables and figures (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations"). Include table and figure titles as they are essential navigation landmarks.\r\n\r\nDo not extract body text or bullet points.\r\n\r\nFor pageHint, use only the page number within this chunk — page 1 is the first page of this chunk, page 2 is the second, up to page ${endPage - startPage}. Ignore all printed page numbers on the pages completely.\r\n\r\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
-
           try {
             const { text: result } = await callClaude(
-              [{ role: "user", content: [
-                { type: "document", source: { type: "base64", media_type: "application/pdf", data: chunkBase64 } },
-                { type: "text", text: chunkPrompt }
-              ]}],
+              [{ role: "user", content: TEXT_PROMPT + "\n\n" + chunkText }],
               SYSTEM, 65000, 2, "gemini-2.5-flash-lite"
             );
             const parsed = tryParse(result);
-            if (parsed?.headings) {
-              allHeadings.push(...parsed.headings.map(h => ({
-                ...h,
-                pageHint: Math.max(1, (h.pageHint || 1)) + startPage
-              })));
-            }
+            if (parsed?.headings) allHeadings.push(...parsed.headings);
           } catch (e) {
-            console.warn(`${pdfName} chunk ${chunk + 1} failed:`, e.message);
+            console.warn(`${pdfName} text chunk ${c + 1} failed:`, e.message);
             if (e.message?.includes("503") || e.message?.includes("UNAVAILABLE")) {
               try {
                 await new Promise(r => setTimeout(r, 3000));
                 const { text: result2 } = await callClaude(
-                  [{ role: "user", content: [
-                    { type: "document", source: { type: "base64", media_type: "application/pdf", data: chunkBase64 } },
-                    { type: "text", text: chunkPrompt }
-                  ]}],
+                  [{ role: "user", content: TEXT_PROMPT + "\n\n" + chunkText }],
                   SYSTEM, 65000, 1, "gemini-2.5-flash-lite"
                 );
                 const parsed2 = tryParse(result2);
-                if (parsed2?.headings) {
-                  allHeadings.push(...parsed2.headings.map(h => ({
-                    ...h,
-                    pageHint: Math.max(1, (h.pageHint || 1)) + startPage
-                  })));
-                }
+                if (parsed2?.headings) allHeadings.push(...parsed2.headings);
               } catch (e2) {
-                console.warn(`${pdfName} chunk ${chunk + 1} retry also failed:`, e2.message);
+                console.warn(`${pdfName} text chunk ${c + 1} retry also failed:`, e2.message);
               }
             }
           }
         }
 
         if (allHeadings.length > 0) return { headings: dedupe(allHeadings) };
-        console.warn(`${pdfName}: chunked indexing returned no headings, falling back to full PDF…`);
+        console.warn(`${pdfName}: text-based indexing returned no headings, falling back to full PDF…`);
       }
     } catch (e) {
-      console.warn(`${pdfName}: mupdf chunking failed (${e.message}), falling back to full PDF…`);
+      console.warn(`${pdfName}: text extraction failed (${e.message}), falling back to full PDF…`);
     }
 
     // ── Fallback: full PDF visual (less accurate pages, but better than nothing) ─
