@@ -11,7 +11,7 @@ import AdminSection from "./components/AdminSection";
 import { AD_GREEN, AD_GREEN_MID, AD_GREEN_GRASS, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, BOILERPLATE_HEADINGS, isBoilerplate } from "./constants";
 
 // ── Vault PDF Viewer Modal ────────────────────────────────────────────────────
-function VaultPdfViewer({ base64, fileName, page, onClose }) {
+function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
   const iframeRef = useRef(null);
   const [blobUrl, setBlobUrl] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -87,6 +87,31 @@ function VaultPdfViewer({ base64, fileName, page, onClose }) {
     document.getElementById('total-pages').textContent = total;
     currentPage = Math.min(Math.max(1, ${page || 1}), total);
     renderPage(currentPage);
+
+    const headingTarget = ${JSON.stringify(heading || "")};
+    if (headingTarget) {
+      (async () => {
+        const norm = s => s.toLowerCase().split(/[^a-z0-9]+/).join(' ').trim();
+        const target = norm(headingTarget);
+        const words = target.split(' ').filter(w => w.length > 3);
+        if (!target) return;
+        const hint = currentPage;
+        const order = [hint];
+        for (let d = 1; d <= total; d++) {
+          if (hint - d >= 1) order.push(hint - d);
+          if (hint + d <= total) order.push(hint + d);
+        }
+        for (const n of order) {
+          const pg = await pdfDoc.getPage(n);
+          const tc = await pg.getTextContent();
+          const text = norm(tc.items.map(i => i.str).join(' '));
+          if (text.includes(target) || (words.length >= 2 && words.every(w => text.includes(w)))) {
+            if (n !== currentPage) { currentPage = n; renderPage(currentPage); }
+            return;
+          }
+        }
+      })();
+    }
   });
 
   document.getElementById('prev').addEventListener('click', () => {
@@ -109,7 +134,7 @@ function VaultPdfViewer({ base64, fileName, page, onClose }) {
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{fileName}</div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>p.{page} · Source document</div>
+            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>Source document</div>
           </div>
         </div>
         <button className="btn" onClick={onClose}
@@ -1060,7 +1085,7 @@ export default function App() {
         base64 = pdfData.base64;
       }
       if (!base64) { alert("Could not load the PDF."); return; }
-      setCitationViewer({ base64, fileName: resolved.fileName, page: resolved.page || 1 });
+      setCitationViewer({ base64, fileName: resolved.fileName, page: resolved.page || 1, heading });
     } catch (e) {
       alert("Failed to load PDF: " + e.message);
     }
@@ -1617,6 +1642,7 @@ export default function App() {
           base64={citationViewer.base64}
           fileName={citationViewer.fileName}
           page={citationViewer.page}
+          heading={citationViewer.heading}
           onClose={() => setCitationViewer(null)}
         />
       )}
