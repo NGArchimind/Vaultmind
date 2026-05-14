@@ -420,7 +420,7 @@ export default function App() {
     try {
       const { pageCount } = await api("/api/extract-text", { method: "POST", body: { base64 } });
       if (pageCount > 0) {
-        const CHUNK_SIZE = 60;
+        const CHUNK_SIZE = 20;
         const numChunks = Math.ceil(pageCount / CHUNK_SIZE);
         const allHeadings = [];
 
