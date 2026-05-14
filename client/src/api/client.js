@@ -42,44 +42,6 @@ export function fileToBase64(file) {
   });
 }
 
-// ── Split PDF into page chunks ────────────────────────────────────────────────
-export async function splitPdfIntoChunks(base64Data, chunkSize) {
-  try {
-    if (!window.PDFLib) {
-      await new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js";
-        script.onload = resolve;
-        script.onerror = reject;
-        document.head.appendChild(script);
-      });
-    }
-    const { PDFDocument } = window.PDFLib;
-    const pdfBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-    const srcDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
-    const totalPages = srcDoc.getPageCount();
-    const chunks = [];
-    for (let start = 0; start < totalPages; start += chunkSize) {
-      const end = Math.min(start + chunkSize, totalPages);
-      const chunkDoc = await PDFDocument.create();
-      const pages = await chunkDoc.copyPages(srcDoc, Array.from({ length: end - start }, (_, i) => start + i));
-      pages.forEach(p => chunkDoc.addPage(p));
-      const chunkBytes = await chunkDoc.save();
-      const chunkBase64 = await new Promise((resolve) => {
-        const blob = new Blob([chunkBytes], { type: "application/pdf" });
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result.split(",")[1]);
-        reader.readAsDataURL(blob);
-      });
-      chunks.push({ base64: chunkBase64, startPage: start + 1, endPage: end, totalPages });
-    }
-    return chunks;
-  } catch (e) {
-    console.warn("PDF splitting failed:", e);
-    return [{ base64: base64Data, startPage: 1, endPage: "?", totalPages: "?" }];
-  }
-}
-
 // ── Gemini proxy call ─────────────────────────────────────────────────────────
 export async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash", timeoutMs = 240000, options = {}) {
   const token = await getAuthToken();

@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { api, callClaude, fileToBase64 } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner, ProgressBar } from "./common/Spinner";
-import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, BOILERPLATE_HEADINGS, isBoilerplate } from "../constants";
+import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, isBoilerplate } from "../constants";
 
 export default function CompareSection({ vaults, isAdmin }) {
   const [docA, setDocA] = useState(null);
@@ -94,9 +94,6 @@ Concise guidance on when to use each product. Include scenarios where one is cle
 
       const useTextA = extractA.hasText;
       const useTextB = extractB.hasText;
-
-      docA = { ...docA, extractedText: extractA.text || "" };
-      docB = { ...docB, extractedText: extractB.text || "" };
 
       const MIN_CHARS = 200;
       const thinA = useTextA && extractA.text.replace(/\s/g, "").length < MIN_CHARS;

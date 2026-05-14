@@ -1,9 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "../api/client";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN_FOREST } from "../constants";
-
-const AD_GREEN = AD_GREEN_FOREST;
+import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN_FOREST_FOREST } from "../constants";
 
 const DEFAULT_COLOURS = {
   header:      "#1a2332",
@@ -63,7 +61,9 @@ export default function AdminSection() {
   const [archisyncCode, setArchisyncCode] = useState(null);
   const [archisyncLoading, setArchisyncLoading] = useState(false);
   const [archisyncCopied, setArchisyncCopied] = useState(false);
+  const [archisyncPasswordCopied, setArchisyncPasswordCopied] = useState(false);
   const [archisyncPassword, setArchisyncPassword] = useState("");
+  const [archisyncShowPassword, setArchisyncShowPassword] = useState(false);
 
   function showMsg(setter, type, text) {
     setter({ type, text });
@@ -234,6 +234,13 @@ export default function AdminSection() {
     await navigator.clipboard.writeText(archisyncCode);
     setArchisyncCopied(true);
     setTimeout(() => setArchisyncCopied(false), 2500);
+  }
+
+  async function copyArchisyncPassword() {
+    if (!archisyncPassword) return;
+    await navigator.clipboard.writeText(archisyncPassword);
+    setArchisyncPasswordCopied(true);
+    setTimeout(() => setArchisyncPasswordCopied(false), 2500);
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -486,15 +493,23 @@ export default function AdminSection() {
           </p>
 
           <label style={labelStyle}>Encryption Password</label>
-          <input
-            type="password"
-            value={archisyncPassword}
-            onChange={e => setArchisyncPassword(e.target.value)}
-            placeholder="Choose a password for this code"
-            style={inputStyle(false)}
-            disabled={!!archisyncCode}
-          />
-          <p style={{ fontSize: 11, color: "#9a9088", marginTop: -10, marginBottom: 20 }}>
+          <div style={{ position: "relative", marginBottom: 0 }}>
+            <input
+              type={archisyncShowPassword ? "text" : "password"}
+              value={archisyncPassword}
+              onChange={e => setArchisyncPassword(e.target.value)}
+              placeholder="Choose a password for this code"
+              style={{ ...inputStyle(false), paddingRight: 40, marginBottom: 0 }}
+              disabled={!!archisyncCode}
+            />
+            <button
+              type="button"
+              onClick={() => setArchisyncShowPassword(v => !v)}
+              style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#9a9088", fontSize: 13, padding: 0, lineHeight: 1 }}>
+              {archisyncShowPassword ? "Hide" : "Show"}
+            </button>
+          </div>
+          <p style={{ fontSize: 11, color: "#9a9088", marginTop: 6, marginBottom: 20 }}>
             The ArchiSync user will need this password when they paste the code.
           </p>
 
@@ -520,11 +535,11 @@ export default function AdminSection() {
               <p style={{ fontSize: 11, color: ARC_TERRACOTTA, fontWeight: 600, marginBottom: 14 }}>
                 Remember to share the password separately from this code.
               </p>
-              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
                 <button
                   onClick={copyArchisyncCode}
                   style={{
-                    background: archisyncCopied ? AD_GREEN : ARC_NAVY,
+                    background: archisyncCopied ? AD_GREEN_FOREST : ARC_NAVY,
                     color: "#fff", border: "none", padding: "9px 20px",
                     fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
                     textTransform: "uppercase", cursor: "pointer",
@@ -533,7 +548,19 @@ export default function AdminSection() {
                   {archisyncCopied ? "✓ Copied" : "Copy Code"}
                 </button>
                 <button
-                  onClick={() => { setArchisyncCode(null); setArchisyncCopied(false); setArchisyncPassword(""); }}
+                  onClick={copyArchisyncPassword}
+                  style={{
+                    background: archisyncPasswordCopied ? AD_GREEN_FOREST : "none",
+                    color: archisyncPasswordCopied ? "#fff" : ARC_NAVY,
+                    border: `1px solid ${archisyncPasswordCopied ? AD_GREEN_FOREST : ARC_NAVY}`,
+                    padding: "8px 16px", fontSize: 11, fontWeight: 600,
+                    letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer",
+                    fontFamily: "Inter, Arial, sans-serif", transition: "all 0.2s"
+                  }}>
+                  {archisyncPasswordCopied ? "✓ Copied" : "Copy Password"}
+                </button>
+                <button
+                  onClick={() => { setArchisyncCode(null); setArchisyncCopied(false); setArchisyncPasswordCopied(false); setArchisyncPassword(""); setArchisyncShowPassword(false); }}
                   style={{ background: "none", color: "#9a9088", border: "1px solid #ddd8d0", padding: "8px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
                   Dismiss
                 </button>

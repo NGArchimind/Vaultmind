@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand } = require("@aws-sdk/client-s3");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
 
@@ -105,6 +106,74 @@ async function deletePrefix(prefix) {
   }
 }
 
+// ── Gemini helpers ────────────────────────────────────────────────────────────
+
+const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
+
+async function geminiExtractDrawingText(pdfBuffer) {
+  const response = await fetch(`${GEMINI_BASE}/gemini-2.5-flash:generateContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+    body: JSON.stringify({
+      contents: [{ parts: [
+        { inline_data: { mime_type: "application/pdf", data: pdfBuffer.toString("base64") } },
+        { text: "Extract all text content from this architectural drawing. Include room names, space labels, material callouts, specifications, notes, legends, schedules, and annotations. Skip all dimensions, grid line references, and title block information (drawing number, title, revision, date, scale, status, drawn by, approved by). Return only the content text." }
+      ]}],
+      generationConfig: { temperature: 0 }
+    })
+  });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`Gemini extract API ${response.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await response.json();
+  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+}
+
+async function geminiEmbed(text, taskType = "RETRIEVAL_DOCUMENT") {
+  const response = await fetch(`${GEMINI_BASE}/gemini-embedding-001:embedContent`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+    body: JSON.stringify({
+      model: "models/gemini-embedding-001",
+      content: { parts: [{ text }] },
+      taskType,
+      outputDimensionality: 768,
+    })
+  });
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`Gemini embed API ${response.status}: ${errText.slice(0, 200)}`);
+  }
+  const data = await response.json();
+  return data?.embedding?.values || null;
+}
+
+async function indexDrawing(drawing) {
+  console.log(`Drawing indexing start — id: ${drawing.id}, number: ${drawing.drawing_number}`);
+  try {
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: drawing.file_key }));
+    const buffer = await streamToBuffer(result.Body);
+    const extractedText = await geminiExtractDrawingText(buffer);
+    const indexText = [
+      `Drawing: ${drawing.title} (${drawing.drawing_number})`,
+      drawing.drawing_type && `Type: ${drawing.drawing_type}`,
+      drawing.level         && `Level: ${drawing.level}`,
+      drawing.volume        && `Volume: ${drawing.volume}`,
+      drawing.status        && `Status: ${drawing.status}`,
+      extractedText,
+    ].filter(Boolean).join("\n");
+    const embedding = await geminiEmbed(indexText);
+    if (!embedding) { console.error(`Drawing indexing — no embedding returned for id: ${drawing.id}`); return; }
+    const embeddingStr = `[${embedding.join(",")}]`;
+    const { error } = await supabase.from("project_drawings").update({ embedding: embeddingStr, content_text: extractedText }).eq("id", drawing.id);
+    if (error) throw new Error(error.message);
+    console.log(`Drawing indexing complete — id: ${drawing.id}`);
+  } catch (err) {
+    console.error(`Drawing indexing error — id: ${drawing.id}, error: ${err.message}`);
+  }
+}
+
 // ── JWT auth middleware ───────────────────────────────────────────────────────
 async function requireAuth(req, res, next) {
   const authHeader = req.headers["authorization"];
@@ -124,6 +193,14 @@ async function requireAuth(req, res, next) {
   } catch (err) {
     return res.status(401).json({ error: "Unauthorised — invalid or expired token" });
   }
+}
+
+async function requireAdmin(req, res, next) {
+  const role = req.user?.user_metadata?.role;
+  if (role !== "admin") {
+    return res.status(403).json({ error: "Forbidden — admin only" });
+  }
+  next();
 }
 
 // ── Gemini AI proxy ───────────────────────────────────────────────────────────
@@ -256,8 +333,11 @@ app.get("/api/vaults", requireAuth, async (req, res) => {
 
 // POST /api/vaults — create a regular vault or master vault
 app.post("/api/vaults", requireAuth, async (req, res) => {
-  const { name, type = "vault", parentVault } = req.body;
-  if (!name) return res.status(400).json({ error: "Name required" });
+  const { name: rawName, type = "vault", parentVault: rawParentVault } = req.body;
+  if (!rawName) return res.status(400).json({ error: "Name required" });
+  const name = sanitizeVaultPath(rawName);
+  const parentVault = rawParentVault ? sanitizeVaultPath(rawParentVault) : undefined;
+  if (!name) return res.status(400).json({ error: "Invalid vault name" });
 
   try {
     if (type === "master") {
@@ -686,7 +766,7 @@ app.get("/api/projects", requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("projects")
-      .select("id, name, job_number, client, location, stage, status, created_at")
+      .select("id, name, job_number, client, location, stage, status, created_at, custom_drawing_types")
       .order("created_at", { ascending: false });
     if (error) throw error;
     res.json({ projects: data });
@@ -940,12 +1020,13 @@ app.get("/api/projects/:id/drawings", requireAuth, async (req, res) => {
   try {
     const { data, error } = await supabase
       .from("project_drawings")
-      .select("id, title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, uploaded_at, created_at")
+      .select("id, title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, uploaded_at, created_at, embedding")
       .eq("project_id", req.params.id)
       .order("drawing_number", { ascending: true })
       .order("created_at", { ascending: false });
     if (error) throw error;
-    res.json({ drawings: data });
+    const drawings = (data || []).map(({ embedding, ...d }) => ({ ...d, is_indexed: embedding !== null }));
+    res.json({ drawings });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -1061,9 +1142,28 @@ app.delete("/api/projects/:id/drawings/:did", requireAuth, async (req, res) => {
   }
 });
 
+// ── Drawing upload URL (ArchiSync direct-to-R2 upload) ───────────────────────
+app.post("/api/projects/:id/drawings/upload-url", requireAuth, async (req, res) => {
+  const { file_name } = req.body;
+  if (!file_name) return res.status(400).json({ error: "file_name required" });
+
+  const safeFileName = file_name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const ext = file_name.split(".").pop().toLowerCase();
+  const contentType = ext === "dwg" ? "application/acad" : "application/pdf";
+  const file_key = `projects/${req.params.id}/drawings/${Date.now()}-${safeFileName}`;
+
+  try {
+    const command = new PutObjectCommand({ Bucket: BUCKET, Key: file_key, ContentType: contentType });
+    const upload_url = await getSignedUrl(r2, command, { expiresIn: 3600 });
+    res.json({ upload_url, file_key });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Drawing sync (bulk upsert from desktop sync tool) ────────────────────────
 app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
-  const { drawings: incoming } = req.body;
+  const { drawings: incoming, custom_drawing_types } = req.body;
   if (!Array.isArray(incoming) || incoming.length === 0) {
     return res.status(400).json({ error: "drawings array required" });
   }
@@ -1082,17 +1182,13 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
   const results = [];
 
   for (const item of incoming) {
-    const { title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, base64 } = item;
-    if (!title || !drawing_number || !file_name || !base64) {
+    const { title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, file_key } = item;
+    if (!title || !drawing_number || !file_name || !file_key) {
       results.push({ drawing_number, action: "skipped", error: "Missing required fields" });
       continue;
     }
 
-    const ext = file_name.split(".").pop().toLowerCase();
-    const contentType = ext === "dwg" ? "application/acad" : "application/pdf";
     const safeFileName = file_name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const r2Key = `projects/${req.params.id}/drawings/${Date.now()}-${safeFileName}`;
-    const buffer = Buffer.from(base64, "base64");
 
     try {
       const existingRecord = existingMap[drawing_number];
@@ -1102,10 +1198,6 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
           results.push({ drawing_number, action: "skipped", reason: "Same revision already in register" });
           continue;
         }
-
-        await r2.send(new PutObjectCommand({
-          Bucket: BUCKET, Key: r2Key, Body: buffer, ContentType: contentType,
-        }));
 
         if (existingRecord.file_key) {
           try { await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: existingRecord.file_key })); } catch (_) {}
@@ -1119,8 +1211,8 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
             volume: volume || null,
             level: level || null,
             drawing_type: drawing_type || null,
-            file_key: r2Key, file_name: safeFileName,
-            file_size: file_size || buffer.length,
+            file_key, file_name: safeFileName,
+            file_size: file_size || 0,
             uploaded_at: new Date().toISOString(),
           })
           .eq("id", existingRecord.id)
@@ -1131,10 +1223,6 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
         results.push({ drawing_number, action: "updated", previous_revision: existingRecord.revision, drawing: updated });
 
       } else {
-        await r2.send(new PutObjectCommand({
-          Bucket: BUCKET, Key: r2Key, Body: buffer, ContentType: contentType,
-        }));
-
         const { data: created, error: insertError } = await supabase
           .from("project_drawings")
           .insert({
@@ -1144,8 +1232,8 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
             volume: volume || null,
             level: level || null,
             drawing_type: drawing_type || null,
-            file_key: r2Key, file_name: safeFileName,
-            file_size: file_size || buffer.length,
+            file_key, file_name: safeFileName,
+            file_size: file_size || 0,
             uploaded_at: new Date().toISOString(),
           })
           .select()
@@ -1161,10 +1249,123 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
 
   res.json({ results });
 
+  // Update project custom drawing types if provided
+  if (Array.isArray(custom_drawing_types) && custom_drawing_types.length > 0) {
+    (async () => { await supabase.from("projects").update({ custom_drawing_types }).eq("id", req.params.id); })().catch(() => {});
+  }
+
   // Fire and forget — record transmittal issue from sync results
   recordTransmittalIssue(req.params.id, results).catch(err =>
-    console.error("Transmittal issue recording error (non-fatal):", err.message)
+    console.error(`Transmittal issue recording error (non-fatal) — project: ${req.params.id}, time: ${new Date().toISOString()}, error: ${err.message}`)
   );
+
+  // Fire and forget — index drawing content for semantic search
+  for (const r of results) {
+    if ((r.action === "created" || r.action === "updated") && r.drawing?.id && r.drawing?.file_key) {
+      indexDrawing(r.drawing).catch(() => {});
+    }
+  }
+});
+
+// ── Drawing content search ────────────────────────────────────────────────────
+
+const SEARCH_STOP_WORDS = new Set([
+  'a','an','the','and','or','but','in','on','at','to','for','with','of','by','from',
+  'what','which','where','who','how','when','why','are','is','was','were','be','been',
+  'have','has','had','do','does','did','show','me','find','get','give','list','tell',
+  'drawings','drawing','all','any','some','this','that','these','those','i','my','we',
+  'our','it','its','they','their','can','could','would','should','will','may','might',
+  'please','just','only','also','too','very','quite','really','there','here','used',
+]);
+
+function baselineTerms(query) {
+  return [...new Set(
+    query.split(/\s+/)
+      .map(w => w.replace(/[^a-zA-Z0-9-]/g, ''))
+      .filter(w => w.length >= 2 && !SEARCH_STOP_WORDS.has(w.toLowerCase()))
+  )];
+}
+
+async function extractSearchTerms(query) {
+  const baseline = baselineTerms(query);
+  try {
+    const response = await fetch(`${GEMINI_BASE}/gemini-2.5-flash:generateContent`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `You are helping search architectural drawing content. Given this query, return synonyms and expansions to broaden the search. Always preserve the original meaningful words exactly as given. Return ONLY a JSON array of strings.\n\nExamples:\n- "basin" → ["basin","washbasin","vanity unit","sink"]\n- "WC" → ["WC","water closet","toilet","bathroom"]\n- "bathroom" → ["bathroom","en-suite","WC","wet room","sanitary"]\n- "fire escape" → ["fire escape","escape route","exit","evacuation"]\n- "Xtrabacker" → ["Xtrabacker"]\n\nQuery: "${query.replace(/"/g, "'")}"` }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 200 }
+      })
+    });
+    if (!response.ok) return baseline.length > 0 ? baseline : [query];
+    const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const match = text.match(/\[[\s\S]*\]/);
+    const llmTerms = match ? JSON.parse(match[0]) : [];
+    const merged = [...new Set([...baseline, ...(Array.isArray(llmTerms) ? llmTerms : [])])];
+    return merged.length > 0 ? merged : [query];
+  } catch {
+    return baseline.length > 0 ? baseline : [query];
+  }
+}
+
+app.post("/api/projects/:id/drawings/search", requireAuth, async (req, res) => {
+  const { query } = req.body;
+  if (!query || !query.trim()) return res.status(400).json({ error: "query required" });
+  try {
+    const terms = await extractSearchTerms(query.trim());
+    const orParts = terms.flatMap(t => [
+      `content_text.ilike.%${t}%`,
+      `title.ilike.%${t}%`,
+      `drawing_number.ilike.%${t}%`,
+    ]);
+    const { data, error } = await supabase
+      .from("project_drawings")
+      .select("id, title, drawing_number, revision, status, scale, volume, level, drawing_type, file_name, file_size, uploaded_at, content_text")
+      .eq("project_id", req.params.id)
+      .or(orParts.join(","))
+      .order("drawing_number", { ascending: true });
+    if (error) throw error;
+    res.json({ results: data || [], terms });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Reindex all drawings for a project ───────────────────────────────────────
+app.post("/api/projects/:id/drawings/reindex-all", requireAuth, async (req, res) => {
+  try {
+    const { data: drawings, error } = await supabase
+      .from("project_drawings")
+      .select("id, drawing_number, title, drawing_type, level, volume, status, file_key")
+      .eq("project_id", req.params.id)
+      .not("file_key", "is", null);
+    if (error) throw error;
+    res.json({ ok: true, count: drawings.length });
+    for (const drawing of drawings) {
+      indexDrawing(drawing).catch(() => {});
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Drawing reindex (on-demand) ───────────────────────────────────────────────
+app.post("/api/projects/:id/drawings/:did/reindex", requireAuth, async (req, res) => {
+  try {
+    const { data: drawing, error } = await supabase
+      .from("project_drawings")
+      .select("id, drawing_number, title, drawing_type, level, volume, status, file_key")
+      .eq("id", req.params.did)
+      .eq("project_id", req.params.id)
+      .single();
+    if (error || !drawing) return res.status(404).json({ error: "Drawing not found" });
+    if (!drawing.file_key) return res.status(400).json({ error: "Drawing has no file to index" });
+    res.json({ ok: true });
+    indexDrawing(drawing).catch(() => {});
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── Todos ─────────────────────────────────────────────────────────────────────
@@ -1574,7 +1775,6 @@ async function recordTransmittalIssue(projectId, syncResults) {
     if (revError) throw revError;
   }
 
-  console.log(`Transmittal issue recorded for project ${projectId}: ${issueDate}, ${changedNumbers.length} drawings`);
 }
 
 // ── GET /api/projects/:id/transmittal — full transmittal data for frontend render
@@ -2342,15 +2542,6 @@ app.delete("/api/projects/:id/products/:pid", requireAuth, async (req, res) => {
   }
 });
 
-// ── Admin middleware ──────────────────────────────────────────────────────────
-async function requireAdmin(req, res, next) {
-  const role = req.user?.user_metadata?.role;
-  if (role !== "admin") {
-    return res.status(403).json({ error: "Forbidden — admin only" });
-  }
-  next();
-}
-
 // ── Admin routes ──────────────────────────────────────────────────────────────
 
 app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
@@ -2541,33 +2732,6 @@ app.get("/api/colours", requireAuth, async (req, res) => {
 });
 
 // ── Transmittal PDF — save snapshot to R2 and return key ─────────────────────
-// POST /api/projects/:id/transmittal/pdf
-// Body: { html: string } — the print-ready HTML generated client-side
-app.post("/api/projects/:id/transmittal/pdf", requireAuth, async (req, res) => {
-  const { html } = req.body;
-  if (!html) return res.status(400).json({ error: "html required" });
-  try {
-    const prefix = `projects/${req.params.id}/documents/transmittals/`;
-    const dateStr = new Date().toISOString().slice(0, 10);
-    const baseKey = `${prefix}schedule_${dateStr}`;
-    let key = `${baseKey}.html`;
-    const existingKeys = await listAllKeys(prefix);
-    if (existingKeys.includes(key)) {
-      let n = 2;
-      while (existingKeys.includes(`${baseKey}_${n}.html`)) n++;
-      key = `${baseKey}_${n}.html`;
-    }
-    await r2.send(new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: key,
-      Body: Buffer.from(html, "utf-8"),
-      ContentType: "text/html",
-    }));
-    res.json({ key, saved: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // ── Transmittal files listing (PDF snapshots) ─────────────────────────────────
 // GET /api/projects/:id/transmittals/files

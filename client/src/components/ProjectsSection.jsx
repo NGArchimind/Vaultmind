@@ -1,8 +1,13 @@
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { api, callClaude } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
 import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
+
+// Module-level toast dispatcher — set by ProjectsSection on mount so all
+// sub-components can call showToast() without prop-drilling.
+let _showToast = (text) => console.warn("[toast]", text);
+function showToast(text) { _showToast(text); }
 
 const DRAWING_TYPE_OPTIONS = [
   'Plan', 'Floor Plan', 'Roof Plan', 'Reflected Ceiling Plan', 'Site Plan',
@@ -231,10 +236,10 @@ function StatusBadge({ status }) {
 }
 
 // ── Drawing row ───────────────────────────────────────────────────────────────
-function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, highlight = false, selectable = false, selected = false, onSelect }) {
+function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloadingId, onDownload, onReindex, highlight = false, selectable = false, selected = false, onSelect, typeOptions, isIndexing = false }) {
   const COLS = selectable
-    ? "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px"
-    : "minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px";
+    ? "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px 36px"
+    : "minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px 36px";
   return (
     <div style={{
       display: "grid", gridTemplateColumns: COLS,
@@ -271,7 +276,7 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
           <select value={d.drawing_type || ""} onChange={e => onUpdate(d.id, "drawing_type", e.target.value)}
             style={{ width: "100%", border: "1px solid #ddd8d0", padding: "3px 5px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: d.drawing_type ? ARC_NAVY : "#b0a8a0", outline: "none", background: "#fff" }}>
             <option value="">— type —</option>
-            {DRAWING_TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+            {(typeOptions || DRAWING_TYPE_OPTIONS).map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         ) : (
           <span style={{ fontSize: 11, color: d.drawing_type ? ARC_NAVY : "#b0a8a0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
@@ -310,6 +315,17 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
             onMouseEnter={e => e.currentTarget.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.currentTarget.style.color = "#c8c0b8"}>×</button>
         )}
       </div>
+      <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
+        {isIndexing
+          ? <span title="Indexing…" style={{ display: "flex", alignItems: "center" }}><Spinner size={9} /></span>
+          : <button className="btn" onClick={() => onReindex && onReindex(d.id)}
+              title={d.is_indexed ? "Indexed — click to re-index" : "Not indexed — click to index now"}
+              style={{ background: "none", border: "none", color: d.is_indexed ? "#2e7d4f" : "#c8c0b8", fontSize: d.is_indexed ? 12 : 10, padding: "0 4px", lineHeight: 1, cursor: "pointer", fontWeight: d.is_indexed ? 700 : 400 }}
+              onMouseEnter={e => e.currentTarget.style.color = AD_GREEN} onMouseLeave={e => e.currentTarget.style.color = d.is_indexed ? "#2e7d4f" : "#c8c0b8"}>
+              {d.is_indexed ? "✓" : "●"}
+            </button>
+        }
+      </div>
     </div>
   );
 }
@@ -332,7 +348,7 @@ function DocumentsTab({ projectId, isAdmin }) {
       const data = await api(`/api/projects/${projectId}/transmittals/files`);
       setFiles(data.files || []);
       setSelectedKeys(new Set());
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to load transmittal files"); }
     setLoading(false);
   }
 
@@ -348,7 +364,7 @@ function DocumentsTab({ projectId, isAdmin }) {
       const url = URL.createObjectURL(blob);
       window.open(url, "_blank");
       setTimeout(() => URL.revokeObjectURL(url), 15000);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to open file"); }
     setOpening(null);
   }
 
@@ -369,7 +385,7 @@ function DocumentsTab({ projectId, isAdmin }) {
       await api(`/api/projects/${projectId}/transmittals/files?keys=${keysParam}`, { method: "DELETE" });
       setFiles(prev => prev.filter(f => !selectedKeys.has(f.key)));
       setSelectedKeys(new Set());
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to delete files"); }
     setDeleting(false);
   }
 
@@ -562,7 +578,7 @@ function TransmittalTab({ projectId, isAdmin }) {
         }
         return { ...prev, issues: newIssues, revMap: newRevMap, autoBforward: newAutoBforward };
       });
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to save revision"); }
   }
 
   // Fixed widths for sticky pinned columns — sized to content
@@ -581,7 +597,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       setNotes(d.notes || "");
       setNotesDraft(d.notes || "");
       setBfOverrides(d.bforwardOverrides || {});
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to load transmittal"); }
     setLoading(false);
   }
 
@@ -608,7 +624,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       });
       setNotes(notesDraft);
       setEditingNotes(false);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to save notes"); }
     setSavingNotes(false);
   }
 
@@ -646,7 +662,7 @@ function TransmittalTab({ projectId, isAdmin }) {
         newAutoBforward[drawingNumber] = highest || "";
         return { ...prev, revMap: newRevMap, autoBforward: newAutoBforward };
       });
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to save edit"); }
   }
 
   // Simple revision string comparison: stage letter order P<T<C then number
@@ -912,6 +928,7 @@ function TransmittalTab({ projectId, isAdmin }) {
 
     } catch (e) {
       console.error(e);
+      showToast("Failed to export PDF");
     }
     setExportingPdf(false);
   }
@@ -930,7 +947,7 @@ function TransmittalTab({ projectId, isAdmin }) {
       a.href = url; a.download = result.name;
       document.body.appendChild(a); a.click();
       document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to export Excel"); }
     setExportingExcel(false);
   }
 
@@ -1511,7 +1528,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = file_name || drawing.file_name || "drawing";
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { console.error("Download failed:", e); }
+    } catch (e) { console.error("Download failed:", e); showToast("Failed to download drawing"); }
     setDownloadingId(null);
   }
 
@@ -1542,7 +1559,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
       const safeName = (lastQuestion || "drawings").replace(/[^a-z0-9]/gi, "-").slice(0, 40);
       a.download = `drawings-${safeName}.zip`;
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { console.error("Download all failed:", e); }
+    } catch (e) { console.error("Download all failed:", e); showToast("Failed to download drawings"); }
     setDownloadingAll(false);
   }
 
@@ -1550,13 +1567,31 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
     if (!question.trim() || running) return;
     const q = question.trim();
     setLastQuestion(q);
-    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setExpanded(true); setStatus("Thinking…");
+    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setExpanded(true); setStatus("Searching drawings…");
 
     const drawingContext = drawings.length === 0
       ? "No drawings in register."
       : drawings.map(d =>
-          `ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} | Rev:${d.revision || "—"} | Status:${d.status || "—"} | Scale:${d.scale || "—"} | Date:${d.issue_date || "—"} | File:${d.file_name || "—"}`
+          `ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} | Rev:${d.revision || "—"} | Status:${d.status || "—"} | Scale:${d.scale || "—"} | Type:${d.drawing_type || "—"} | Level:${d.level || "—"} | Volume:${d.volume || "—"}`
         ).join("\n");
+
+    // Search indexed drawing content for anything relevant to the question
+    let drawingContentContext = "";
+    let contentMatches = [];
+    try {
+      const { results } = await api(`/api/projects/${projectId}/drawings/search`, {
+        method: "POST",
+        body: { query: q },
+      });
+      contentMatches = results || [];
+      if (contentMatches.length > 0) {
+        drawingContentContext = "\n\nINDEXED DRAWING CONTENT (drawings whose content is relevant to this question):\n" +
+          contentMatches.map(d =>
+            `--- ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} ---\n${(d.content_text || "").slice(0, 3000)}`
+          ).join("\n\n");
+      }
+    } catch (e) { /* non-fatal — QA continues without drawing content */ }
+    setStatus("Thinking…");
 
     const productsContext = assignedProducts.length === 0
       ? "No products assigned."
@@ -1593,9 +1628,11 @@ SPECIFIED PRODUCTS:
 ${productsContext}
 
 DRAWING REGISTER (${drawings.length} drawings):
-${drawingContext}`;
+${drawingContext}${drawingContentContext}`;
 
-    const systemPrompt = `You are a project assistant for an architectural practice. You have full access to the project data provided — including project info, consultants, U-values, notes, specified products (with full technical attributes), and the drawing register.
+    const systemPrompt = `You are a project assistant for an architectural practice. You have full access to the project data provided — including project info, consultants, U-values, notes, specified products (with full technical attributes), the drawing register, and extracted content from indexed drawings.
+
+When INDEXED DRAWING CONTENT is present in the context, use it to answer questions about what is shown or noted within specific drawings — room names, materials, annotations, schedules, specifications, and other drawing content. Reference the drawing number when citing content from a specific drawing.
 
 Answer questions with appropriate detail based on the project data. Do not say you cannot access information — everything you need is in the context provided.
 
@@ -1608,7 +1645,7 @@ Return a JSON object with this exact structure:
 
 Rules:
 - Always populate "answer" with a helpful, direct response. For technical questions (fire ratings, U-values, certifications etc) include the specific values from the product attributes.
-- Only populate "drawing_ids" when the question is specifically about finding or listing drawings
+- Populate "drawing_ids" with the ID of every drawing you reference or cite in your answer — including drawings from INDEXED DRAWING CONTENT that informed your response
 - Only populate "product_ids" when the answer references one or more specific products — use the product IDs from the SPECIFIED PRODUCTS context (the id field in the products join, format: uuid)
 - Never say you don't have access to information — use what is in the context
 - Do not include any text outside the JSON object`;
@@ -1632,7 +1669,15 @@ Rules:
         }
       } catch (parseErr) {}
       setAnswer(answerText);
-      if (matchedDrawingIds.length > 0) setMatchedDrawings(drawings.filter(d => matchedDrawingIds.includes(d.id)));
+      // Merge AI-referenced drawings with content search results — deduplicated
+      const fromAI = drawings.filter(d => matchedDrawingIds.includes(d.id));
+      const merged = [...fromAI];
+      for (const d of contentMatches) {
+        if (!merged.find(x => x.id === d.id)) {
+          merged.push(drawings.find(x => x.id === d.id) || d);
+        }
+      }
+      if (merged.length > 0) setMatchedDrawings(merged);
       if (matchedProductIds.length > 0) setMatchedProducts(assignedProducts.filter(a => a.products && matchedProductIds.includes(a.products.id)));
       setStatus("");
     } catch (e) {
@@ -1651,7 +1696,7 @@ Rules:
       const arr = new Uint8Array(bytes.length);
       for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
       setPdfUrl(URL.createObjectURL(new Blob([arr], { type: "application/pdf" })));
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to load datasheet"); }
     setPdfLoading(false);
   }
 
@@ -1860,7 +1905,7 @@ function ProductsTab({ projectId, isAdmin }) {
       setCategories(catData.categories || []);
       setAssignments(assignData.products || []);
       setAllProducts(libData.products || []);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to load products"); }
     setLoading(false);
   }
 
@@ -1874,7 +1919,7 @@ function ProductsTab({ projectId, isAdmin }) {
       });
       setCategories(prev => [...prev, category]);
       setNewCategoryName(""); setAddingCategory(false);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to create category"); }
     setSavingCategory(false);
   }
 
@@ -1884,7 +1929,7 @@ function ProductsTab({ projectId, isAdmin }) {
     try {
       await api(`/api/projects/${projectId}/categories/${catId}`, { method: "DELETE" });
       await load();
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to delete category"); }
   }
 
   async function assignProduct(productId, categoryId) {
@@ -1897,6 +1942,7 @@ function ProductsTab({ projectId, isAdmin }) {
     } catch (e) {
       if (e.message?.includes("409") || e.message?.includes("already")) return;
       console.error(e);
+      showToast("Failed to assign product");
     }
     setPickerCategoryId(null); setPickerSearch("");
   }
@@ -1905,7 +1951,7 @@ function ProductsTab({ projectId, isAdmin }) {
     try {
       await api(`/api/projects/${projectId}/products/${assignmentId}`, { method: "DELETE" });
       setAssignments(prev => prev.filter(a => a.id !== assignmentId));
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to remove assignment"); }
   }
 
   async function moveAssignment(assignmentId, newCategoryId) {
@@ -1915,7 +1961,7 @@ function ProductsTab({ projectId, isAdmin }) {
         body: { category_id: newCategoryId },
       });
       setAssignments(prev => prev.map(a => a.id === assignmentId ? product : a));
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to move product"); }
     setMovingId(null);
   }
 
@@ -1927,7 +1973,7 @@ function ProductsTab({ projectId, isAdmin }) {
       const arr = new Uint8Array(bytes.length);
       for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
       setPdfUrl(URL.createObjectURL(new Blob([arr], { type: "application/pdf" })));
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to load datasheet"); }
     setPdfLoading(false);
   }
 
@@ -2664,7 +2710,7 @@ function PlaceholderTab({ icon, title, description }) {
 }
 
 // ── Drawings tab (with Register / Transmittal sub-tabs) ───────────────────────
-function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
+function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes = [] }) {
   const [drawingSubTab, setDrawingSubTab] = useState("register");
   const [drawings, setDrawings] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2690,6 +2736,20 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
   const [form, setForm] = useState(emptyForm);
   const [selectedFile, setSelectedFile] = useState(null);
 
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [searchDone, setSearchDone] = useState(false);
+  const [searchError, setSearchError] = useState(null);
+  const [searchTermsUsed, setSearchTermsUsed] = useState([]);
+  const [searchFilterType, setSearchFilterType] = useState("");
+  const [searchFilterLevel, setSearchFilterLevel] = useState("");
+  const [searchFilterVolume, setSearchFilterVolume] = useState("");
+  const [searchFilterStatus, setSearchFilterStatus] = useState("");
+  const [searchSelectedIds, setSearchSelectedIds] = useState(new Set());
+  const [searchDownloading, setSearchDownloading] = useState(false);
+  const [searchViewingDrawing, setSearchViewingDrawing] = useState(null);
+
   useEffect(() => { loadDrawings(); }, [projectId]);
 
   async function loadDrawings() {
@@ -2699,7 +2759,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       const loaded = data || [];
       setDrawings(loaded);
       if (onDrawingsLoaded) onDrawingsLoaded(loaded);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to load drawings"); }
     setLoading(false);
   }
 
@@ -2744,8 +2804,41 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = file_name || drawing.file_name || "drawing";
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { console.error("Download failed:", e); }
+    } catch (e) { console.error("Download failed:", e); showToast("Failed to download drawing"); }
     setDownloadingId(null);
+  }
+
+  const [indexingIds, setIndexingIds] = useState(new Set());
+
+  async function handleReindex(drawingId) {
+    try {
+      await api(`/api/projects/${projectId}/drawings/${drawingId}/reindex`, { method: "POST" });
+      setIndexingIds(prev => new Set([...prev, drawingId]));
+      setTimeout(async () => {
+        try {
+          const { drawings: data } = await api(`/api/projects/${projectId}/drawings`);
+          setDrawings(data || []);
+          if (onDrawingsLoaded) onDrawingsLoaded(data || []);
+        } catch (e) {}
+        setIndexingIds(prev => { const n = new Set(prev); n.delete(drawingId); return n; });
+      }, 60000);
+    } catch (e) { showToast("Failed to start indexing: " + e.message); }
+  }
+
+  async function handleReindexAll() {
+    try {
+      const { count } = await api(`/api/projects/${projectId}/drawings/reindex-all`, { method: "POST" });
+      setIndexingIds(new Set(drawings.map(d => d.id)));
+      showToast(`Re-indexing ${count} drawing${count !== 1 ? "s" : ""}…`);
+      setTimeout(async () => {
+        try {
+          const { drawings: data } = await api(`/api/projects/${projectId}/drawings`);
+          setDrawings(data || []);
+          if (onDrawingsLoaded) onDrawingsLoaded(data || []);
+        } catch (e) {}
+        setIndexingIds(new Set());
+      }, 120000);
+    } catch (e) { showToast("Failed to start re-indexing: " + e.message); }
   }
 
   async function handleDelete(drawingId) {
@@ -2755,7 +2848,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       const updated = drawings.filter(d => d.id !== drawingId);
       setDrawings(updated);
       if (onDrawingsLoaded) onDrawingsLoaded(updated);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to delete drawing"); }
   }
 
   async function updateField(drawingId, field, value) {
@@ -2764,7 +2857,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       const updated = drawings.map(d => d.id === drawingId ? drawing : d);
       setDrawings(updated);
       if (onDrawingsLoaded) onDrawingsLoaded(updated);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to save changes"); }
   }
 
   function cancelUpload() {
@@ -2788,6 +2881,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
     return true;
   });
 
+  const allDrawingTypeOptions = [...new Set([...DRAWING_TYPE_OPTIONS, ...customDrawingTypes, ...drawings.map(d => d.drawing_type).filter(Boolean)])];
   const drawingTypeOptions = [...new Set(drawings.map(d => d.drawing_type).filter(Boolean))].sort();
   const volumeOptions = [...new Set(drawings.map(d => d.volume).filter(Boolean))].sort();
   const levelOptions = [...new Set(drawings.map(d => d.level).filter(Boolean))].sort();
@@ -2815,7 +2909,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
     if (!window.confirm(`Delete ${selectedIds.size} drawing${selectedIds.size !== 1 ? "s" : ""}? This cannot be undone.`)) return;
     setDeletingSelected(true);
     for (const id of [...selectedIds]) {
-      try { await api(`/api/projects/${projectId}/drawings/${id}`, { method: "DELETE" }); } catch (e) { console.error(e); }
+      try { await api(`/api/projects/${projectId}/drawings/${id}`, { method: "DELETE" }); } catch (e) { console.error(e); showToast("Failed to delete drawing"); }
     }
     const updated = drawings.filter(d => !selectedIds.has(d.id));
     setDrawings(updated);
@@ -2847,14 +2941,63 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a"); a.href = url; a.download = "drawings-selection.zip";
       document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to download drawings"); }
     setDownloadingSelected(false);
+  }
+
+  async function handleDrawingSearch() {
+    if (!searchQuery.trim()) return;
+    setSearching(true);
+    setSearchError(null);
+    setSearchDone(false);
+    setSearchSelectedIds(new Set());
+    setSearchFilterType(""); setSearchFilterLevel(""); setSearchFilterVolume(""); setSearchFilterStatus("");
+    try {
+      const { results, terms } = await api(`/api/projects/${projectId}/drawings/search`, {
+        method: "POST",
+        body: { query: searchQuery.trim() },
+      });
+      setSearchResults(results || []);
+      setSearchTermsUsed(terms || []);
+      setSearchDone(true);
+    } catch (e) {
+      setSearchError("Search failed — please try again.");
+      setSearchResults([]);
+    }
+    setSearching(false);
+  }
+
+  async function handleSearchDownloadSelected(selectedDrawings) {
+    if (selectedDrawings.length === 0 || searchDownloading) return;
+    setSearchDownloading(true);
+    try {
+      if (!window.JSZip) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js";
+          script.onload = resolve; script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+      const zip = new window.JSZip();
+      for (const drawing of selectedDrawings) {
+        try {
+          const { base64, file_name } = await api(`/api/projects/${projectId}/drawings/${drawing.id}/file`);
+          zip.file(file_name || drawing.file_name || `${drawing.drawing_number || drawing.id}.pdf`, base64, { base64: true });
+        } catch (e) { console.error("Failed:", drawing.id, e); }
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = "search-results.zip";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+    } catch (e) { showToast("Failed to download drawings"); }
+    setSearchDownloading(false);
   }
 
   const labelStyle = { fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
   const inputStyle = { width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" };
   const filterSelectStyle = { border: "1px solid #ddd8d0", padding: "6px 8px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", outline: "none", background: "#fff", color: "#9a9088" };
-  const COLS = "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px";
+  const COLS = "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px 36px";
 
   const subTabStyle = (id) => ({
     padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase",
@@ -2875,6 +3018,9 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
         <button className="btn" style={subTabStyle("transmittal")} onClick={() => setDrawingSubTab("transmittal")}>
           Drawing Schedule
         </button>
+        <button className="btn" style={subTabStyle("search")} onClick={() => setDrawingSubTab("search")}>
+          Content Search
+        </button>
       </div>
 
       {/* Register sub-tab */}
@@ -2884,6 +3030,10 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
             <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Drawing Register</h3>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <button className="btn" onClick={handleReindexAll}
+                style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+                ↺ Re-index All
+              </button>
               {isAdmin && !showUpload && (
                 <button className="btn" onClick={() => setShowUpload(true)}
                   style={{ fontSize: 11, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
@@ -3004,7 +3154,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
                   <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
                     style={{ cursor: "pointer", width: 14, height: 14, accentColor: "#fff" }} />
                 </div>
-                {["Drawing No.", "Title", "Rev.", "Status", "Scale", "Type", "Volume", "Level", "", "", ""].map((h, i) => (
+                {["Drawing No.", "Title", "Rev.", "Status", "Scale", "Type", "Volume", "Level", "", "", "", ""].map((h, i) => (
                   <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
                 ))}
               </div>
@@ -3013,7 +3163,9 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
                   <DrawingRow d={d} projectId={projectId} isAdmin={isAdmin}
                     onUpdate={updateField} onDelete={handleDelete}
                     onView={setViewingDrawing} downloadingId={downloadingId} onDownload={handleDownload}
-                    selectable={true} selected={selectedIds.has(d.id)} onSelect={toggleSelect} />
+                    onReindex={handleReindex}
+                    selectable={true} selected={selectedIds.has(d.id)} onSelect={toggleSelect}
+                    typeOptions={allDrawingTypeOptions} isIndexing={indexingIds.has(d.id)} />
                 </div>
               ))}
             </div>
@@ -3041,6 +3193,153 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded }) {
       {drawingSubTab === "transmittal" && (
         <TransmittalTab projectId={projectId} isAdmin={isAdmin} />
       )}
+
+      {/* Content Search sub-tab */}
+      {drawingSubTab === "search" && (
+        <div>
+          <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+            <input
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleDrawingSearch()}
+              placeholder="e.g. fire escape routes, external doors, structural columns…"
+              style={{ flex: 1, border: "1px solid #ddd8d0", padding: "9px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" }}
+            />
+            <button className="btn" onClick={handleDrawingSearch} disabled={!searchQuery.trim() || searching}
+              style={{ background: searchQuery.trim() && !searching ? ARC_NAVY : "#b0a8a0", color: "#fff", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", border: "none", cursor: searchQuery.trim() && !searching ? "pointer" : "default" }}>
+              {searching ? <><Spinner size={11} />&nbsp;Searching…</> : "Search"}
+            </button>
+          </div>
+
+          {searchError && <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 16 }}>{searchError}</p>}
+
+          {!searchDone && !searching && (
+            <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
+              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif" }}>Search across drawing contents</p>
+              <p style={{ fontSize: 12, color: "#9a9088", marginTop: 6 }}>Type a description of what you're looking for — rooms, materials, notes, or anything visible on the drawings.</p>
+            </div>
+          )}
+
+          {searchDone && !searching && searchResults.length === 0 && (
+            <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
+              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif" }}>No drawings matched your search.</p>
+              <p style={{ fontSize: 12, color: "#9a9088", marginTop: 6 }}>Try different keywords, or note that drawings without indexed content won't appear yet.</p>
+            </div>
+          )}
+
+          {searchDone && !searching && searchResults.length > 0 && (() => {
+            const typeOpts   = [...new Set(searchResults.map(r => r.drawing_type).filter(Boolean))].sort();
+            const levelOpts  = [...new Set(searchResults.map(r => r.level).filter(Boolean))].sort();
+            const volumeOpts = [...new Set(searchResults.map(r => r.volume).filter(Boolean))].sort();
+            const statusOpts = [...new Set(searchResults.map(r => r.status).filter(Boolean))].sort();
+            const filtered = searchResults.filter(r => {
+              if (searchFilterType   && r.drawing_type !== searchFilterType)   return false;
+              if (searchFilterLevel  && r.level        !== searchFilterLevel)  return false;
+              if (searchFilterVolume && r.volume       !== searchFilterVolume) return false;
+              if (searchFilterStatus && r.status       !== searchFilterStatus) return false;
+              return true;
+            });
+            const chipStyle = (active) => ({
+              fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase",
+              padding: "3px 10px", cursor: "pointer",
+              border: `1px solid ${active ? ARC_NAVY : "#ddd8d0"}`,
+              background: active ? ARC_NAVY : "#fff",
+              color: active ? "#fff" : "#9a9088",
+              fontFamily: "Inter, Arial, sans-serif",
+            });
+            const hasActiveFilter = searchFilterType || searchFilterLevel || searchFilterVolume || searchFilterStatus;
+            return (
+              <div>
+                {(typeOpts.length > 0 || levelOpts.length > 0 || volumeOpts.length > 0 || statusOpts.length > 0) && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 10, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.06em" }}>Filter:</span>
+                    {typeOpts.map(t   => <button key={t} className="btn" style={chipStyle(searchFilterType   === t)} onClick={() => setSearchFilterType(searchFilterType     === t ? "" : t)}>{t}</button>)}
+                    {levelOpts.map(l  => <button key={l} className="btn" style={chipStyle(searchFilterLevel  === l)} onClick={() => setSearchFilterLevel(searchFilterLevel   === l ? "" : l)}>{l}</button>)}
+                    {volumeOpts.map(v => <button key={v} className="btn" style={chipStyle(searchFilterVolume === v)} onClick={() => setSearchFilterVolume(searchFilterVolume === v ? "" : v)}>{v}</button>)}
+                    {statusOpts.map(s => <button key={s} className="btn" style={chipStyle(searchFilterStatus === s)} onClick={() => setSearchFilterStatus(searchFilterStatus === s ? "" : s)}>{s}</button>)}
+                    {hasActiveFilter && (
+                      <button className="btn" style={{ ...chipStyle(false), color: ARC_TERRACOTTA, borderColor: ARC_TERRACOTTA }}
+                        onClick={() => { setSearchFilterType(""); setSearchFilterLevel(""); setSearchFilterVolume(""); setSearchFilterStatus(""); }}>
+                        Clear filters
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {searchTermsUsed.length > 0 && (
+                  <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 8 }}>
+                    Searched for: {searchTermsUsed.map((t, i) => <span key={i} style={{ background: "#f0ede8", padding: "1px 6px", marginRight: 4, borderRadius: 2 }}>{t}</span>)}
+                  </p>
+                )}
+
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                  <p style={{ fontSize: 11, color: "#9a9088" }}>
+                    {filtered.length} result{filtered.length !== 1 ? "s" : ""}
+                    {filtered.length < searchResults.length ? ` (filtered from ${searchResults.length})` : ""}
+                  </p>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {searchSelectedIds.size > 0 && (
+                      <>
+                        <span style={{ fontSize: 11, color: "#9a9088" }}>{searchSelectedIds.size} selected</span>
+                        <button className="btn" onClick={() => setSearchViewingDrawing(filtered.find(r => searchSelectedIds.has(r.id)))}
+                          style={{ fontSize: 11, color: ARC_NAVY, background: "none", border: `1px solid ${ARC_NAVY}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+                          Open Selected
+                        </button>
+                        <button className="btn" onClick={() => handleSearchDownloadSelected(filtered.filter(r => searchSelectedIds.has(r.id)))} disabled={searchDownloading}
+                          style={{ fontSize: 11, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+                          {searchDownloading ? "Downloading…" : "↓ Download Selected"}
+                        </button>
+                        <button className="btn" onClick={() => setSearchSelectedIds(new Set())}
+                          style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 8px" }}>
+                          Clear
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                  {filtered.map(r => {
+                    const isSelected = searchSelectedIds.has(r.id);
+                    return (
+                      <div key={r.id}
+                        style={{ background: isSelected ? "#eef6ff" : "#fff", border: `1px solid ${isSelected ? "#2a6496" : "#e8e0d5"}`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                        <input type="checkbox" checked={isSelected}
+                          onChange={() => setSearchSelectedIds(prev => { const n = new Set(prev); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n; })}
+                          style={{ cursor: "pointer", width: 14, height: 14, flexShrink: 0, accentColor: ARC_NAVY }} />
+                        <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => setSearchViewingDrawing(r)}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title}</div>
+                          <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>{r.drawing_number || "—"}</div>
+                        </div>
+                        {r.drawing_type && <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#2a6496", background: "#e8f0f8", padding: "2px 7px", flexShrink: 0 }}>{r.drawing_type}</span>}
+                        {r.level        && <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0 }}>{r.level}</span>}
+                        {r.revision     && <span style={{ fontSize: 10, fontWeight: 700, color: ARC_NAVY, flexShrink: 0 }}>Rev. {r.revision}</span>}
+                        {r.status       && <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0 }}>{r.status}</span>}
+                        <span style={{ fontSize: 16, color: "#ddd8d0", flexShrink: 0, cursor: "pointer" }} onClick={() => setSearchViewingDrawing(r)}>›</span>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {searchViewingDrawing && (() => {
+                  const viewList = searchSelectedIds.size > 0
+                    ? filtered.filter(r => searchSelectedIds.has(r.id))
+                    : filtered;
+                  return (
+                    <PdfViewerModal
+                      drawing={searchViewingDrawing}
+                      projectId={projectId}
+                      onClose={() => setSearchViewingDrawing(null)}
+                      drawings={viewList}
+                      currentIndex={viewList.findIndex(r => r.id === searchViewingDrawing.id)}
+                    />
+                  );
+                })()}
+              </div>
+            );
+          })()}
+        </div>
+      )}
     </div>
   );
 }
@@ -3065,7 +3364,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
 
   async function load() {
     setLoading(true);
-    try { const d = await api(`/api/projects/${projectId}`); setData(d); } catch (e) { console.error(e); }
+    try { const d = await api(`/api/projects/${projectId}`); setData(d); } catch (e) { console.error(e); showToast("Failed to load project"); }
     setLoading(false);
   }
 
@@ -3073,7 +3372,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
 
   async function saveEditForm() {
     setSavingKey("editForm", true);
-    try { const { project } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: editForm }); setData(d => ({ ...d, project })); setEditingProject(false); } catch (e) { console.error(e); }
+    try { const { project } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: editForm }); setData(d => ({ ...d, project })); setEditingProject(false); } catch (e) { console.error(e); showToast("Failed to save project"); }
     setSavingKey("editForm", false);
   }
 
@@ -3085,18 +3384,18 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
       setData(d => ({ ...d, consultants: [...d.consultants, consultant] }));
       setNewConsultant({ discipline: "", company: "", contact_name: "", email: "", phone: "" });
       setAddingConsultant(false);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to add consultant"); }
     setSavingKey("consultant", false);
   }
 
   async function deleteConsultant(cid) {
-    try { await api(`/api/projects/${projectId}/consultants/${cid}`, { method: "DELETE" }); setData(d => ({ ...d, consultants: d.consultants.filter(c => c.id !== cid) })); } catch (e) { console.error(e); }
+    try { await api(`/api/projects/${projectId}/consultants/${cid}`, { method: "DELETE" }); setData(d => ({ ...d, consultants: d.consultants.filter(c => c.id !== cid) })); } catch (e) { console.error(e); showToast("Failed to remove consultant"); }
   }
 
   async function updateUvalue(uid, field, value) {
     const uv = data.uvalues.find(u => u.id === uid);
     const updated = { ...uv, [field]: value === "" ? null : parseFloat(value) || value };
-    try { await api(`/api/projects/${projectId}/uvalues/${uid}`, { method: "PATCH", body: updated }); setData(d => ({ ...d, uvalues: d.uvalues.map(u => u.id === uid ? updated : u) })); } catch (e) { console.error(e); }
+    try { await api(`/api/projects/${projectId}/uvalues/${uid}`, { method: "PATCH", body: updated }); setData(d => ({ ...d, uvalues: d.uvalues.map(u => u.id === uid ? updated : u) })); } catch (e) { console.error(e); showToast("Failed to save U-value"); }
   }
 
   async function addUvalue() {
@@ -3106,12 +3405,12 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
       const { uvalue } = await api(`/api/projects/${projectId}/uvalues`, { method: "POST", body: { element: newUvalueElement.trim() } });
       setData(d => ({ ...d, uvalues: [...d.uvalues, uvalue] }));
       setNewUvalueElement(""); setAddingUvalue(false);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to add U-value"); }
     setSavingKey("uvalue", false);
   }
 
   async function deleteUvalue(uid) {
-    try { await api(`/api/projects/${projectId}/uvalues/${uid}`, { method: "DELETE" }); setData(d => ({ ...d, uvalues: d.uvalues.filter(u => u.id !== uid) })); } catch (e) { console.error(e); }
+    try { await api(`/api/projects/${projectId}/uvalues/${uid}`, { method: "DELETE" }); setData(d => ({ ...d, uvalues: d.uvalues.filter(u => u.id !== uid) })); } catch (e) { console.error(e); showToast("Failed to delete U-value"); }
   }
 
   async function addNote() {
@@ -3128,11 +3427,11 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
   async function updateNote(nid, field, value) {
     const note = data.notes.find(n => n.id === nid);
     const updated = { ...note, [field]: value };
-    try { await api(`/api/projects/${projectId}/notes/${nid}`, { method: "PATCH", body: updated }); setData(d => ({ ...d, notes: d.notes.map(n => n.id === nid ? updated : n) })); } catch (e) { console.error(e); }
+    try { await api(`/api/projects/${projectId}/notes/${nid}`, { method: "PATCH", body: updated }); setData(d => ({ ...d, notes: d.notes.map(n => n.id === nid ? updated : n) })); } catch (e) { console.error(e); showToast("Failed to save note"); }
   }
 
   async function deleteNote(nid) {
-    try { await api(`/api/projects/${projectId}/notes/${nid}`, { method: "DELETE" }); setData(d => ({ ...d, notes: d.notes.filter(n => n.id !== nid) })); } catch (e) { console.error(e); }
+    try { await api(`/api/projects/${projectId}/notes/${nid}`, { method: "DELETE" }); setData(d => ({ ...d, notes: d.notes.filter(n => n.id !== nid) })); } catch (e) { console.error(e); showToast("Failed to delete note"); }
   }
 
   if (loading) return <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 10, color: "#9a9088" }}><Spinner size={14} /> Loading project…</div>;
@@ -3247,7 +3546,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", width: 120, flexShrink: 0, paddingTop: 2 }}>{label}</div>
                   <div style={{ flex: 1, fontSize: 13, color: ARC_NAVY }}>
                     {isAdmin
-                      ? <EditableField value={project[field]} onSave={async v => { try { const { project: p } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { [field]: v } }); setData(d => ({ ...d, project: p })); } catch (e) { console.error(e); } }} placeholder={`Click to add ${label.toLowerCase()}…`} multiline={field === "description"} />
+                      ? <EditableField value={project[field]} onSave={async v => { try { const { project: p } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { [field]: v } }); setData(d => ({ ...d, project: p })); } catch (e) { console.error(e); showToast("Failed to save"); } }} placeholder={`Click to add ${label.toLowerCase()}…`} multiline={field === "description"} />
                       : <span style={{ color: project[field] ? ARC_NAVY : "#b0a8a0", fontStyle: project[field] ? "normal" : "italic" }}>{project[field] || `No ${label.toLowerCase()} set`}</span>
                     }
                   </div>
@@ -3257,7 +3556,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", width: 120, flexShrink: 0, paddingTop: 2 }}>RIBA Stage</div>
                 <div style={{ flex: 1 }}>
                   {isAdmin ? (
-                    <select value={project.stage || ""} onChange={async e => { try { const { project: p } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { stage: e.target.value } }); setData(d => ({ ...d, project: p })); } catch (err) { console.error(err); } }}
+                    <select value={project.stage || ""} onChange={async e => { try { const { project: p } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { stage: e.target.value } }); setData(d => ({ ...d, project: p })); } catch (err) { console.error(err); showToast("Failed to save stage"); } }}
                       style={{ border: "1px solid #ddd8d0", padding: "5px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: project.stage ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff" }}>
                       <option value="">Select stage…</option>
                       {RIBA_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
@@ -3403,7 +3702,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
         )}
 
         {activeTab === "drawings" && (
-          <DrawingsTab projectId={projectId} isAdmin={isAdmin} onDrawingsLoaded={setDrawings} />
+          <DrawingsTab projectId={projectId} isAdmin={isAdmin} onDrawingsLoaded={setDrawings} customDrawingTypes={data?.project?.custom_drawing_types || []} />
         )}
 
         {activeTab === "documents" && <DocumentsTab projectId={projectId} isAdmin={isAdmin} />}
@@ -3427,12 +3726,19 @@ export default function ProjectsSection({ isAdmin }) {
   const [selectedId, setSelectedId] = useState(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [filterStatus, setFilterStatus] = useState("active");
+  const [toast, setToast] = useState(null);
+
+  // Wire module-level dispatcher to this component's state setter
+  _showToast = (text) => {
+    setToast(text);
+    setTimeout(() => setToast(null), 4000);
+  };
 
   useEffect(() => { loadProjects(); }, []);
 
   async function loadProjects() {
     setLoading(true);
-    try { const { projects: data } = await api("/api/projects"); setProjects(data || []); } catch (e) { console.error(e); }
+    try { const { projects: data } = await api("/api/projects"); setProjects(data || []); } catch (e) { console.error(e); showToast("Failed to load projects"); }
     setLoading(false);
   }
 
@@ -3442,7 +3748,7 @@ export default function ProjectsSection({ isAdmin }) {
       setProjects(prev => [project, ...prev]);
       setShowNewForm(false);
       setSelectedId(project.id);
-    } catch (e) { console.error(e); }
+    } catch (e) { console.error(e); showToast("Failed to create project"); }
   }
 
   if (selectedId) {
@@ -3457,6 +3763,19 @@ export default function ProjectsSection({ isAdmin }) {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+      {toast && (
+        <div style={{
+          position: "fixed", bottom: 24, right: 24, zIndex: 9999,
+          background: ARC_TERRACOTTA, color: "#fff",
+          padding: "12px 20px", fontSize: 13,
+          fontFamily: "Inter, Arial, sans-serif",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+          maxWidth: 360, lineHeight: 1.5,
+          animation: "fadeIn 0.2s ease"
+        }}>
+          {toast}
+        </div>
+      )}
       <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "20px 32px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
