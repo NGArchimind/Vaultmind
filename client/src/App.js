@@ -96,17 +96,33 @@ function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
         const words = target.split(' ').filter(w => w.length > 3);
         if (!target) return;
         const hint = currentPage;
-        const order = [hint];
-        for (let d = 1; d <= total; d++) {
-          if (hint - d >= 1) order.push(hint - d);
-          if (hint + d <= total) order.push(hint + d);
+
+        const matches = text => text.includes(target) || (words.length >= 2 && words.every(w => text.includes(w)));
+
+        // Pass 1: search within ±20 pages of hint (covers minor drift, avoids TOC false positives)
+        const closeRange = [hint];
+        for (let d = 1; d <= 20; d++) {
+          if (hint - d >= 1) closeRange.push(hint - d);
+          if (hint + d <= total) closeRange.push(hint + d);
         }
-        for (const n of order) {
+        for (const n of closeRange) {
           const pg = await pdfDoc.getPage(n);
           const tc = await pg.getTextContent();
-          const text = norm(tc.items.map(i => i.str).join(' '));
-          if (text.includes(target) || (words.length >= 2 && words.every(w => text.includes(w)))) {
+          if (matches(norm(tc.items.map(i => i.str).join(' ')))) {
             if (n !== currentPage) { currentPage = n; renderPage(currentPage); }
+            return;
+          }
+        }
+
+        // Pass 2: search rest of document, skip early pages (TOC / front matter zone)
+        const earlySkip = Math.min(20, Math.floor(hint / 2));
+        for (let n = 1; n <= total; n++) {
+          if (Math.abs(n - hint) <= 20) continue; // already checked in pass 1
+          if (n <= earlySkip) continue;            // skip likely TOC pages
+          const pg = await pdfDoc.getPage(n);
+          const tc = await pg.getTextContent();
+          if (matches(norm(tc.items.map(i => i.str).join(' ')))) {
+            currentPage = n; renderPage(currentPage);
             return;
           }
         }
@@ -1059,7 +1075,6 @@ export default function App() {
 
   // ── Open PDF viewer at page from citation ────────────────────────────────────
   const handleCitationClick = async (docName, heading) => {
-    console.log("[CitationClick] docName:", docName, "| heading:", heading, "| mapKeys:", Object.keys(citationPageMap), "| entry:", citationPageMap[`${docName}||${(heading||"").toLowerCase().trim()}`] || citationPageMap[docName]);
     const headingKey = `${docName}||${(heading || "").toLowerCase().trim()}`;
     const entry = citationPageMap[headingKey] || citationPageMap[docName];
 
