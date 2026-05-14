@@ -1032,9 +1032,9 @@ TABLES:
 4. Prefix each row that directly answers the question with >>: >> | cell | cell | cell |
    The >> appears ONCE at the row start only — do NOT repeat before each cell.
 5. Do NOT wrap tables in > blockquote syntax.
-6. Place the citation immediately below the table.
+6. Place ONE citation on its own line IMMEDIATELY BEFORE the table title — never after, never once per row, never per cell. The citation labels the whole table.
 7. If the table spans multiple pages, combine ALL parts into one complete table.
-8. If multiple documents contain near-identical tables: reproduce only the most complete version, then add as plain italic text below the citation: *Note: [Other Document] Table X contains equivalent data. [Note any meaningful differences.]*
+8. If multiple documents contain near-identical tables: reproduce only the most complete version, then add as plain italic text below the table: *Note: [Other Document] Table X contains equivalent data. [Note any meaningful differences.]*
 
 ---
 
@@ -1046,20 +1046,15 @@ A confident, direct answer in 2–4 sentences. Cite ALL relevant documents provi
 
 For each key fact, place the citation on its own line BEFORE the supporting quote:
 *Document Name | Clause number and title*
-> "Exact short phrase from the document."
+> "Quote the complete relevant paragraph or clause in full — not just a fragment."
 
 ## Detailed Analysis
 
 Include ONLY content that adds value beyond the summary — exceptions, cross-references, construction requirements, or meaningful differences between documents. If nothing to add, write: "The summary above fully addresses this question."
 
-Maximum 6 bullet points. For each, citation before quote:
+Maximum 6 bullet points. For each, citation before full quote:
 *Document Name | Clause*
-> "Quote."
-
-## Regulatory Context
-
-Broader background directly relevant to this question. Maximum 4 bullets. Citation before each quote.
-If nothing to add: "No additional context required."
+> "Complete paragraph or clause quoted in full."
 
 ## Contradictions & Conflicts
 
@@ -1077,7 +1072,7 @@ CITATION RULES:
       const { text: finalAnswer, usage: answerUsage } = await withRetry(
         () => callClaude(
           [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-          `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. Draw from ALL provided documents.`,
+          `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. Draw from ALL provided documents.`,
           65536
         ), 3, 5000, "Pass 3/3 · Synthesising answer"
       );
