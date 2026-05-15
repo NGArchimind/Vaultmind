@@ -26,7 +26,6 @@ function CitationLine({ citationText, onCitationClick, keyProp }) {
     <div key={keyProp} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: "#f0f5f6", borderLeft: `3px solid ${AD_GREEN}`, padding: "10px 14px", margin: "20px 0 4px", borderRadius: "0 2px 2px 0" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontStyle: "italic", fontWeight: 600, color: AD_GREEN, fontSize: 11, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.04em", flexShrink: 0 }}>Citation</span>
           <span style={{ fontWeight: 600, color: ARC_NAVY, fontSize: 13, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{displayDoc}</span>
         </div>
         {heading && <div style={{ color: "#6b7280", fontSize: 11, marginTop: 3, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{heading}</div>}
