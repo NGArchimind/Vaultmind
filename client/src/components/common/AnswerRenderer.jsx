@@ -25,7 +25,10 @@ function CitationLine({ citationText, onCitationClick, keyProp }) {
   return (
     <div key={keyProp} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: "#f0f5f6", borderLeft: `3px solid ${AD_GREEN}`, padding: "10px 14px", margin: "20px 0 4px", borderRadius: "0 2px 2px 0" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, color: ARC_NAVY, fontSize: 13, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{displayDoc}</div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontStyle: "italic", fontWeight: 600, color: AD_GREEN, fontSize: 11, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.04em", flexShrink: 0 }}>Citation</span>
+          <span style={{ fontWeight: 600, color: ARC_NAVY, fontSize: 13, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{displayDoc}</span>
+        </div>
         {heading && <div style={{ color: "#6b7280", fontSize: 11, marginTop: 3, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{heading}</div>}
       </div>
       {onCitationClick && (
@@ -141,18 +144,19 @@ export default function AnswerRenderer({ text, onCitationClick }) {
       );
     } else if (line.startsWith("## ")) {
       const text = line.slice(3);
-      const isSummary = text.toLowerCase().includes("summary");
-      const isContext = text.toLowerCase().includes("regulatory context");
+      const lower = text.toLowerCase();
+      const isSummary = lower.includes("summary");
+      const isPractical = lower.includes("practical conclusion");
       if (isSummary) {
         elements.push(
           <div key={i} style={{ background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${AD_GREEN}`, padding: "14px 18px", margin: "16px 0 8px" }}>
             <h2 style={{ color: AD_GREEN, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
           </div>
         );
-      } else if (isContext) {
+      } else if (isPractical) {
         elements.push(
-          <div key={i} style={{ background: "#faf6f0", border: `1px solid #e0d5c5`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 18px", margin: "24px 0 8px" }}>
-            <h2 style={{ color: ARC_TERRACOTTA, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
+          <div key={i} style={{ background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${AD_GREEN}`, borderTop: `2px solid ${AD_GREEN}`, padding: "14px 18px", margin: "32px 0 8px" }}>
+            <h2 style={{ color: AD_GREEN, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
           </div>
         );
       } else {

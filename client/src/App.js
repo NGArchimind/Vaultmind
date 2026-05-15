@@ -1016,63 +1016,11 @@ export default function App() {
         ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
         : "";
 
-      const answerPrompt = `You are a building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `
-
-NOTE: A temporary document has been included: "${tempDoc.name}". Treat it as an additional reference document.` : ""}
-
-${contextBlock}QUESTION: ${q}
-PRIORITY SECTIONS: ${focusSections || "all sections"}
-
----
-
-TABLES:
-1. Output the table title on its own line in bold: **Table X — Title**
-2. Reproduce EVERY row and EVERY column — no omissions, no summaries. Every row starts and ends with | pipe characters.
-3. After the header row output a separator: | --- | --- | --- |
-4. Prefix each row that directly answers the question with >>: >> | cell | cell | cell |
-   The >> appears ONCE at the row start only — do NOT repeat before each cell.
-5. Do NOT wrap tables in > blockquote syntax.
-6. Place ONE citation on its own line IMMEDIATELY BEFORE the table title — never after, never once per row, never per cell. The citation labels the whole table.
-7. If the table spans multiple pages, combine ALL parts into one complete table.
-8. If multiple documents contain near-identical tables: reproduce only the most complete version, then add as plain italic text below the table: *Note: [Other Document] Table X contains equivalent data. [Note any meaningful differences.]*
-
----
-
-RESPONSE FORMAT — always in this exact order:
-
-## Summary
-
-A confident, direct answer in 2–4 sentences. Cite ALL relevant documents provided — never just one.
-
-For each key fact, place the citation on its own line BEFORE the supporting quote:
-*Document Name | Clause number and title*
-> "Quote the complete relevant paragraph or clause in full — not just a fragment."
-
-## Detailed Analysis
-
-Include ONLY content that adds value beyond the summary — exceptions, cross-references, construction requirements, or meaningful differences between documents. If nothing to add, write: "The summary above fully addresses this question."
-
-Maximum 6 bullet points. For each, citation before full quote:
-*Document Name | Clause*
-> "Complete paragraph or clause quoted in full."
-
-## Contradictions & Conflicts
-
-Include ONLY if genuine conflicts exist between documents. State the conflict, quote both sides with citations, give a practical conclusion. If no conflicts: "No contradictions identified."
-
----
-
-CITATION RULES:
-- Format: *Document Name | Clause number and title* — must start AND end with a single *
-- Always on its own line, never embedded within a sentence
-- Always placed BEFORE the content it supports
-- If multiple documents support the same fact, each citation goes on its own line before the shared quote
-- Draw from ALL provided documents across every section — never rely on just one`;
-
+      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer. Write for an architectural specialist who needs detailed, accurate legislative guidance — not a general audience.${tempDoc ? `\n\nNOTE: A temporary document has been included: "${tempDoc.name}". Treat it as an additional reference document.` : ""}\n\n${contextBlock}QUESTION: ${q}\nPRIORITY SECTIONS: ${focusSections || "all sections"}\n\n---\n\nTABLES:\n1. Output the table title on its own line in bold: **Table X — Title**\n2. Reproduce EVERY row and EVERY column — no omissions, no summaries. Every row starts and ends with | pipe characters.\n3. After the header row output a separator: | --- | --- | --- |\n4. Prefix each row that directly answers the question with >>: >> | cell | cell | cell |\n   The >> appears ONCE at the row start only — do NOT repeat before each cell.\n5. Do NOT wrap tables in > blockquote syntax.\n6. Place ONE citation on its own line IMMEDIATELY BEFORE the table title — never after, never once per row, never per cell.\n7. If the table spans multiple pages, combine ALL parts into one complete table.\n8. If multiple documents contain near-identical tables: reproduce only the most complete version, then add as plain italic text below the table: *Note: [Other Document] Table X contains equivalent data. [Note any meaningful differences.]*\n\n---\n\nRESPONSE FORMAT — always in this exact order:\n\n## Summary\n\nA concise but critical examination of the extracted data, written for an architectural specialist. Do not simply restate facts — examine and contextualise them. Where a table is directly relevant to the answer, reproduce it in full here with its citation immediately before it.\n\n## Detailed Analysis\n\nFor each relevant citation, output these three parts in order — no exceptions:\n\nPART 1 — Citation header on its own line:\n*Document Name | Heading | Section*\n\nPART 2 — Full verbatim text:\nReproduce the complete paragraph or clause exactly as it appears in the source document, including any notes or qualifications. Do not paraphrase, do not truncate, do not use speech marks around it.\n\nPART 3 — Explanation (only if needed):\n*If the relevance of the above to the question is not immediately obvious, add a concise italic explanation here.*\n\nRepeat for every relevant citation. Do not repeat information that has already appeared.\n\n## Contradictions & Conflicts\n\nA critical analysis of apparent contradictions between the extracted documents. Where conflicts exist, examine them substantively: quote both sides with citations, explain the nature of the conflict, and give a practical resolution. If you have genuinely found no conflicts: "No contradictions identified."\n\n## Practical Conclusion\n\nA synthesised conclusion of the above findings, critically examined. What does all of the above mean in practice for an architect applying this guidance? Be specific and actionable.\n\n---\n\nCITATION RULES:\n- Format: *Document Name | Clause number and title* — must start AND end with a single *\n- Always on its own line, never embedded within a sentence\n- Always placed BEFORE the content it supports\n- If multiple documents support the same fact, each citation goes on its own line before the content\n- Draw from ALL provided documents across every section — never rely on just one`;
       const { text: finalAnswer, usage: answerUsage } = await withRetry(
         () => callClaude(
           [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-          `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. Draw from ALL provided documents.`,
+          `You are an expert building regulations consultant writing for architectural specialists. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Contradictions & Conflicts, (4) ## Practical Conclusion. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. Draw from ALL provided documents.`,
           65536
         ), 3, 5000, "Pass 3/3 · Synthesising answer"
       );
