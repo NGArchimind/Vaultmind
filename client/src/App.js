@@ -656,9 +656,11 @@ export default function App() {
     if (overrideVaultId) {
       try {
         setStatusMsg("Loading vault for follow-up…");
-        const [pdfsData, indexData] = await Promise.all([
+        const [pdfsData, indexFetch] = await Promise.all([
           api(`/api/vaults/${encodeURIComponent(overrideVaultId)}/pdfs`),
-          api(`/api/vaults/${encodeURIComponent(overrideVaultId)}/index`).catch(() => null),
+          api(`/api/vaults/${encodeURIComponent(overrideVaultId)}/index`)
+            .then(data => ({ ok: true, data }))
+            .catch(() => ({ ok: false })),
         ]);
         // Find vault object from all vaults (flat + sub)
         for (const v of vaults) {
@@ -668,13 +670,18 @@ export default function App() {
             if (sub) { overrideVault = sub; break; }
           }
         }
-        overridePdfs = pdfsData.pdfs || [];
-        if (indexData === null) {
+        if (!indexFetch.ok) {
+          setStage(null);
+          setStatusMsg("Could not connect to vault — please try again.");
+          return;
+        }
+        if (indexFetch.data === null) {
           setStage(null);
           setStatusMsg("That vault has not been indexed yet — select it and click Re-Index before asking a question.");
           return;
         }
-        overrideIndex = indexData;
+        overrideIndex = indexFetch.data;
+        overridePdfs = pdfsData.pdfs || [];
       } catch (e) {
         setStage(null);
         setStatusMsg("Could not connect to vault — please try again.");
