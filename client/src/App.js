@@ -642,6 +642,7 @@ export default function App() {
     setCitationPageMap({});
     if (!overrideQuestion) setQuestion("");
     setFollowUpQuestion("");
+    setFollowUpVaultId("");
     setLastQuestion(q);
     setTimedOut(false);
     setStage("selecting");
@@ -667,16 +668,16 @@ export default function App() {
             if (sub) { overrideVault = sub; break; }
           }
         }
-        overrideIndex = indexData;
         overridePdfs = pdfsData.pdfs || [];
-        if (!overrideIndex) {
+        if (indexData === null) {
           setStage(null);
-          setStatusMsg("That vault has not been indexed yet — index it first before asking a question.");
+          setStatusMsg("That vault has not been indexed yet — select it and click Re-Index before asking a question.");
           return;
         }
+        overrideIndex = indexData;
       } catch (e) {
         setStage(null);
-        setStatusMsg("Failed to load vault for follow-up: " + e.message);
+        setStatusMsg("Could not connect to vault — please try again.");
         return;
       }
     }
@@ -1029,7 +1030,7 @@ export default function App() {
       setAnswer(finalAnswer);
       setAnswerVaultName(usingTempOnly ? "Temp Doc" : (effectiveVault?.name || vault?.name || ""));
       setCitationPageMap(newCitationPageMap);
-      setFollowUpQuestion(q);
+      setFollowUpQuestion("");
       setStage("done");
       setHistory(prev => [...prev, { vaultId: usingTempOnly ? "temp" : (effectiveVault?.id || "temp"), vaultName: usingTempOnly ? "Temp Doc" : (effectiveVault?.name || ""), question: q, answer: finalAnswer, timestamp: new Date() }]);
       setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
