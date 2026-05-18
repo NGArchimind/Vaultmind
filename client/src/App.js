@@ -176,6 +176,8 @@ function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
 
 export default function App() {
   const [appSection, setAppSection] = useState("home");
+  const [sectionKey, setSectionKey] = useState(0);
+  const navigate = (section) => { setAppSection(section); setSectionKey(k => k + 1); };
   const [vaults, setVaults] = useState([]);
   const [selectedVault, setSelectedVault] = useState(null);
   const [queryScope, setQueryScope] = useState("single");
@@ -1209,19 +1211,19 @@ export default function App() {
 
       {/* Top nav */}
       <div style={{ background: ARC_NAVY, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, height: 56 }}>
-        <button className="btn" onClick={() => setAppSection("home")}
+        <button className="btn" onClick={() => navigate("home")}
           style={{ background: "none", color: "#ffffff", fontSize: 20, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif", padding: 0 }}>
           Archimind
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
           {["vault", "compare", "library", "projects", "timesheets"].map(section => (
-            <button key={section} className="btn" onClick={() => setAppSection(section)}
+            <button key={section} className="btn" onClick={() => navigate(section)}
               style={{ background: appSection === section ? "rgba(255,255,255,0.12)" : "none", color: appSection === section ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === section ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
               {section.charAt(0).toUpperCase() + section.slice(1)}
             </button>
           ))}
           {isAdmin && (
-            <button className="btn" onClick={() => setAppSection("admin")}
+            <button className="btn" onClick={() => navigate("admin")}
               style={{ background: appSection === "admin" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "admin" ? "#ffffff" : ARC_TERRACOTTA, padding: "6px 14px", fontSize: 12, fontWeight: appSection === "admin" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none", opacity: 0.85 }}>
               Admin
             </button>
@@ -1241,12 +1243,12 @@ export default function App() {
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden", maxHeight: "calc(100vh - 56px)" }}>
 
-        {appSection === "home" && <LandingPage onSelect={setAppSection} isAdmin={isAdmin} />}
-        {appSection === "compare" && <CompareSection vaults={vaults} isAdmin={isAdmin} />}
-        {appSection === "library" && <DatasheetsLibrarySection vaults={vaults} isAdmin={isAdmin} />}
-        {appSection === "projects" && <ProjectsSection isAdmin={isAdmin} />}
-        {appSection === "timesheets" && <TimesheetsSection isAdmin={isAdmin} />}
-        {appSection === "admin" && isAdmin && <AdminSection />}
+        {appSection === "home" && <LandingPage onSelect={navigate} isAdmin={isAdmin} />}
+        {appSection === "compare" && <CompareSection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
+        {appSection === "library" && <DatasheetsLibrarySection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
+        {appSection === "projects" && <ProjectsSection key={sectionKey} isAdmin={isAdmin} />}
+        {appSection === "timesheets" && <TimesheetsSection key={sectionKey} isAdmin={isAdmin} />}
+        {appSection === "admin" && isAdmin && <AdminSection key={sectionKey} />}
 
         {/* ── VAULT ─────────────────────────────────────────────────────── */}
         {appSection === "vault" && <>
