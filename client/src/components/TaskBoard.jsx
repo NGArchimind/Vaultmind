@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api } from "../api/client";
 import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
+import DrawingReview from "./DrawingReview";
 
 const PRIORITY_COLOR = { high: ARC_TERRACOTTA, medium: "#b07800", low: "#5a7a9a" };
 const PRIORITY_LABEL = { high: "High", medium: "Medium", low: "Low" };
@@ -35,6 +36,22 @@ function initials(name) {
 }
 
 // ── Badges ────────────────────────────────────────────────────────────────────
+const REVIEW_STATUS = {
+  in_review: { label: "In Review",  bg: "#fff8e6", color: "#b07800", border: "#f0d080" },
+  reviewed:  { label: "Reviewed",   bg: "#f0faf2", color: "#2a7a3a", border: "#90d0a0" },
+};
+
+function ReviewBadge({ review }) {
+  if (!review) return null;
+  const s = REVIEW_STATUS[review.status];
+  if (!s) return null;
+  return (
+    <span style={{ fontSize:10, fontWeight:600, padding:"2px 7px", background:s.bg, color:s.color, border:`1px solid ${s.border}`, whiteSpace:"nowrap" }}>
+      {s.label} R{review.round_number}
+    </span>
+  );
+}
+
 function PriorityBadge({ priority }) {
   const color = PRIORITY_COLOR[priority] || PRIORITY_COLOR.medium;
   return (
@@ -275,6 +292,7 @@ export default function TaskBoard({ projectId }) {
   const [loading,   setLoading]   = useState(true);
   const [addingTask, setAddingTask] = useState(false);
   const [modal,     setModal]     = useState(null);
+  const [drawingReview, setDrawingReview] = useState(null); // { taskId, taskTitle, review }
   const [sortKey,   setSortKey]   = useState("created_at");
   const [sortDir,   setSortDir]   = useState("desc");
 
@@ -439,8 +457,16 @@ export default function TaskBoard({ projectId }) {
                   <td style={{ padding: "12px 10px", whiteSpace: "nowrap", color: overdue ? ARC_TERRACOTTA : "#5a7a9a", fontWeight: overdue ? 600 : 400, fontSize: 12 }}>
                     {task.due_date ? (overdue ? `⚠ ${fmtDateShort(task.due_date)}` : fmtDateShort(task.due_date)) : "—"}
                   </td>
-                  <td style={{ padding: "12px 10px", textAlign: "right" }}>
-                    <span style={{ fontSize: 11, color: "#b0b8c0" }}>View →</span>
+                  <td style={{ padding: "8px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "flex-end" }}>
+                      <ReviewBadge review={task._review} />
+                      <button
+                        onClick={e => { e.stopPropagation(); setDrawingReview({ taskId: task.id, taskTitle: task.title, review: task._review }); }}
+                        style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", background: task._review?.status === "in_review" ? ARC_TERRACOTTA : task._review?.status === "reviewed" ? "#e8f5e9" : "#f0f4f8", color: task._review?.status === "in_review" ? "#fff" : task._review?.status === "reviewed" ? "#2a7a3a" : "#5a7a9a", border: "none", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
+                        {task._review ? "Drawings" : "📄 Upload"}
+                      </button>
+                      <span style={{ fontSize: 11, color: "#b0b8c0" }}>View →</span>
+                    </div>
                   </td>
                 </tr>
               );
@@ -459,6 +485,20 @@ export default function TaskBoard({ projectId }) {
           onSave={handleSaveTask}
           onDelete={handleDeleteTask}
           onClose={() => setModal(null)}
+        />
+      )}
+
+      {/* Drawing review */}
+      {drawingReview && (
+        <DrawingReview
+          taskId={drawingReview.taskId}
+          taskTitle={drawingReview.taskTitle}
+          onClose={() => setDrawingReview(null)}
+          onStatusChange={newReview => {
+            setTasks(prev => prev.map(t =>
+              t.id === drawingReview.taskId ? { ...t, _review: { ...t._review, ...newReview } } : t
+            ));
+          }}
         />
       )}
     </div>

@@ -2828,6 +2828,121 @@ app.patch("/api/admin/projects/:id/fee", requireAuth, requireAdmin, async (req, 
   res.json(data);
 });
 
+// ── Drawing review rounds ─────────────────────────────────────────────────────
+
+async function mergePDFs(pdfBuffers) {
+  const { PDFDocument } = require("pdf-lib");
+  const merged = await PDFDocument.create();
+  for (const buf of pdfBuffers) {
+    try {
+      const src = await PDFDocument.load(buf, { ignoreEncryption: true });
+      const pages = await merged.copyPages(src, src.getPageIndices());
+      pages.forEach(p => merged.addPage(p));
+    } catch (e) { console.error("pdf merge page error:", e.message); }
+  }
+  return Buffer.from(await merged.save());
+}
+
+// GET rounds for a task (includes latest status indicator)
+app.get("/api/tasks/:id/review-rounds", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("task_review_rounds")
+    .select("id, round_number, status, annotations, pdf_key, created_by, reviewed_by, completed_at, created_at")
+    .eq("task_id", req.params.id)
+    .order("round_number");
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// POST create new round — receives array of base64 PDFs, merges, stores in R2
+app.post("/api/tasks/:id/review-rounds", requireAuth, async (req, res) => {
+  const { pdfs } = req.body; // [{filename, base64}]
+  if (!pdfs?.length) return res.status(400).json({ error: "pdfs array required" });
+
+  // Get next round number
+  const { data: existing } = await supabase
+    .from("task_review_rounds")
+    .select("round_number")
+    .eq("task_id", req.params.id)
+    .order("round_number", { ascending: false })
+    .limit(1);
+  const roundNumber = existing?.length ? existing[0].round_number + 1 : 1;
+
+  // Merge PDFs
+  const buffers = pdfs.map(p => Buffer.from(p.base64, "base64"));
+  const mergedBuf = await mergePDFs(buffers).catch(err => { throw err; });
+
+  // Upload to R2
+  const pdfKey = `task-reviews/${req.params.id}/round-${roundNumber}/merged.pdf`;
+  await r2.send(new PutObjectCommand({ Bucket: BUCKET, Key: pdfKey, Body: mergedBuf, ContentType: "application/pdf" }));
+
+  const { data, error } = await supabase
+    .from("task_review_rounds")
+    .insert({ task_id: req.params.id, round_number: roundNumber, status: "in_review", pdf_key: pdfKey, annotations: {}, created_by: req.user.id })
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// GET presigned URL to load merged PDF in browser
+app.get("/api/review-rounds/:id/pdf-url", requireAuth, async (req, res) => {
+  const { data: round, error } = await supabase.from("task_review_rounds").select("pdf_key").eq("id", req.params.id).single();
+  if (error || !round) return res.status(404).json({ error: "Round not found" });
+  const url = await getSignedUrl(r2, new GetObjectCommand({ Bucket: BUCKET, Key: round.pdf_key }), { expiresIn: 3600 });
+  res.json({ url });
+});
+
+// PATCH save annotations (called on every auto-save)
+app.patch("/api/review-rounds/:id", requireAuth, async (req, res) => {
+  const updates = { updated_at: new Date().toISOString() };
+  if ("annotations" in req.body) updates.annotations = req.body.annotations;
+  const { data, error } = await supabase.from("task_review_rounds").update(updates).eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST complete review
+app.post("/api/review-rounds/:id/complete", requireAuth, async (req, res) => {
+  const { annotations } = req.body;
+  const { data, error } = await supabase
+    .from("task_review_rounds")
+    .update({ status: "reviewed", reviewed_by: req.user.id, completed_at: new Date().toISOString(), ...(annotations ? { annotations } : {}) })
+    .eq("id", req.params.id)
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// GET comments for a round
+app.get("/api/review-rounds/:id/comments", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("task_review_comments")
+    .select("*")
+    .eq("round_id", req.params.id)
+    .order("created_at");
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// POST add comment
+app.post("/api/review-rounds/:id/comments", requireAuth, async (req, res) => {
+  const { comment_text, page_number } = req.body;
+  if (!comment_text?.trim()) return res.status(400).json({ error: "comment_text required" });
+  const { data, error } = await supabase
+    .from("task_review_comments")
+    .insert({ round_id: req.params.id, author_id: req.user.id, comment_text: comment_text.trim(), page_number: page_number || 1 })
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// DELETE comment
+app.delete("/api/review-comments/:id", requireAuth, async (req, res) => {
+  const { error } = await supabase.from("task_review_comments").delete().eq("id", req.params.id).eq("author_id", req.user.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
 // ── Team members (any auth'd user) ───────────────────────────────────────────
 
 app.get("/api/team-members", requireAuth, async (req, res) => {
@@ -2909,7 +3024,21 @@ app.get("/api/projects/:id/tasks", requireAuth, async (req, res) => {
     .eq("is_deleted", false)
     .order("order_index");
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
+  const tasks = data || [];
+  if (!tasks.length) return res.json(tasks);
+
+  // Attach latest review round status to each task
+  const taskIds = tasks.map(t => t.id);
+  const { data: rounds } = await supabase
+    .from("task_review_rounds")
+    .select("task_id, status, round_number")
+    .in("task_id", taskIds)
+    .order("round_number", { ascending: false });
+  const latestRound = {};
+  for (const r of (rounds || [])) {
+    if (!latestRound[r.task_id]) latestRound[r.task_id] = r;
+  }
+  res.json(tasks.map(t => ({ ...t, _review: latestRound[t.id] || null })));
 });
 
 app.post("/api/projects/:id/tasks", requireAuth, async (req, res) => {
