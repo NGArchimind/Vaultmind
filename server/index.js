@@ -2869,13 +2869,18 @@ app.post("/api/timesheets/submit", requireAuth, async (req, res) => {
 
 // PUT /api/timesheets/:id
 app.put("/api/timesheets/:id", requireAuth, async (req, res) => {
-  const { hours, minutes, notes, project_id, category } = req.body;
   const { data: existing } = await supabase.from("timesheets").select("user_id").eq("id", req.params.id).single();
   if (!existing) return res.status(404).json({ error: "Not found" });
   if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
+  const updates = { updated_at: new Date().toISOString() };
+  if ("hours"      in req.body) updates.hours      = req.body.hours;
+  if ("minutes"    in req.body) updates.minutes    = req.body.minutes;
+  if ("notes"      in req.body) updates.notes      = req.body.notes ?? null;
+  if ("project_id" in req.body) updates.project_id = req.body.project_id || null;
+  if ("category"   in req.body) updates.category   = req.body.category  || null;
   const { data, error } = await supabase
     .from("timesheets")
-    .update({ hours, minutes, notes, project_id: project_id || null, category: category || null, updated_at: new Date().toISOString() })
+    .update(updates)
     .eq("id", req.params.id)
     .select("*, projects(id, name, job_number)")
     .single();
@@ -2943,10 +2948,15 @@ app.get("/api/admin/timesheets", requireAuth, requireAdmin, async (req, res) => 
 
 // PATCH /api/admin/timesheets/:id
 app.patch("/api/admin/timesheets/:id", requireAuth, requireAdmin, async (req, res) => {
-  const { hours, minutes, notes, project_id, category } = req.body;
+  const updates = { updated_at: new Date().toISOString() };
+  if ("hours"      in req.body) updates.hours      = req.body.hours;
+  if ("minutes"    in req.body) updates.minutes    = req.body.minutes;
+  if ("notes"      in req.body) updates.notes      = req.body.notes ?? null;
+  if ("project_id" in req.body) updates.project_id = req.body.project_id || null;
+  if ("category"   in req.body) updates.category   = req.body.category  || null;
   const { data, error } = await supabase
     .from("timesheets")
-    .update({ hours, minutes, notes, project_id: project_id || null, category: category || null, updated_at: new Date().toISOString() })
+    .update(updates)
     .eq("id", req.params.id)
     .select("*, projects(id, name, job_number)")
     .single();
