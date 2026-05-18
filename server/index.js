@@ -2816,6 +2816,24 @@ app.get("/api/timesheets", requireAuth, async (req, res) => {
   res.json(data);
 });
 
+// GET /api/timesheets/history  — all entries for the current user, newest first
+app.get("/api/timesheets/history", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("timesheets")
+    .select("*, projects(id, name, job_number)")
+    .eq("user_id", req.user.id)
+    .order("entry_date", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Also fetch all submission statuses for this user
+  const { data: subs } = await supabase
+    .from("timesheet_submissions")
+    .select("week_start, status")
+    .eq("user_id", req.user.id);
+
+  res.json({ entries: data, submissions: subs || [] });
+});
+
 // GET /api/timesheets/submission?week=YYYY-MM-DD  — must be before /:id
 app.get("/api/timesheets/submission", requireAuth, async (req, res) => {
   const { week } = req.query;

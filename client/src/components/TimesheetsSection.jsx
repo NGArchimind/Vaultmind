@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api } from "../api/client";
 import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
+import TimesheetHistory from "./TimesheetHistory";
+import TimesheetReport from "./TimesheetReport";
 
 const CATEGORIES = [
   { value: "holiday",      label: "Holiday" },
@@ -443,6 +445,7 @@ function AdminPanel({ projects }) {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function TimesheetsSection({ isAdmin }) {
+  const [subView,    setSubView]    = useState(null); // null | "history" | "report"
   const [view,       setView]       = useState("mine");
   const [monday,     setMonday]     = useState(getMonday(new Date()));
   const [projects,   setProjects]   = useState([]);
@@ -563,6 +566,10 @@ export default function TimesheetsSection({ isAdmin }) {
   const underMin   = weekTotal < MIN_WEEK_MINS && weekTotal > 0;
   const btnBase    = { fontSize: 12, padding: "5px 16px", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif", fontWeight: 600, border: "none" };
 
+  // Render sub-views first
+  if (subView === "history") return <TimesheetHistory onBack={() => setSubView(null)} />;
+  if (subView === "report")  return <TimesheetReport  onBack={() => setSubView(null)} />;
+
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f7f8" }}>
       {toast && (
@@ -581,16 +588,30 @@ export default function TimesheetsSection({ isAdmin }) {
       <div style={{ background: "#fff", borderBottom: "1px solid #dde4e8", padding: "16px 32px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.02em" }}>Timesheets</h2>
-          {isAdmin && (
-            <div style={{ display: "flex", border: `1px solid ${AD_GREEN}` }}>
-              {["mine", "admin"].map(v => (
-                <button key={v} onClick={() => setView(v)}
-                  style={{ ...btnBase, background: view === v ? AD_GREEN : "#fff", color: view === v ? "#fff" : AD_GREEN, padding: "5px 20px" }}>
-                  {v === "mine" ? "My Timesheets" : "Admin Review"}
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            {/* View History button — visible to all users */}
+            <button onClick={() => setSubView("history")}
+              style={{ ...btnBase, background: "#fff", color: AD_GREEN, border: `1px solid ${AD_GREEN}`, padding: "5px 16px", fontSize: 12 }}>
+              View History
+            </button>
+            {/* Admin: Reports button + My/Admin toggle */}
+            {isAdmin && (
+              <>
+                <button onClick={() => setSubView("report")}
+                  style={{ ...btnBase, background: ARC_NAVY, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
+                  Reports & Analytics
                 </button>
-              ))}
-            </div>
-          )}
+                <div style={{ display: "flex", border: `1px solid ${AD_GREEN}` }}>
+                  {["mine", "admin"].map(v => (
+                    <button key={v} onClick={() => setView(v)}
+                      style={{ ...btnBase, background: view === v ? AD_GREEN : "#fff", color: view === v ? "#fff" : AD_GREEN, padding: "5px 20px" }}>
+                      {v === "mine" ? "My Timesheets" : "Admin Review"}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
