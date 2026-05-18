@@ -1,11 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Document, Page, pdfjs } from "react-pdf";
-import "react-pdf/dist/Page/AnnotationLayer.css";
-import "react-pdf/dist/Page/TextLayer.css";
 import { api } from "../api/client";
 import { ARC_NAVY, ARC_TERRACOTTA, AD_GREEN } from "../constants";
 
-pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.js`;
+// react-pdf v10 bundles pdfjs-dist with .mjs workers
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
 const TOOL_COLORS = ["#e53935", "#1e88e5", "#43a047", "#fb8c00", "#000000", "#ffffff"];
 const STROKE_WIDTHS = [2, 4, 7];
@@ -86,33 +85,33 @@ export default function PDFAnnotator({ roundId, taskTitle, roundNumber, onClose,
   const [completing,  setCompleting]  = useState(false);
   const [confirmComplete, setConfirmComplete] = useState(false);
 
-  const canvasRef   = useRef();
-  const isDrawing   = useRef(false);
-  const startPt     = useRef(null);
-  const currentPts  = useRef([]);
-  const PAGE_WIDTH  = 820;
+  const canvasRef      = useRef();
+  const pageWrapperRef = useRef();
+  const isDrawing      = useRef(false);
+  const startPt        = useRef(null);
+  const currentPts     = useRef([]);
+  const PAGE_WIDTH     = 820;
 
-  // Load PDF URL + existing annotations + comments
+  // Load PDF as base64 (served through our API — no R2 CORS issues) + comments
   useEffect(() => {
-    async function load() {
-      const [urlRes, rounds, comms] = await Promise.all([
-        api(`/api/review-rounds/${roundId}/pdf-url`).catch(() => null),
-        api(`/api/tasks/${roundId}/review-rounds`).catch(() => []),  // won't work — we need the round directly
-        api(`/api/review-rounds/${roundId}/comments`).catch(() => []),
-      ]);
-      if (urlRes?.url) setPdfUrl(urlRes.url);
-      if (Array.isArray(comms)) setComments(comms);
-    }
     async function loadRound() {
-      const [urlRes, comms] = await Promise.all([
-        api(`/api/review-rounds/${roundId}/pdf-url`).catch(() => null),
+      const [pdfRes, comms] = await Promise.all([
+        api(`/api/review-rounds/${roundId}/pdf`).catch(() => null),
         api(`/api/review-rounds/${roundId}/comments`).catch(() => []),
       ]);
-      if (urlRes?.url) setPdfUrl(urlRes.url);
+      if (pdfRes?.base64) setPdfUrl(`data:application/pdf;base64,${pdfRes.base64}`);
       if (Array.isArray(comms)) setComments(comms);
     }
     loadRound();
   }, [roundId]);
+
+  // After page renders, read actual canvas dimensions from the DOM (v10 safe)
+  function handlePageRenderSuccess() {
+    if (pageWrapperRef.current) {
+      const canvas = pageWrapperRef.current.querySelector("canvas");
+      if (canvas) setPageHeight(canvas.offsetHeight);
+    }
+  }
 
   // Redraw canvas whenever page/annotations change
   useEffect(() => {
@@ -331,7 +330,7 @@ export default function PDFAnnotator({ roundId, taskTitle, roundNumber, onClose,
 
         {/* PDF + canvas */}
         <div style={{ flex:1, overflowY:"auto", display:"flex", justifyContent:"center", alignItems:"flex-start", padding:"24px 24px 48px", background:"#1a242e" }}>
-          <div style={{ position:"relative", userSelect:"none" }}>
+          <div ref={pageWrapperRef} style={{ position:"relative", userSelect:"none" }}>
             {pdfUrl ? (
               <Document file={pdfUrl} onLoadSuccess={({ numPages }) => setNumPages(numPages)} loading={
                 <div style={{ color:"#7a9aaa", padding:60, fontSize:13 }}>Loading PDF…</div>
@@ -339,7 +338,7 @@ export default function PDFAnnotator({ roundId, taskTitle, roundNumber, onClose,
                 <Page
                   pageNumber={currentPage}
                   width={PAGE_WIDTH}
-                  onRenderSuccess={({ height }) => setPageHeight(height)}
+                  onRenderSuccess={handlePageRenderSuccess}
                   renderAnnotationLayer={false}
                   renderTextLayer={false}
                 />

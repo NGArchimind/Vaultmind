@@ -2884,12 +2884,17 @@ app.post("/api/tasks/:id/review-rounds", requireAuth, async (req, res) => {
   res.json(data);
 });
 
-// GET presigned URL to load merged PDF in browser
-app.get("/api/review-rounds/:id/pdf-url", requireAuth, async (req, res) => {
+// GET merged PDF as base64 (served through our API to avoid R2 CORS issues)
+app.get("/api/review-rounds/:id/pdf", requireAuth, async (req, res) => {
   const { data: round, error } = await supabase.from("task_review_rounds").select("pdf_key").eq("id", req.params.id).single();
   if (error || !round) return res.status(404).json({ error: "Round not found" });
-  const url = await getSignedUrl(r2, new GetObjectCommand({ Bucket: BUCKET, Key: round.pdf_key }), { expiresIn: 3600 });
-  res.json({ url });
+  try {
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: round.pdf_key }));
+    const buffer = await streamToBuffer(result.Body);
+    res.json({ base64: buffer.toString("base64") });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // PATCH save annotations (called on every auto-save)
