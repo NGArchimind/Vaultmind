@@ -2828,6 +2828,125 @@ app.patch("/api/admin/projects/:id/fee", requireAuth, requireAdmin, async (req, 
   res.json(data);
 });
 
+// ── Team members (any auth'd user) ───────────────────────────────────────────
+
+app.get("/api/team-members", requireAuth, async (req, res) => {
+  const { data, error } = await supabase.auth.admin.listUsers();
+  if (error) return res.status(500).json({ error: error.message });
+  const members = (data.users || []).map(u => ({
+    id: u.id,
+    full_name: u.user_metadata?.full_name || u.email,
+    email: u.email,
+  }));
+  res.json(members);
+});
+
+// ── Task columns ──────────────────────────────────────────────────────────────
+
+const DEFAULT_TASK_COLUMNS = ["To Do", "In Progress", "Review", "Done"];
+
+app.get("/api/projects/:id/task-columns", requireAuth, async (req, res) => {
+  const projectId = req.params.id;
+  let { data, error } = await supabase
+    .from("task_columns")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("order_index");
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Auto-seed defaults on first load
+  if (!data || data.length === 0) {
+    const rows = DEFAULT_TASK_COLUMNS.map((name, i) => ({ project_id: projectId, name, order_index: i }));
+    const { data: seeded, error: seedErr } = await supabase.from("task_columns").insert(rows).select("*").order("order_index");
+    if (seedErr) return res.status(500).json({ error: seedErr.message });
+    data = seeded;
+  }
+  res.json(data);
+});
+
+app.post("/api/projects/:id/task-columns", requireAuth, async (req, res) => {
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: "name required" });
+  // Get current max order_index
+  const { data: existing } = await supabase.from("task_columns").select("order_index").eq("project_id", req.params.id).order("order_index", { ascending: false }).limit(1);
+  const nextOrder = existing?.length ? (existing[0].order_index + 1) : 0;
+  const { data, error } = await supabase.from("task_columns").insert({ project_id: req.params.id, name: name.trim(), order_index: nextOrder }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.put("/api/task-columns/:id", requireAuth, async (req, res) => {
+  const updates = {};
+  if ("name" in req.body) updates.name = req.body.name?.trim() || null;
+  if ("order_index" in req.body) updates.order_index = req.body.order_index;
+  if (!Object.keys(updates).length) return res.status(400).json({ error: "nothing to update" });
+  const { data, error } = await supabase.from("task_columns").update(updates).eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.delete("/api/task-columns/:id", requireAuth, async (req, res) => {
+  // Move tasks in this column to the first other column in the same project
+  const { data: col } = await supabase.from("task_columns").select("project_id").eq("id", req.params.id).single();
+  if (col) {
+    const { data: others } = await supabase.from("task_columns").select("id").eq("project_id", col.project_id).neq("id", req.params.id).order("order_index").limit(1);
+    if (others?.length) {
+      await supabase.from("tasks").update({ column_id: others[0].id }).eq("column_id", req.params.id).eq("is_deleted", false);
+    }
+  }
+  const { error } = await supabase.from("task_columns").delete().eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ── Tasks ─────────────────────────────────────────────────────────────────────
+
+app.get("/api/projects/:id/tasks", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("project_id", req.params.id)
+    .eq("is_deleted", false)
+    .order("order_index");
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+app.post("/api/projects/:id/tasks", requireAuth, async (req, res) => {
+  const { column_id, title, description, assignee_id, priority, due_date } = req.body;
+  if (!column_id || !title?.trim()) return res.status(400).json({ error: "column_id and title required" });
+  const { data: existing } = await supabase.from("tasks").select("order_index").eq("column_id", column_id).eq("is_deleted", false).order("order_index", { ascending: false }).limit(1);
+  const nextOrder = existing?.length ? (existing[0].order_index + 1) : 0;
+  const { data, error } = await supabase.from("tasks").insert({
+    project_id: req.params.id, column_id, title: title.trim(),
+    description: description || null, assignee_id: assignee_id || null,
+    priority: priority || "medium", due_date: due_date || null,
+    created_by: req.user.id, order_index: nextOrder,
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.put("/api/tasks/:id", requireAuth, async (req, res) => {
+  const updates = { updated_at: new Date().toISOString() };
+  if ("column_id"    in req.body) updates.column_id    = req.body.column_id;
+  if ("title"        in req.body) updates.title        = req.body.title?.trim();
+  if ("description"  in req.body) updates.description  = req.body.description || null;
+  if ("assignee_id"  in req.body) updates.assignee_id  = req.body.assignee_id || null;
+  if ("priority"     in req.body) updates.priority     = req.body.priority;
+  if ("due_date"     in req.body) updates.due_date     = req.body.due_date || null;
+  if ("order_index"  in req.body) updates.order_index  = req.body.order_index;
+  const { data, error } = await supabase.from("tasks").update(updates).eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
+  const { error } = await supabase.from("tasks").update({ is_deleted: true, updated_at: new Date().toISOString() }).eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
 // ── Timesheets ────────────────────────────────────────────────────────────────
 
 // GET /api/timesheets?week=YYYY-MM-DD  (Monday of the week)
