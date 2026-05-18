@@ -452,9 +452,12 @@ export default function TimesheetsSection({ isAdmin }) {
   const [entries,    setEntries]    = useState([]);
   const [submission, setSubmission] = useState(null);
   const [loading,    setLoading]    = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [toast,      setToast]      = useState(null);
-  const [dialog,     setDialog]     = useState(null); // { title, message, onConfirm }
+  const [submitting,    setSubmitting]    = useState(false);
+  const [toast,         setToast]         = useState(null);
+  const [dialog,        setDialog]        = useState(null); // { title, message, onConfirm }
+  const [fillProject,   setFillProject]   = useState("");
+  const [fillOpen,      setFillOpen]      = useState(false);
+  const [filling,       setFilling]       = useState(false);
 
   const weekKey  = isoDate(monday);
   const isLocked = submission?.status === "submitted" || submission?.status === "approved";
@@ -530,6 +533,26 @@ export default function TimesheetsSection({ isAdmin }) {
       } catch { showToast("Could not create entry."); }
     }
   }, [entries, handleUpdate, showToast]);
+
+  // Apply one project across all empty days in the week
+  const handleFillWeek = useCallback(async () => {
+    if (!fillProject) return;
+    const project_id = fillProject.startsWith("cat:") ? null : fillProject;
+    const category   = fillProject.startsWith("cat:") ? fillProject.replace("cat:", "") : null;
+    setFilling(true);
+    try {
+      for (let di = 0; di < 5; di++) {
+        const date = dateForDay(monday, di);
+        if (entries.some(e => e.entry_date === date)) continue; // skip days already filled
+        const data = await api("/api/timesheets", {
+          method: "POST",
+          body: { entry_date: date, project_id, category, hours: FULL_DAY.hours, minutes: FULL_DAY.minutes },
+        });
+        if (data?.id) setEntries(prev => [...prev, data]);
+      }
+    } catch { showToast("Could not apply to all days."); }
+    finally { setFilling(false); setFillOpen(false); setFillProject(""); }
+  }, [fillProject, monday, entries, showToast]);
 
   // Submit with validation
   const doSubmit = useCallback(async () => {
@@ -647,6 +670,33 @@ export default function TimesheetsSection({ isAdmin }) {
                   <span style={{ flex: 1 }}>Notes</span>
                   <span style={{ width: 28 }} />
                 </div>
+
+                {/* Apply to whole week */}
+                {!isLocked && (
+                  <div style={{ marginBottom: 12, border: "1px solid #dde4e8", background: "#fff" }}>
+                    <button
+                      onClick={() => setFillOpen(o => !o)}
+                      style={{ ...btnBase, width: "100%", textAlign: "left", background: "none", color: "#6a8a9a", padding: "9px 14px", fontSize: 12, display: "flex", alignItems: "center", gap: 8, border: "none" }}>
+                      <span style={{ fontSize: 14 }}>{fillOpen ? "▲" : "▼"}</span>
+                      Apply one project to whole week
+                    </button>
+                    {fillOpen && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px 12px", borderTop: "1px solid #eef2f4", flexWrap: "wrap" }}>
+                        <select value={fillProject} onChange={e => setFillProject(e.target.value)}
+                          style={{ flex: 1, minWidth: 220, padding: "6px 8px", fontSize: 13, border: "1px solid #d0d8de", background: "#fff", color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>
+                          <ProjectOptions projects={projects} />
+                        </select>
+                        <span style={{ fontSize: 12, color: "#8a9aa8" }}>Full day (7h 30m) on empty days only</span>
+                        <button
+                          onClick={handleFillWeek}
+                          disabled={!fillProject || filling}
+                          style={{ ...btnBase, background: fillProject ? AD_GREEN : "#ccc", color: "#fff", padding: "6px 18px", fontSize: 12, cursor: fillProject ? "pointer" : "default" }}>
+                          {filling ? "Applying…" : "Apply to all days"}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Day cards */}
                 {DAYS.map((day, di) => {
