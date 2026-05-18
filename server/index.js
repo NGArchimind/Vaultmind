@@ -2795,6 +2795,39 @@ app.get("/api/admin/archisync-config", requireAuth, requireAdmin, (req, res) => 
   res.json({ apiUrl, supabaseUrl, supabaseAnonKey });
 });
 
+// ── Staff rates (admin) ───────────────────────────────────────────────────────
+
+app.get("/api/admin/staff-rates", requireAuth, requireAdmin, async (req, res) => {
+  const { data, error } = await supabase.from("staff_rates").select("*");
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+app.post("/api/admin/staff-rates", requireAuth, requireAdmin, async (req, res) => {
+  const { user_id, rate } = req.body;
+  if (!user_id || rate == null) return res.status(400).json({ error: "user_id and rate required" });
+  const { data, error } = await supabase
+    .from("staff_rates")
+    .upsert({ user_id, rate, updated_at: new Date().toISOString() }, { onConflict: "user_id" })
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// ── Project fee (admin) ───────────────────────────────────────────────────────
+
+app.patch("/api/admin/projects/:id/fee", requireAuth, requireAdmin, async (req, res) => {
+  const { fee } = req.body;
+  const { data, error } = await supabase
+    .from("projects")
+    .update({ fee: fee ?? null, updated_at: new Date().toISOString() })
+    .eq("id", req.params.id)
+    .select("id, name, job_number, fee")
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 // ── Timesheets ────────────────────────────────────────────────────────────────
 
 // GET /api/timesheets?week=YYYY-MM-DD  (Monday of the week)

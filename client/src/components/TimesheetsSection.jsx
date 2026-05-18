@@ -3,6 +3,7 @@ import { api } from "../api/client";
 import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
 import TimesheetHistory from "./TimesheetHistory";
 import TimesheetReport from "./TimesheetReport";
+import FeeReview from "./FeeReview";
 
 const CATEGORIES = [
   { value: "holiday",      label: "Holiday" },
@@ -445,7 +446,7 @@ function AdminPanel({ projects }) {
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function TimesheetsSection({ isAdmin }) {
-  const [subView,    setSubView]    = useState(null); // null | "history" | "report"
+  const [subView,    setSubView]    = useState(null); // null | "history" | "report" | "fee"
   const [view,       setView]       = useState("mine");
   const [monday,     setMonday]     = useState(getMonday(new Date()));
   const [projects,   setProjects]   = useState([]);
@@ -592,6 +593,7 @@ export default function TimesheetsSection({ isAdmin }) {
   // Render sub-views first
   if (subView === "history") return <TimesheetHistory onBack={() => setSubView(null)} />;
   if (subView === "report")  return <TimesheetReport  onBack={() => setSubView(null)} />;
+  if (subView === "fee")     return <FeeReview        onBack={() => setSubView(null)} />;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f7f8" }}>
@@ -623,6 +625,10 @@ export default function TimesheetsSection({ isAdmin }) {
                 <button onClick={() => setSubView("report")}
                   style={{ ...btnBase, background: ARC_NAVY, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
                   Reports & Analytics
+                </button>
+                <button onClick={() => setSubView("fee")}
+                  style={{ ...btnBase, background: ARC_TERRACOTTA, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
+                  Fee Review
                 </button>
                 <div style={{ display: "flex", border: `1px solid ${AD_GREEN}` }}>
                   {["mine", "admin"].map(v => (
