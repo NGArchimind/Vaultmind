@@ -8,7 +8,8 @@ pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.vers
 
 const TOOL_COLORS = ["#e53935", "#1e88e5", "#43a047", "#fb8c00", "#000000", "#ffffff"];
 const STROKE_WIDTHS = [2, 4, 7];
-const TOOL_LABELS = { select: "↖", pen: "✏", rect: "▭", ellipse: "◯", arrow: "→", text: "T" };
+const TOOL_LABELS = { select: "↖", pen: "✏", rect: "▭", ellipse: "◯", arrow: "→", text: "T", leader: "↗T" };
+const TOOL_TITLES = { select: "Select / Pan", pen: "Freehand pen", rect: "Rectangle", ellipse: "Ellipse / Circle", arrow: "Arrow", text: "Text label", leader: "Leader callout" };
 
 function drawArrow(ctx, x1, y1, x2, y2) {
   const headLen = 14;
@@ -52,9 +53,42 @@ function drawAnnotation(ctx, ann) {
       drawArrow(ctx, ann.x1, ann.y1, ann.x2, ann.y2);
       break;
     case "text":
-      ctx.font      = `bold ${11 + (ann.sw - 1) * 3}px Inter, Arial, sans-serif`;
+      ctx.font = `bold ${11 + (ann.sw - 1) * 3}px Inter, Arial, sans-serif`;
       ctx.fillText(ann.text, ann.x, ann.y);
       break;
+    case "leader": {
+      if (!ann.text) {
+        // Preview — just draw the leader line + arrowhead
+        drawArrow(ctx, ann.tx, ann.ty, ann.ax, ann.ay);
+        break;
+      }
+      // Leader line: from text box (tx,ty) to arrowhead (ax,ay)
+      drawArrow(ctx, ann.tx, ann.ty, ann.ax, ann.ay);
+      // Text box at (tx, ty)
+      const fontSize = 11 + (ann.sw - 1) * 3;
+      ctx.font = `bold ${fontSize}px Inter, Arial, sans-serif`;
+      const tw = ctx.measureText(ann.text).width;
+      const pad = 5;
+      const bx  = ann.tx - pad;
+      const by  = ann.ty - fontSize - pad;
+      const bw  = tw + pad * 2;
+      const bh  = fontSize + pad * 2;
+      // White background box
+      ctx.save();
+      ctx.fillStyle = "rgba(255,255,255,0.92)";
+      ctx.fillRect(bx, by, bw, bh);
+      // Coloured border
+      ctx.strokeStyle = ann.color || "#e53935";
+      ctx.lineWidth   = 1.5;
+      ctx.strokeRect(bx, by, bw, bh);
+      ctx.restore();
+      // Restore stroke/fill for text
+      ctx.strokeStyle = ann.color || "#e53935";
+      ctx.fillStyle   = ann.color || "#e53935";
+      ctx.lineWidth   = ann.sw || 2;
+      ctx.fillText(ann.text, ann.tx, ann.ty - pad);
+      break;
+    }
     default: break;
   }
 }
@@ -85,12 +119,13 @@ export default function PDFAnnotator({ roundId, taskTitle, roundNumber, onClose,
   const [completing,  setCompleting]  = useState(false);
   const [confirmComplete, setConfirmComplete] = useState(false);
 
-  const canvasRef      = useRef();
-  const pageWrapperRef = useRef();
-  const isDrawing      = useRef(false);
-  const startPt        = useRef(null);
-  const currentPts     = useRef([]);
-  const PAGE_WIDTH     = 820;
+  const canvasRef        = useRef();
+  const pageWrapperRef   = useRef();
+  const isDrawing        = useRef(false);
+  const startPt          = useRef(null);
+  const currentPts       = useRef([]);
+  const pendingLeaderRef = useRef(null); // {ax, ay, tx, ty} — arrowhead + text box coords
+  const PAGE_WIDTH       = 820;
 
   // Load PDF as base64 (served through our API — no R2 CORS issues) + comments
   useEffect(() => {
@@ -130,8 +165,9 @@ export default function PDFAnnotator({ roundId, taskTitle, roundNumber, onClose,
       setTextInput({ x: pt.x, y: pt.y });
       return;
     }
-    isDrawing.current = true;
-    startPt.current   = pt;
+    // leader: click sets arrowhead; drag sets text box; release shows input
+    isDrawing.current  = true;
+    startPt.current    = pt;
     currentPts.current = [pt];
   }
 
@@ -148,6 +184,8 @@ export default function PDFAnnotator({ roundId, taskTitle, roundNumber, onClose,
       if (tool === "rect")    preview = { type:"rect",    x:Math.min(sp.x,pt.x), y:Math.min(sp.y,pt.y), w:Math.abs(pt.x-sp.x), h:Math.abs(pt.y-sp.y), color, sw };
       if (tool === "ellipse") preview = { type:"ellipse", x:Math.min(sp.x,pt.x), y:Math.min(sp.y,pt.y), w:Math.abs(pt.x-sp.x), h:Math.abs(pt.y-sp.y), color, sw };
       if (tool === "arrow")   preview = { type:"arrow",   x1:sp.x, y1:sp.y, x2:pt.x, y2:pt.y, color, sw };
+      // leader preview: arrowhead at mousedown point, line end at cursor (no text yet)
+      if (tool === "leader")  preview = { type:"leader",  ax:sp.x, ay:sp.y, tx:pt.x, ty:pt.y, color, sw, text: "" };
       if (preview) redrawCanvas(canvasRef.current, annotations[currentPage], preview);
     }
   }
@@ -170,6 +208,14 @@ export default function PDFAnnotator({ roundId, taskTitle, roundNumber, onClose,
     } else if (tool === "arrow") {
       if (Math.abs(pt.x - sp.x) < 3 && Math.abs(pt.y - sp.y) < 3) return;
       ann = { type:"arrow", x1:sp.x, y1:sp.y, x2:pt.x, y2:pt.y, color, sw };
+    } else if (tool === "leader") {
+      if (Math.abs(pt.x - sp.x) < 5 && Math.abs(pt.y - sp.y) < 5) return;
+      // Store leader coords, then show text input at the text-box end (pt)
+      pendingLeaderRef.current = { ax: sp.x, ay: sp.y, tx: pt.x, ty: pt.y };
+      setTextInput({ x: pt.x, y: pt.y - 22 }); // input sits above the text box anchor
+      currentPts.current = [];
+      startPt.current    = null;
+      return; // annotation committed in commitText once user types
     }
     if (ann) {
       setAnnotations(prev => ({ ...prev, [currentPage]: [...(prev[currentPage] || []), ann] }));
@@ -179,9 +225,23 @@ export default function PDFAnnotator({ roundId, taskTitle, roundNumber, onClose,
   }
 
   function commitText(text) {
-    if (!text?.trim() || !textInput) return;
-    const ann = { type:"text", x:textInput.x, y:textInput.y + 14, text:text.trim(), color, sw };
-    setAnnotations(prev => ({ ...prev, [currentPage]: [...(prev[currentPage] || []), ann] }));
+    if (!textInput) return;
+    if (!text?.trim()) {
+      pendingLeaderRef.current = null;
+      setTextInput(null);
+      return;
+    }
+    if (pendingLeaderRef.current) {
+      // Leader callout — arrowhead at (ax,ay), text box at (tx,ty)
+      const { ax, ay, tx, ty } = pendingLeaderRef.current;
+      const ann = { type:"leader", ax, ay, tx, ty, text: text.trim(), color, sw };
+      setAnnotations(prev => ({ ...prev, [currentPage]: [...(prev[currentPage] || []), ann] }));
+      pendingLeaderRef.current = null;
+    } else {
+      // Plain text label
+      const ann = { type:"text", x: textInput.x, y: textInput.y + 14, text: text.trim(), color, sw };
+      setAnnotations(prev => ({ ...prev, [currentPage]: [...(prev[currentPage] || []), ann] }));
+    }
     setTextInput(null);
   }
 
@@ -249,7 +309,7 @@ export default function PDFAnnotator({ roundId, taskTitle, roundNumber, onClose,
         {/* Drawing tools */}
         <div style={{ display:"flex", gap:2 }}>
           {Object.entries(TOOL_LABELS).map(([t, icon]) => (
-            <button key={t} onClick={() => setTool(t)} style={toolBtn(t)} title={t.charAt(0).toUpperCase() + t.slice(1)}>
+            <button key={t} onClick={() => setTool(t)} style={toolBtn(t)} title={TOOL_TITLES[t] || t}>
               {icon}
             </button>
           ))}
