@@ -357,7 +357,7 @@ export default function TimesheetsSection({ isAdmin }) {
   }, []);
 
   useEffect(() => {
-    api("/api/projects").then(data => setProjects(data || [])).catch(() => {});
+    api("/api/projects").then(data => setProjects(data?.projects || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
