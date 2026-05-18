@@ -2795,6 +2795,165 @@ app.get("/api/admin/archisync-config", requireAuth, requireAdmin, (req, res) => 
   res.json({ apiUrl, supabaseUrl, supabaseAnonKey });
 });
 
+// ── Timesheets ────────────────────────────────────────────────────────────────
+
+// GET /api/timesheets?week=YYYY-MM-DD  (Monday of the week)
+app.get("/api/timesheets", requireAuth, async (req, res) => {
+  const { week } = req.query;
+  if (!week) return res.status(400).json({ error: "week parameter required" });
+  const weekStart = week;
+  const fri = new Date(week);
+  fri.setDate(fri.getDate() + 4);
+  const weekEnd = fri.toISOString().split("T")[0];
+  const { data, error } = await supabase
+    .from("timesheets")
+    .select("*, projects(id, name, job_number)")
+    .eq("user_id", req.user.id)
+    .gte("entry_date", weekStart)
+    .lte("entry_date", weekEnd)
+    .order("entry_date");
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// GET /api/timesheets/submission?week=YYYY-MM-DD  — must be before /:id
+app.get("/api/timesheets/submission", requireAuth, async (req, res) => {
+  const { week } = req.query;
+  if (!week) return res.status(400).json({ error: "week required" });
+  const { data } = await supabase
+    .from("timesheet_submissions")
+    .select("*")
+    .eq("user_id", req.user.id)
+    .eq("week_start", week)
+    .single();
+  res.json(data || null);
+});
+
+// POST /api/timesheets
+app.post("/api/timesheets", requireAuth, async (req, res) => {
+  const { project_id, category, entry_date, hours, minutes, notes } = req.body;
+  if (!entry_date) return res.status(400).json({ error: "entry_date required" });
+  if (!project_id && !category) return res.status(400).json({ error: "project_id or category required" });
+  const { data, error } = await supabase
+    .from("timesheets")
+    .insert({
+      user_id: req.user.id,
+      project_id: project_id || null,
+      category: category || null,
+      entry_date,
+      hours: hours || 0,
+      minutes: minutes || 0,
+      notes: notes || null,
+    })
+    .select("*, projects(id, name, job_number)")
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST /api/timesheets/submit  — must be before /:id
+app.post("/api/timesheets/submit", requireAuth, async (req, res) => {
+  const { week } = req.body;
+  if (!week) return res.status(400).json({ error: "week required" });
+  const { data, error } = await supabase
+    .from("timesheet_submissions")
+    .upsert(
+      { user_id: req.user.id, week_start: week, status: "submitted", submitted_at: new Date().toISOString() },
+      { onConflict: "user_id,week_start" }
+    )
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// PUT /api/timesheets/:id
+app.put("/api/timesheets/:id", requireAuth, async (req, res) => {
+  const { hours, minutes, notes, project_id, category } = req.body;
+  const { data: existing } = await supabase.from("timesheets").select("user_id").eq("id", req.params.id).single();
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
+  const { data, error } = await supabase
+    .from("timesheets")
+    .update({ hours, minutes, notes, project_id: project_id || null, category: category || null, updated_at: new Date().toISOString() })
+    .eq("id", req.params.id)
+    .select("*, projects(id, name, job_number)")
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// DELETE /api/timesheets/:id
+app.delete("/api/timesheets/:id", requireAuth, async (req, res) => {
+  const { data: existing } = await supabase.from("timesheets").select("user_id").eq("id", req.params.id).single();
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
+  const { error } = await supabase.from("timesheets").delete().eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ── Admin timesheet routes ─────────────────────────────────────────────────────
+
+// GET /api/admin/timesheets/submissions  — must be before /:id
+app.get("/api/admin/timesheets/submissions", requireAuth, requireAdmin, async (req, res) => {
+  const { data, error } = await supabase
+    .from("timesheet_submissions")
+    .select("*")
+    .order("submitted_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST /api/admin/timesheets/approve
+app.post("/api/admin/timesheets/approve", requireAuth, requireAdmin, async (req, res) => {
+  const { week, user_id } = req.body;
+  if (!week || !user_id) return res.status(400).json({ error: "week and user_id required" });
+  const { data, error } = await supabase
+    .from("timesheet_submissions")
+    .update({ status: "approved", reviewed_by: req.user.id, reviewed_at: new Date().toISOString() })
+    .eq("user_id", user_id)
+    .eq("week_start", week)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// GET /api/admin/timesheets?user_id=&project_id=&week=&from=&to=
+app.get("/api/admin/timesheets", requireAuth, requireAdmin, async (req, res) => {
+  const { week, user_id, project_id, from, to } = req.query;
+  let query = supabase
+    .from("timesheets")
+    .select("*, projects(id, name, job_number)")
+    .order("entry_date", { ascending: false });
+  if (user_id) query = query.eq("user_id", user_id);
+  if (project_id) query = query.eq("project_id", project_id);
+  if (week) {
+    const fri = new Date(week);
+    fri.setDate(fri.getDate() + 4);
+    query = query.gte("entry_date", week).lte("entry_date", fri.toISOString().split("T")[0]);
+  }
+  if (from) query = query.gte("entry_date", from);
+  if (to) query = query.lte("entry_date", to);
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// PATCH /api/admin/timesheets/:id
+app.patch("/api/admin/timesheets/:id", requireAuth, requireAdmin, async (req, res) => {
+  const { hours, minutes, notes, project_id, category } = req.body;
+  const { data, error } = await supabase
+    .from("timesheets")
+    .update({ hours, minutes, notes, project_id: project_id || null, category: category || null, updated_at: new Date().toISOString() })
+    .eq("id", req.params.id)
+    .select("*, projects(id, name, job_number)")
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 
