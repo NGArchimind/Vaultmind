@@ -1,9 +1,10 @@
 import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA } from "../../constants";
 
 function formatInline(text) {
-  const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+  const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g);
   return parts.map((p, i) => {
     if (p.startsWith("**") && p.endsWith("**")) return <strong key={i} style={{ color: "#e8d5a3" }}>{p.slice(2, -2)}</strong>;
+    if (p.startsWith("*") && p.endsWith("*") && !p.startsWith("**")) return <em key={i} style={{ fontStyle: "italic", color: "#555" }}>{p.slice(1, -1)}</em>;
     if (p.startsWith("`") && p.endsWith("`")) return <code key={i} style={{ background: "#1e1e1e", color: "#c8a96e", padding: "1px 5px", borderRadius: 3, fontSize: 12 }}>{p.slice(1, -1)}</code>;
     return p;
   });
@@ -20,19 +21,22 @@ function parseCitation(citationText) {
 
 function CitationLine({ citationText, onCitationClick, keyProp }) {
   const { docName, heading } = parseCitation(citationText);
+  const displayDoc = docName.replace(/\.pdf$/i, "").replace(/__+/g, " — ").trim();
   return (
-    <p key={keyProp} style={{ fontSize: 11, color: "#9a9088", fontStyle: "italic", margin: "2px 0 8px 0", fontFamily: "Inter, Arial, sans-serif", display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
-      <span>{citationText}</span>
+    <div key={keyProp} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: "#f0f5f6", borderLeft: `3px solid ${AD_GREEN}`, padding: "10px 14px", margin: "20px 0 4px", borderRadius: "0 2px 2px 0" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontWeight: 600, color: ARC_NAVY, fontSize: 13, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{displayDoc}</span>
+        </div>
+        {heading && <div style={{ color: "#6b7280", fontSize: 11, marginTop: 3, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{heading}</div>}
+      </div>
       {onCitationClick && (
         <button
           onClick={() => onCitationClick(docName, heading)}
-          title="Open source PDF"
-          style={{ background: "none", border: "none", cursor: "pointer", color: "#9a9088", fontSize: 10, padding: "0 2px", fontStyle: "normal", lineHeight: 1, flexShrink: 0, textDecoration: "underline", fontFamily: "Inter, Arial, sans-serif" }}
-          onMouseEnter={e => e.target.style.color = ARC_NAVY}
-          onMouseLeave={e => e.target.style.color = "#9a9088"}
+          style={{ background: AD_GREEN, border: "none", cursor: "pointer", color: "#fff", fontSize: 10, padding: "4px 10px", fontFamily: "Inter, Arial, sans-serif", borderRadius: 2, flexShrink: 0, fontWeight: 500, letterSpacing: "0.05em", whiteSpace: "nowrap" }}
         >↗ open</button>
       )}
-    </p>
+    </div>
   );
 }
 
@@ -139,18 +143,19 @@ export default function AnswerRenderer({ text, onCitationClick }) {
       );
     } else if (line.startsWith("## ")) {
       const text = line.slice(3);
-      const isSummary = text.toLowerCase().includes("summary");
-      const isContext = text.toLowerCase().includes("regulatory context");
+      const lower = text.toLowerCase();
+      const isSummary = lower.includes("summary");
+      const isPractical = lower.includes("practical conclusion");
       if (isSummary) {
         elements.push(
           <div key={i} style={{ background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${AD_GREEN}`, padding: "14px 18px", margin: "16px 0 8px" }}>
             <h2 style={{ color: AD_GREEN, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
           </div>
         );
-      } else if (isContext) {
+      } else if (isPractical) {
         elements.push(
-          <div key={i} style={{ background: "#faf6f0", border: `1px solid #e0d5c5`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 18px", margin: "24px 0 8px" }}>
-            <h2 style={{ color: ARC_TERRACOTTA, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
+          <div key={i} style={{ background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${AD_GREEN}`, borderTop: `2px solid ${AD_GREEN}`, padding: "14px 18px", margin: "32px 0 8px" }}>
+            <h2 style={{ color: AD_GREEN, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
           </div>
         );
       } else {
@@ -168,7 +173,7 @@ export default function AnswerRenderer({ text, onCitationClick }) {
       );
     } else if (line.startsWith("> ")) {
       const quoteText = line.slice(2);
-      const isCitation = quoteText.startsWith("*") && quoteText.endsWith("*");
+      const isCitation = quoteText.startsWith("*") && quoteText.endsWith("*") && quoteText.includes("|");
       const isTableRow = quoteText.startsWith("|");
       const isSeparatorRow = /^\|[\s:|-]+\|/.test(quoteText);
       if (isCitation) {
@@ -188,7 +193,7 @@ export default function AnswerRenderer({ text, onCitationClick }) {
       }
     } else if (line.startsWith("- ") || line.startsWith("* ")) {
       const trimmedBullet = line.trim();
-      const isBulletCitationWrapped = trimmedBullet.startsWith("*") && trimmedBullet.endsWith("*") && trimmedBullet.length > 2 && !trimmedBullet.startsWith("**");
+      const isBulletCitationWrapped = trimmedBullet.startsWith("*") && trimmedBullet.endsWith("*") && trimmedBullet.includes("|") && trimmedBullet.length > 2 && !trimmedBullet.startsWith("**");
       const isBulletCitationUnwrapped = trimmedBullet.startsWith("*") && !trimmedBullet.startsWith("**") && trimmedBullet.includes("|") && trimmedBullet.length > 10;
       if (isBulletCitationWrapped || isBulletCitationUnwrapped) {
         const citationText = isBulletCitationWrapped ? trimmedBullet.slice(1, -1) : trimmedBullet.slice(1).trim();
@@ -214,7 +219,7 @@ export default function AnswerRenderer({ text, onCitationClick }) {
       elements.push(<div key={i} style={{ height: 10 }} />);
     } else {
       const trimmed = line.trim();
-      const isWrappedCitation = trimmed.startsWith("*") && trimmed.endsWith("*") && trimmed.length > 2 && !trimmed.startsWith("**");
+      const isWrappedCitation = trimmed.startsWith("*") && trimmed.endsWith("*") && trimmed.includes("|") && trimmed.length > 2 && !trimmed.startsWith("**");
       const isUnwrappedCitation = trimmed.startsWith("*") && !trimmed.startsWith("**") && trimmed.includes("|") && trimmed.length > 10;
       if (isWrappedCitation || isUnwrappedCitation) {
         const citationText = isWrappedCitation ? trimmed.slice(1, -1) : trimmed.slice(1).trim();

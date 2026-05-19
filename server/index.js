@@ -2795,6 +2795,479 @@ app.get("/api/admin/archisync-config", requireAuth, requireAdmin, (req, res) => 
   res.json({ apiUrl, supabaseUrl, supabaseAnonKey });
 });
 
+// ── Staff rates (admin) ───────────────────────────────────────────────────────
+
+app.get("/api/admin/staff-rates", requireAuth, requireAdmin, async (req, res) => {
+  const { data, error } = await supabase.from("staff_rates").select("*");
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+app.post("/api/admin/staff-rates", requireAuth, requireAdmin, async (req, res) => {
+  const { user_id, rate } = req.body;
+  if (!user_id || rate == null) return res.status(400).json({ error: "user_id and rate required" });
+  const { data, error } = await supabase
+    .from("staff_rates")
+    .upsert({ user_id, rate, updated_at: new Date().toISOString() }, { onConflict: "user_id" })
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// ── Project fee (admin) ───────────────────────────────────────────────────────
+
+app.patch("/api/admin/projects/:id/fee", requireAuth, requireAdmin, async (req, res) => {
+  const { fee } = req.body;
+  const { data, error } = await supabase
+    .from("projects")
+    .update({ fee: fee ?? null, updated_at: new Date().toISOString() })
+    .eq("id", req.params.id)
+    .select("id, name, job_number, fee")
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// ── Drawing review rounds ─────────────────────────────────────────────────────
+
+async function mergePDFs(pdfBuffers) {
+  const { PDFDocument } = require("pdf-lib");
+  const merged = await PDFDocument.create();
+  for (const buf of pdfBuffers) {
+    try {
+      const src = await PDFDocument.load(buf, { ignoreEncryption: true });
+      const pages = await merged.copyPages(src, src.getPageIndices());
+      pages.forEach(p => merged.addPage(p));
+    } catch (e) { console.error("pdf merge page error:", e.message); }
+  }
+  return Buffer.from(await merged.save());
+}
+
+// GET rounds for a task (includes latest status indicator)
+app.get("/api/tasks/:id/review-rounds", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("task_review_rounds")
+    .select("id, round_number, status, annotations, pdf_key, created_by, reviewed_by, completed_at, created_at")
+    .eq("task_id", req.params.id)
+    .order("round_number");
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// POST create new round — receives array of base64 PDFs, merges, stores in R2
+app.post("/api/tasks/:id/review-rounds", requireAuth, async (req, res) => {
+  const { pdfs } = req.body; // [{filename, base64}]
+  if (!pdfs?.length) return res.status(400).json({ error: "pdfs array required" });
+
+  // Get next round number
+  const { data: existing } = await supabase
+    .from("task_review_rounds")
+    .select("round_number")
+    .eq("task_id", req.params.id)
+    .order("round_number", { ascending: false })
+    .limit(1);
+  const roundNumber = existing?.length ? existing[0].round_number + 1 : 1;
+
+  // Merge PDFs
+  const buffers = pdfs.map(p => Buffer.from(p.base64, "base64"));
+  const mergedBuf = await mergePDFs(buffers).catch(err => { throw err; });
+
+  // Upload to R2
+  const pdfKey = `task-reviews/${req.params.id}/round-${roundNumber}/merged.pdf`;
+  await r2.send(new PutObjectCommand({ Bucket: BUCKET, Key: pdfKey, Body: mergedBuf, ContentType: "application/pdf" }));
+
+  const { data, error } = await supabase
+    .from("task_review_rounds")
+    .insert({ task_id: req.params.id, round_number: roundNumber, status: "in_review", pdf_key: pdfKey, annotations: {}, created_by: req.user.id })
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// GET merged PDF as base64 (served through our API to avoid R2 CORS issues)
+app.get("/api/review-rounds/:id/pdf", requireAuth, async (req, res) => {
+  const { data: round, error } = await supabase.from("task_review_rounds").select("pdf_key").eq("id", req.params.id).single();
+  if (error || !round) return res.status(404).json({ error: "Round not found" });
+  try {
+    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: round.pdf_key }));
+    const buffer = await streamToBuffer(result.Body);
+    res.json({ base64: buffer.toString("base64") });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PATCH save annotations (called on every auto-save)
+app.patch("/api/review-rounds/:id", requireAuth, async (req, res) => {
+  const updates = { updated_at: new Date().toISOString() };
+  if ("annotations" in req.body) updates.annotations = req.body.annotations;
+  const { data, error } = await supabase.from("task_review_rounds").update(updates).eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST complete review
+app.post("/api/review-rounds/:id/complete", requireAuth, async (req, res) => {
+  const { annotations } = req.body;
+  const { data, error } = await supabase
+    .from("task_review_rounds")
+    .update({ status: "reviewed", reviewed_by: req.user.id, completed_at: new Date().toISOString(), ...(annotations ? { annotations } : {}) })
+    .eq("id", req.params.id)
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// GET comments for a round
+app.get("/api/review-rounds/:id/comments", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("task_review_comments")
+    .select("*")
+    .eq("round_id", req.params.id)
+    .order("created_at");
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// POST add comment
+app.post("/api/review-rounds/:id/comments", requireAuth, async (req, res) => {
+  const { comment_text, page_number } = req.body;
+  if (!comment_text?.trim()) return res.status(400).json({ error: "comment_text required" });
+  const { data, error } = await supabase
+    .from("task_review_comments")
+    .insert({ round_id: req.params.id, author_id: req.user.id, comment_text: comment_text.trim(), page_number: page_number || 1 })
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// DELETE comment
+app.delete("/api/review-comments/:id", requireAuth, async (req, res) => {
+  const { error } = await supabase.from("task_review_comments").delete().eq("id", req.params.id).eq("author_id", req.user.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ── Team members (any auth'd user) ───────────────────────────────────────────
+
+app.get("/api/team-members", requireAuth, async (req, res) => {
+  const { data, error } = await supabase.auth.admin.listUsers();
+  if (error) return res.status(500).json({ error: error.message });
+  const members = (data.users || []).map(u => ({
+    id: u.id,
+    full_name: u.user_metadata?.full_name || u.email,
+    email: u.email,
+  }));
+  res.json(members);
+});
+
+// ── Task columns ──────────────────────────────────────────────────────────────
+
+const DEFAULT_TASK_COLUMNS = ["To Do", "In Progress", "Review", "Done"];
+
+app.get("/api/projects/:id/task-columns", requireAuth, async (req, res) => {
+  const projectId = req.params.id;
+  let { data, error } = await supabase
+    .from("task_columns")
+    .select("*")
+    .eq("project_id", projectId)
+    .order("order_index");
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Auto-seed defaults on first load
+  if (!data || data.length === 0) {
+    const rows = DEFAULT_TASK_COLUMNS.map((name, i) => ({ project_id: projectId, name, order_index: i }));
+    const { data: seeded, error: seedErr } = await supabase.from("task_columns").insert(rows).select("*").order("order_index");
+    if (seedErr) return res.status(500).json({ error: seedErr.message });
+    data = seeded;
+  }
+  res.json(data);
+});
+
+app.post("/api/projects/:id/task-columns", requireAuth, async (req, res) => {
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: "name required" });
+  // Get current max order_index
+  const { data: existing } = await supabase.from("task_columns").select("order_index").eq("project_id", req.params.id).order("order_index", { ascending: false }).limit(1);
+  const nextOrder = existing?.length ? (existing[0].order_index + 1) : 0;
+  const { data, error } = await supabase.from("task_columns").insert({ project_id: req.params.id, name: name.trim(), order_index: nextOrder }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.put("/api/task-columns/:id", requireAuth, async (req, res) => {
+  const updates = {};
+  if ("name" in req.body) updates.name = req.body.name?.trim() || null;
+  if ("order_index" in req.body) updates.order_index = req.body.order_index;
+  if (!Object.keys(updates).length) return res.status(400).json({ error: "nothing to update" });
+  const { data, error } = await supabase.from("task_columns").update(updates).eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.delete("/api/task-columns/:id", requireAuth, async (req, res) => {
+  // Move tasks in this column to the first other column in the same project
+  const { data: col } = await supabase.from("task_columns").select("project_id").eq("id", req.params.id).single();
+  if (col) {
+    const { data: others } = await supabase.from("task_columns").select("id").eq("project_id", col.project_id).neq("id", req.params.id).order("order_index").limit(1);
+    if (others?.length) {
+      await supabase.from("tasks").update({ column_id: others[0].id }).eq("column_id", req.params.id).eq("is_deleted", false);
+    }
+  }
+  const { error } = await supabase.from("task_columns").delete().eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ── Tasks ─────────────────────────────────────────────────────────────────────
+
+app.get("/api/projects/:id/tasks", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("project_id", req.params.id)
+    .eq("is_deleted", false)
+    .order("order_index");
+  if (error) return res.status(500).json({ error: error.message });
+  const tasks = data || [];
+  if (!tasks.length) return res.json(tasks);
+
+  // Attach latest review round status to each task
+  const taskIds = tasks.map(t => t.id);
+  const { data: rounds } = await supabase
+    .from("task_review_rounds")
+    .select("task_id, status, round_number")
+    .in("task_id", taskIds)
+    .order("round_number", { ascending: false });
+  const latestRound = {};
+  for (const r of (rounds || [])) {
+    if (!latestRound[r.task_id]) latestRound[r.task_id] = r;
+  }
+  res.json(tasks.map(t => ({ ...t, _review: latestRound[t.id] || null })));
+});
+
+app.post("/api/projects/:id/tasks", requireAuth, async (req, res) => {
+  const { column_id, title, description, assignee_id, priority, due_date } = req.body;
+  if (!column_id || !title?.trim()) return res.status(400).json({ error: "column_id and title required" });
+  const { data: existing } = await supabase.from("tasks").select("order_index").eq("column_id", column_id).eq("is_deleted", false).order("order_index", { ascending: false }).limit(1);
+  const nextOrder = existing?.length ? (existing[0].order_index + 1) : 0;
+  const { data, error } = await supabase.from("tasks").insert({
+    project_id: req.params.id, column_id, title: title.trim(),
+    description: description || null, assignee_id: assignee_id || null,
+    priority: priority || "medium", due_date: due_date || null,
+    created_by: req.user.id, order_index: nextOrder,
+  }).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.put("/api/tasks/:id", requireAuth, async (req, res) => {
+  const updates = { updated_at: new Date().toISOString() };
+  if ("column_id"    in req.body) updates.column_id    = req.body.column_id;
+  if ("title"        in req.body) updates.title        = req.body.title?.trim();
+  if ("description"  in req.body) updates.description  = req.body.description || null;
+  if ("assignee_id"  in req.body) updates.assignee_id  = req.body.assignee_id || null;
+  if ("priority"     in req.body) updates.priority     = req.body.priority;
+  if ("due_date"     in req.body) updates.due_date     = req.body.due_date || null;
+  if ("order_index"  in req.body) updates.order_index  = req.body.order_index;
+  const { data, error } = await supabase.from("tasks").update(updates).eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
+  const { error } = await supabase.from("tasks").update({ is_deleted: true, updated_at: new Date().toISOString() }).eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ── Timesheets ────────────────────────────────────────────────────────────────
+
+// GET /api/timesheets?week=YYYY-MM-DD  (Monday of the week)
+app.get("/api/timesheets", requireAuth, async (req, res) => {
+  const { week } = req.query;
+  if (!week) return res.status(400).json({ error: "week parameter required" });
+  const weekStart = week;
+  const fri = new Date(week);
+  fri.setDate(fri.getDate() + 4);
+  const weekEnd = fri.toISOString().split("T")[0];
+  const { data, error } = await supabase
+    .from("timesheets")
+    .select("*, projects(id, name, job_number)")
+    .eq("user_id", req.user.id)
+    .gte("entry_date", weekStart)
+    .lte("entry_date", weekEnd)
+    .order("entry_date");
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// GET /api/timesheets/history  — all entries for the current user, newest first
+app.get("/api/timesheets/history", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("timesheets")
+    .select("*, projects(id, name, job_number)")
+    .eq("user_id", req.user.id)
+    .order("entry_date", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Also fetch all submission statuses for this user
+  const { data: subs } = await supabase
+    .from("timesheet_submissions")
+    .select("week_start, status")
+    .eq("user_id", req.user.id);
+
+  res.json({ entries: data, submissions: subs || [] });
+});
+
+// GET /api/timesheets/submission?week=YYYY-MM-DD  — must be before /:id
+app.get("/api/timesheets/submission", requireAuth, async (req, res) => {
+  const { week } = req.query;
+  if (!week) return res.status(400).json({ error: "week required" });
+  const { data } = await supabase
+    .from("timesheet_submissions")
+    .select("*")
+    .eq("user_id", req.user.id)
+    .eq("week_start", week)
+    .single();
+  res.json(data || null);
+});
+
+// POST /api/timesheets
+app.post("/api/timesheets", requireAuth, async (req, res) => {
+  const { project_id, category, entry_date, hours, minutes, notes } = req.body;
+  if (!entry_date) return res.status(400).json({ error: "entry_date required" });
+  if (!project_id && !category) return res.status(400).json({ error: "project_id or category required" });
+  const { data, error } = await supabase
+    .from("timesheets")
+    .insert({
+      user_id: req.user.id,
+      project_id: project_id || null,
+      category: category || null,
+      entry_date,
+      hours: hours || 0,
+      minutes: minutes || 0,
+      notes: notes || null,
+    })
+    .select("*, projects(id, name, job_number)")
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST /api/timesheets/submit  — must be before /:id
+app.post("/api/timesheets/submit", requireAuth, async (req, res) => {
+  const { week } = req.body;
+  if (!week) return res.status(400).json({ error: "week required" });
+  const { data, error } = await supabase
+    .from("timesheet_submissions")
+    .upsert(
+      { user_id: req.user.id, week_start: week, status: "submitted", submitted_at: new Date().toISOString() },
+      { onConflict: "user_id,week_start" }
+    )
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// PUT /api/timesheets/:id
+app.put("/api/timesheets/:id", requireAuth, async (req, res) => {
+  const { data: existing } = await supabase.from("timesheets").select("user_id").eq("id", req.params.id).single();
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
+  const updates = { updated_at: new Date().toISOString() };
+  if ("hours"      in req.body) updates.hours      = req.body.hours;
+  if ("minutes"    in req.body) updates.minutes    = req.body.minutes;
+  if ("notes"      in req.body) updates.notes      = req.body.notes ?? null;
+  if ("project_id" in req.body) updates.project_id = req.body.project_id || null;
+  if ("category"   in req.body) updates.category   = req.body.category  || null;
+  const { data, error } = await supabase
+    .from("timesheets")
+    .update(updates)
+    .eq("id", req.params.id)
+    .select("*, projects(id, name, job_number)")
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// DELETE /api/timesheets/:id
+app.delete("/api/timesheets/:id", requireAuth, async (req, res) => {
+  const { data: existing } = await supabase.from("timesheets").select("user_id").eq("id", req.params.id).single();
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
+  const { error } = await supabase.from("timesheets").delete().eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// ── Admin timesheet routes ─────────────────────────────────────────────────────
+
+// GET /api/admin/timesheets/submissions  — must be before /:id
+app.get("/api/admin/timesheets/submissions", requireAuth, requireAdmin, async (req, res) => {
+  const { data, error } = await supabase
+    .from("timesheet_submissions")
+    .select("*")
+    .order("submitted_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST /api/admin/timesheets/approve
+app.post("/api/admin/timesheets/approve", requireAuth, requireAdmin, async (req, res) => {
+  const { week, user_id } = req.body;
+  if (!week || !user_id) return res.status(400).json({ error: "week and user_id required" });
+  const { data, error } = await supabase
+    .from("timesheet_submissions")
+    .update({ status: "approved", reviewed_by: req.user.id, reviewed_at: new Date().toISOString() })
+    .eq("user_id", user_id)
+    .eq("week_start", week)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// GET /api/admin/timesheets?user_id=&project_id=&week=&from=&to=
+app.get("/api/admin/timesheets", requireAuth, requireAdmin, async (req, res) => {
+  const { week, user_id, project_id, from, to } = req.query;
+  let query = supabase
+    .from("timesheets")
+    .select("*, projects(id, name, job_number)")
+    .order("entry_date", { ascending: false });
+  if (user_id) query = query.eq("user_id", user_id);
+  if (project_id) query = query.eq("project_id", project_id);
+  if (week) {
+    const fri = new Date(week);
+    fri.setDate(fri.getDate() + 4);
+    query = query.gte("entry_date", week).lte("entry_date", fri.toISOString().split("T")[0]);
+  }
+  if (from) query = query.gte("entry_date", from);
+  if (to) query = query.lte("entry_date", to);
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// PATCH /api/admin/timesheets/:id
+app.patch("/api/admin/timesheets/:id", requireAuth, requireAdmin, async (req, res) => {
+  const updates = { updated_at: new Date().toISOString() };
+  if ("hours"      in req.body) updates.hours      = req.body.hours;
+  if ("minutes"    in req.body) updates.minutes    = req.body.minutes;
+  if ("notes"      in req.body) updates.notes      = req.body.notes ?? null;
+  if ("project_id" in req.body) updates.project_id = req.body.project_id || null;
+  if ("category"   in req.body) updates.category   = req.body.category  || null;
+  const { data, error } = await supabase
+    .from("timesheets")
+    .update(updates)
+    .eq("id", req.params.id)
+    .select("*, projects(id, name, job_number)")
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 

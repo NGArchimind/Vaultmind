@@ -3,6 +3,7 @@ import { api, callClaude } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
 import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
+import TaskBoard from "./TaskBoard";
 
 // Module-level toast dispatcher — set by ProjectsSection on mount so all
 // sub-components can call showToast() without prop-drilling.
@@ -3444,6 +3445,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
     { id: "info", label: "Info" }, { id: "consultants", label: "Consultants" }, { id: "u-values", label: "U-Values" },
     { id: "notes", label: "Notes" }, { id: "drawings", label: "Drawings" }, { id: "documents", label: "Documents" },
     { id: "products", label: "Products" }, { id: "minutes", label: "Minutes" }, { id: "emails", label: "Emails" },
+    { id: "tasks", label: "To Do" },
   ];
 
   const tabStyle = t => ({
@@ -3711,6 +3713,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
         )}
         {activeTab === "minutes" && <PlaceholderTab icon="📝" title="Meeting Minutes" description="Upload or paste meeting minutes. Search and query them using the Q&A bar below to find decisions, actions, and key discussion points." />}
         {activeTab === "emails" && <EmailsTab projectId={projectId} />}
+        {activeTab === "tasks" && <TaskBoard projectId={projectId} />}
 
       </div>
 

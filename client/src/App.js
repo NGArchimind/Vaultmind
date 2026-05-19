@@ -8,6 +8,7 @@ import LandingPage from "./components/LandingPage";
 import ProjectsSection from "./components/ProjectsSection";
 import DatasheetsLibrarySection from "./components/DatasheetsLibrarySection";
 import AdminSection from "./components/AdminSection";
+import TimesheetsSection from "./components/TimesheetsSection";
 import { AD_GREEN, AD_GREEN_MID, AD_GREEN_GRASS, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, BOILERPLATE_HEADINGS, isBoilerplate } from "./constants";
 
 // ── Vault PDF Viewer Modal ────────────────────────────────────────────────────
@@ -175,6 +176,8 @@ function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
 
 export default function App() {
   const [appSection, setAppSection] = useState("home");
+  const [sectionKey, setSectionKey] = useState(0);
+  const navigate = (section) => { setAppSection(section); setSectionKey(k => k + 1); };
   const [vaults, setVaults] = useState([]);
   const [selectedVault, setSelectedVault] = useState(null);
   const [queryScope, setQueryScope] = useState("single");
@@ -642,6 +645,7 @@ export default function App() {
     setCitationPageMap({});
     if (!overrideQuestion) setQuestion("");
     setFollowUpQuestion("");
+    setFollowUpVaultId("");
     setLastQuestion(q);
     setTimedOut(false);
     setStage("selecting");
@@ -655,9 +659,11 @@ export default function App() {
     if (overrideVaultId) {
       try {
         setStatusMsg("Loading vault for follow-up…");
-        const [pdfsData, indexData] = await Promise.all([
+        const [pdfsData, indexFetch] = await Promise.all([
           api(`/api/vaults/${encodeURIComponent(overrideVaultId)}/pdfs`),
-          api(`/api/vaults/${encodeURIComponent(overrideVaultId)}/index`).catch(() => null),
+          api(`/api/vaults/${encodeURIComponent(overrideVaultId)}/index`)
+            .then(data => ({ ok: true, data }))
+            .catch(() => ({ ok: false })),
         ]);
         // Find vault object from all vaults (flat + sub)
         for (const v of vaults) {
@@ -667,16 +673,21 @@ export default function App() {
             if (sub) { overrideVault = sub; break; }
           }
         }
-        overrideIndex = indexData;
-        overridePdfs = pdfsData.pdfs || [];
-        if (!overrideIndex) {
+        if (!indexFetch.ok) {
           setStage(null);
-          setStatusMsg("That vault has not been indexed yet — index it first before asking a question.");
+          setStatusMsg("Could not connect to vault — please try again.");
           return;
         }
+        if (indexFetch.data === null) {
+          setStage(null);
+          setStatusMsg("That vault has not been indexed yet — select it and click Re-Index before asking a question.");
+          return;
+        }
+        overrideIndex = indexFetch.data;
+        overridePdfs = pdfsData.pdfs || [];
       } catch (e) {
         setStage(null);
-        setStatusMsg("Failed to load vault for follow-up: " + e.message);
+        setStatusMsg("Could not connect to vault — please try again.");
         return;
       }
     }
@@ -1016,12 +1027,11 @@ export default function App() {
         ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
         : "";
 
-      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer.${tempDoc ? `\n\nNOTE: A temporary document has been included for reference: "${tempDoc.name}". This is not part of the permanent vault — treat it as an additional reference document when answering.` : ""}\n\n${contextBlock}CURRENT QUESTION: ${q}\n\nPRIORITY SECTIONS: ${focusSections || "all sections"}\n\n---\n\nTABLES — GLOBAL RULE (applies to every section):\nWhen multiple documents contain tables that are near-identical in structure and content (e.g. minimum fire resistance performance tables across different versions of the same standard), do NOT reproduce each one separately. Instead:\n1. Reproduce the single most complete and relevant version in full\n2. After the citation, add a plain italic note: *Note: [Other Document] [Table X] contains equivalent/near-identical data. [Note any meaningful differences, e.g. if one table lacks a cavity barrier row.]*\n\nFor the one table you reproduce:\n1. Output the table title on its own line in bold: **Table X — Title of table**\n2. Reproduce the COMPLETE table — EVERY row, EVERY column, NO exceptions. Do not extract only the relevant row. Do not summarise. If the table has 30 rows, output all 30 rows. Every row starts and ends with | pipe characters.\n3. After the header row output a separator row: | --- | --- | --- |\n4. For the specific row(s) that directly answer the question, prefix that ENTIRE ROW with >> ONCE at the very start, before the first pipe: >> | cell | cell | cell |\n   CRITICAL: The >> prefix appears ONCE at the start of the row only. Do NOT put >> before each cell.\n5. Do NOT wrap tables in > block quote syntax\n6. Place the citation immediately below the table, then the equivalence note\n7. If the table spans multiple pages, combine ALL parts into one complete table — do not stop at the first page\n\nIf only one table is referenced, reproduce it in full without any equivalence note.\n\nRESPONSE FORMAT — output in this exact order every time:\n\n## Summary\n\nWRITE THIS FIRST. A confident, definitive answer in 2–4 sentences. Must:\n- Open with a direct answer in plain English\n- Cite ALL relevant documents provided — not just one\n- Build on any prior conversation context where relevant\n- Reproduce any table directly relevant to the answer\n- After any table include footnotes/qualifications as plain italic text\n\nFor each key fact, include the exact supporting phrase and citation as a consecutive pair:\n\n> "Exact short phrase from document."\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nCITATION FORMAT: *Document | Clause number and title (Parent section title)*\nCRITICAL: Citation MUST start AND end with * asterisk.\n\nCITATION PLACEMENT — strictly follow these rules:\n- Every citation goes on its OWN LINE, never embedded within a sentence\n- Never write: "Quote." *Citation* and more text continues here.\n- Never chain citations with "and": *Citation A* and *Citation B* — WRONG\n- If multiple documents support the same fact, each citation goes on its own separate line:\n  > "Quote."\n  *Document A | Clause*\n  *Document B | Clause*\n- A citation always ends a paragraph, never appears mid-sentence\n\n---\n\n## Detailed Analysis\n\nWRITE THIS SECOND. Only content that adds value beyond the summary.\n\nCheck ALL of the following — if ANY apply, write Case 2:\n- Location/scenario-specific requirements beyond the general rule?\n- Exceptions or conditions where the rule does NOT apply?\n- Construction/specification requirements beyond the fire rating?\n- Cross-references to other clauses, standards, or ADs?\n- Do the multiple documents differ or add to each other?\n- Inspection, testing, or certification requirements?\n\nCASE 1 — Only if ALL checks negative: "The summary above fully addresses this question."\n\nCASE 2 — Concise bullet points. One sentence each. Reproduce any referenced table in full below the bullet. Citation after each bullet or table:\n*Document Name | X.X.X Clause Title (Parent Section Title)*\n\nRULES:\n- No repetition of summary content\n- Citations: opening AND closing * required\n- Cite ALL documents where relevant — never rely on just one\n- Maximum 6 bullets\n\n---\n\n## Regulatory Context\n\nWRITE THIS THIRD. Broader background tightly scoped to the question. 2–4 bullets maximum.\nCitation after each bullet: *Document Name | X.X.X Clause Title (Parent Section Title)*\nIf nothing to add: "No additional context required."\n\n---\n\n## Contradictions & Conflicts\n\nWRITE THIS LAST. Conflicts: state conflict, quote both sides with citations, give practical conclusion.\nNo conflicts: "No contradictions identified."\n\n---\n\nRULES:\n- Fixed order: Summary, Detailed Analysis, Regulatory Context, Contradictions\n- Use ONLY the provided document pages — no external knowledge\n- Every factual statement needs a citation with opening AND closing asterisks\n- Draw from ALL provided documents — never rely on just one`;
-
+      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer. Write for an architectural specialist who needs detailed, accurate legislative guidance — not a general audience.${tempDoc ? `\n\nNOTE: A temporary document has been included: "${tempDoc.name}". Treat it as an additional reference document.` : ""}\n\n${contextBlock}QUESTION: ${q}\nPRIORITY SECTIONS: ${focusSections || "all sections"}\n\n---\n\nTABLES:\n1. Output the table title on its own line in bold: **Table X — Title**\n2. Reproduce EVERY row and EVERY column — no omissions. Every row starts and ends with | pipe characters.\n3. After the header row output a separator: | --- | --- | --- |\n4. Prefix each row that directly answers the question with >>: >> | cell | cell | cell |\n   The >> appears ONCE at the row start only — do NOT repeat before each cell.\n5. Do NOT wrap tables in > blockquote syntax.\n6. Place ONE citation on its own line IMMEDIATELY BEFORE the table title.\n7. If the table spans multiple pages, combine ALL parts into one complete table.\n8. Any notes relating to the table (e.g. footnotes, qualifications) must appear as plain italic text BELOW the table — never inside the table as rows.\n9. If multiple documents contain near-identical tables: reproduce only the most complete version, then note as plain italic text below: *Note: [Other Document] Table X contains equivalent data. [Note any meaningful differences.]*\n10. Remove all PDF artefacts from table cells: strip any notation like $^{1}$, $^{(1)}$, ^{1}, or similar superscript markers. Footnote references in cells should be omitted entirely.\n\n---\n\nRESPONSE FORMAT — always in this exact order:\n\n## Summary\n\nAnswer the question directly. Do not describe the regulatory framework, explain what factors determine the answer, or say 'it depends' — just state what the regulations require. Write as if summarising the answer for a colleague: the key requirements, the applicable standards, the most important facts. No preamble, no explanation of the question, no meta-commentary. No specific dimensions or thresholds — those go in the Practical Conclusion. No inline quotes, no citation headers, no verbatim extracts.\nIf a table would help summarise the answer, create a single synthesised summary table that collates the key figures (e.g. all applicable dimensions, heights, or classifications) from your full analysis into one clear table. Do NOT reproduce a source document table — this must be your own synthesised overview. No citation before or after it. No notes. Keep it simple and direct.\n\n## Detailed Analysis\n\nBefore writing any citation block, apply this test: does this clause contain a specific, actionable requirement directly relevant to the question — a dimension, gradient, tolerance, classification, or explicit rule? If the clause text is a generic duty statement (e.g. "shall be suitable for intended use", "shall be adequate for the location", "shall be designed in accordance with relevant codes") with no specific data, omit it entirely. Only cite clauses that would change or inform a specific design decision.\n\nGroup citations by source: for each unique document + section, output ONE citation block. Treat all sub-clauses of the same parent section as one location — do not create separate blocks for 5.3.7 and 5.3.7.4, or for 9.3.4 and 9.3.4.1. Combine all relevant sub-clauses under the parent section heading. If multiple relevant clauses come from the same section, combine them under a single citation header — do not create separate blocks for the same source.\n\nFor each citation block:\n\nPART 1 — Citation header (one line):\n*Document Name | Section title*\n\nPART 2 — Full verbatim text:\nReproduce the complete relevant paragraph(s) or clause(s) exactly as written in the source. If multiple paragraphs from the same section are relevant, reproduce them together here. Do not paraphrase, do not truncate, do not add speech marks.\n\nPART 3 — Explanation (only if needed):\n*Brief italic explanation if the relevance to the question is not immediately obvious.*\n\nDo not repeat information already covered in the Summary or in a previous citation block. If a clause states the same dimension, height, or requirement already cited earlier, skip it — cite only the most specific or primary source for each requirement. Omit clauses that are purely cross-references to another document — i.e. clauses whose sole content is directing the reader elsewhere, with no specific dimensions, requirements, or guidance of their own. If a clause contains even one concrete requirement alongside a cross-reference, include only the concrete requirement.\n\n## Contradictions & Conflicts\n\nA critical analysis of apparent contradictions between the extracted documents. Where conflicts exist, examine them substantively: quote both sides with citations, explain the nature of the conflict, and give a practical resolution. If genuinely no conflicts: "No contradictions identified."\n\n## Practical Conclusion\n\nA short, condensed follow-on to the Summary — this is where the specific numbers go. List only the key dimensions, thresholds, and practical requirements an architect needs to apply this guidance. Keep it brief: a short paragraph or a tight list of the most critical specifics only. Do NOT reproduce or paraphrase the Detailed Analysis — this is a concise conclusion, not a summary of the evidence. No citations. No document names. No section references. No explanation.\n\n---\n\nCITATION RULES:\n- Format: *Document Name | Clause number and title* — must start AND end with a single *\n- Document Name MUST be the exact filename as it appears in the document pages provided — do not paraphrase or invent a name\n- Always on its own line, never embedded within a sentence\n- Always placed BEFORE the content it supports\n- One citation block per unique source location — never repeat the same citation header\n- Treat parent sections and their sub-clauses as one location: combine them into a single block under the parent heading\n- If multiple clauses from the same document address the same requirement, combine them under one citation block — do not create a separate block per clause number\n- Draw from ALL provided documents — never rely on just one`;
       const { text: finalAnswer, usage: answerUsage } = await withRetry(
         () => callClaude(
           [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-          `You are an expert building regulations consultant. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Regulatory Context, (4) ## Contradictions & Conflicts. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. Draw from ALL provided documents.`,
+          `You are an expert building regulations consultant writing for architectural specialists. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Contradictions & Conflicts, (4) ## Practical Conclusion. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. Draw from ALL provided documents.`,
           65536
         ), 3, 5000, "Pass 3/3 · Synthesising answer"
       );
@@ -1030,7 +1040,7 @@ export default function App() {
       setAnswer(finalAnswer);
       setAnswerVaultName(usingTempOnly ? "Temp Doc" : (effectiveVault?.name || vault?.name || ""));
       setCitationPageMap(newCitationPageMap);
-      setFollowUpQuestion(q);
+      setFollowUpQuestion("");
       setStage("done");
       setHistory(prev => [...prev, { vaultId: usingTempOnly ? "temp" : (effectiveVault?.id || "temp"), vaultName: usingTempOnly ? "Temp Doc" : (effectiveVault?.name || ""), question: q, answer: finalAnswer, timestamp: new Date() }]);
       setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
@@ -1081,9 +1091,17 @@ export default function App() {
     let resolved = entry;
     if (!resolved) {
       const lower = docName.toLowerCase();
-      const fallbackKey = Object.keys(citationPageMap).find(k =>
-        k.toLowerCase().includes(lower) || lower.includes(k.toLowerCase().split("||")[0])
-      );
+      // Extract part letter e.g. "K" from "Approved Document K" or "AD Part K - ..."
+      const partLetter = s => { const m = s.match(/(?:approved\s+document|ad\s+part|part)\s+([a-z])\b/i); return m ? m[1].toLowerCase() : null; };
+      const citationPart = partLetter(docName);
+      const normalize = s => s.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const normCitation = normalize(docName);
+      const fallbackKey = Object.keys(citationPageMap).find(k => {
+        const keyBase = k.split("||")[0];
+        if (citationPart && partLetter(keyBase) === citationPart) return true;
+        const normKey = normalize(keyBase);
+        return normKey.includes(normCitation) || normCitation.includes(normKey);
+      });
       resolved = fallbackKey ? citationPageMap[fallbackKey] : null;
     }
 
@@ -1193,19 +1211,19 @@ export default function App() {
 
       {/* Top nav */}
       <div style={{ background: ARC_NAVY, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, height: 56 }}>
-        <button className="btn" onClick={() => setAppSection("home")}
+        <button className="btn" onClick={() => navigate("home")}
           style={{ background: "none", color: "#ffffff", fontSize: 20, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif", padding: 0 }}>
           Archimind
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          {["vault", "compare", "library", "projects"].map(section => (
-            <button key={section} className="btn" onClick={() => setAppSection(section)}
+          {["vault", "compare", "library", "projects", "timesheets"].map(section => (
+            <button key={section} className="btn" onClick={() => navigate(section)}
               style={{ background: appSection === section ? "rgba(255,255,255,0.12)" : "none", color: appSection === section ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === section ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
               {section.charAt(0).toUpperCase() + section.slice(1)}
             </button>
           ))}
           {isAdmin && (
-            <button className="btn" onClick={() => setAppSection("admin")}
+            <button className="btn" onClick={() => navigate("admin")}
               style={{ background: appSection === "admin" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "admin" ? "#ffffff" : ARC_TERRACOTTA, padding: "6px 14px", fontSize: 12, fontWeight: appSection === "admin" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none", opacity: 0.85 }}>
               Admin
             </button>
@@ -1225,11 +1243,12 @@ export default function App() {
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden", maxHeight: "calc(100vh - 56px)" }}>
 
-        {appSection === "home" && <LandingPage onSelect={setAppSection} isAdmin={isAdmin} />}
-        {appSection === "compare" && <CompareSection vaults={vaults} isAdmin={isAdmin} />}
-        {appSection === "library" && <DatasheetsLibrarySection vaults={vaults} isAdmin={isAdmin} />}
-        {appSection === "projects" && <ProjectsSection isAdmin={isAdmin} />}
-        {appSection === "admin" && isAdmin && <AdminSection />}
+        {appSection === "home" && <LandingPage onSelect={navigate} isAdmin={isAdmin} />}
+        {appSection === "compare" && <CompareSection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
+        {appSection === "library" && <DatasheetsLibrarySection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
+        {appSection === "projects" && <ProjectsSection key={sectionKey} isAdmin={isAdmin} />}
+        {appSection === "timesheets" && <TimesheetsSection key={sectionKey} isAdmin={isAdmin} />}
+        {appSection === "admin" && isAdmin && <AdminSection key={sectionKey} />}
 
         {/* ── VAULT ─────────────────────────────────────────────────────── */}
         {appSection === "vault" && <>
