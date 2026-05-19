@@ -2357,7 +2357,6 @@ function EmailsTab({ projectId }) {
   }
 
   async function handleReembed() {
-    if (!window.confirm(`Re-embed all emails for this project? This regenerates the AI index using the improved search model. It may take a minute for large inboxes.`)) return;
     setReembedding(true);
     setReembedResult(null);
     setReembedErrors([]);
