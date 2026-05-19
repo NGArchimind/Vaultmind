@@ -1434,7 +1434,7 @@ app.delete("/api/projects/:id/todos/:tid", requireAuth, async (req, res) => {
 // ── Email routes ──────────────────────────────────────────────────────────────
 
 // Helper: generate embedding via Gemini
-async function generateEmbedding(text) {
+async function generateEmbedding(text, taskType = "RETRIEVAL_DOCUMENT") {
   const apiKey = process.env.GEMINI_API_KEY;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`;
   const response = await fetch(url, {
@@ -1443,6 +1443,7 @@ async function generateEmbedding(text) {
     body: JSON.stringify({
       model: "models/gemini-embedding-001",
       content: { parts: [{ text: text.slice(0, 8000) }] },
+      taskType,
       outputDimensionality: 768,
     }),
   });
@@ -1452,6 +1453,27 @@ async function generateEmbedding(text) {
   }
   const data = await response.json();
   return data.embedding.values; // array of 768 numbers
+}
+
+// Strip reply chain quoted text from email body before embedding
+function stripReplyChain(text) {
+  if (!text) return "";
+  const cutMarkers = [
+    /^On .{10,200} wrote:\s*$/m,          // Gmail/Apple: "On Mon 12 May, John wrote:"
+    /^-{5,}[\s\S]*?Original Message/m,    // Outlook: "-----Original Message-----"
+    /^From:.+\nSent:.+\nTo:/m,            // Outlook reply header block
+    /^_{10,}$/m,                           // Outlook underline separator
+    /^>+ /m,                               // Quoted lines starting with ">"
+  ];
+  let result = text;
+  for (const marker of cutMarkers) {
+    const match = result.match(marker);
+    // Only cut if marker isn't right at the start (avoid gutting genuine content)
+    if (match && match.index > 80) {
+      result = result.slice(0, match.index);
+    }
+  }
+  return result.trim();
 }
 // POST /api/projects/:id/emails/ingest
 // ArchiSync calls this in batches. Each item in the batch is one parsed email.
@@ -1465,16 +1487,17 @@ app.post("/api/projects/:id/emails/ingest", requireAuth, async (req, res) => {
 
   for (const email of emails) {
     try {
-      // Build text for embedding: subject + body (trimmed)
+      // Build text for embedding — strip reply chains to avoid noise from quoted threads
+      const cleanBody = stripReplyChain(email.body_text || "");
       const textForEmbedding = [
         email.subject || "",
         email.from_name || email.from_address || "",
-        email.body_text || "",
+        cleanBody,
       ].join("\n").trim();
 
       if (!textForEmbedding) { results.skipped++; continue; }
 
-      const embedding = await generateEmbedding(textForEmbedding);
+      const embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
 
       const { error } = await supabase
         .from("project_emails")
@@ -1526,17 +1549,16 @@ app.post("/api/projects/:id/emails/search", requireAuth, async (req, res) => {
   try {
     // If there's a query, embed it and do similarity search
     if (query && query.trim()) {
-      const queryEmbedding = await generateEmbedding(query.trim());
+      // Query embeddings use a different task type than document embeddings — this is critical
+      const queryEmbedding = await generateEmbedding(query.trim(), "RETRIEVAL_QUERY");
 
-      // Build filter conditions for the RPC call
-      const filterConditions = { p_project_id: req.params.id, p_limit: limit };
-
-      // We do the similarity search via a raw Supabase RPC (pgvector)
-      // then filter in JS for simplicity — acceptable at this scale
-      const { data, error } = await supabase.rpc("search_project_emails", {
+      // Hybrid RPC: combines pgvector cosine similarity with PostgreSQL full-text keyword search
+      // using Reciprocal Rank Fusion (RRF) to blend the two ranked lists
+      const { data, error } = await supabase.rpc("search_project_emails_hybrid", {
         p_project_id: req.params.id,
         p_embedding: queryEmbedding,
-        p_limit: Math.min(limit * 3, 100), // fetch more, then filter down
+        p_query_text: query.trim(),
+        p_limit: Math.min(limit * 3, 300), // cast a wide net before applying metadata filters
       });
 
       if (error) throw error;
@@ -1626,6 +1648,50 @@ app.delete("/api/projects/:id/emails/:eid", requireAuth, async (req, res) => {
       .eq("project_id", req.params.id);
     if (error) throw error;
     res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/:id/emails/reembed
+// Re-generates embeddings for all existing emails using the correct taskType.
+// Call this once after deploying the search improvements.
+app.post("/api/projects/:id/emails/reembed", requireAuth, async (req, res) => {
+  try {
+    const { data: emails, error } = await supabase
+      .from("project_emails")
+      .select("id, subject, from_name, from_address, body_text")
+      .eq("project_id", req.params.id);
+    if (error) throw error;
+
+    let updated = 0;
+    const errors = [];
+
+    for (const email of emails) {
+      try {
+        const cleanBody = stripReplyChain(email.body_text || "");
+        const textForEmbedding = [
+          email.subject || "",
+          email.from_name || email.from_address || "",
+          cleanBody,
+        ].join("\n").trim();
+
+        if (!textForEmbedding) continue;
+
+        const embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+        const { error: updateError } = await supabase
+          .from("project_emails")
+          .update({ embedding })
+          .eq("id", email.id);
+
+        if (updateError) throw updateError;
+        updated++;
+      } catch (err) {
+        errors.push({ id: email.id, error: err.message });
+      }
+    }
+
+    res.json({ total: emails.length, updated, errors });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

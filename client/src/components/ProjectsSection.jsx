@@ -2200,6 +2200,8 @@ function EmailsTab({ projectId }) {
   const [emailBody, setEmailBody] = useState(null);
   const [searchError, setSearchError] = useState(null);
   const [loadingInbox, setLoadingInbox] = useState(true);
+  const [reembedding, setReembedding] = useState(false);
+  const [reembedResult, setReembedResult] = useState(null);
 
   // Similarity threshold slider (0–100, stored as integer percentage)
   const [threshold, setThreshold] = useState(55);
@@ -2323,6 +2325,20 @@ function EmailsTab({ projectId }) {
     if (e.key === "Enter") handleSearch();
   }
 
+  async function handleReembed() {
+    if (!window.confirm(`Re-embed all emails for this project? This regenerates the AI index using the improved search model. It may take a minute for large inboxes.`)) return;
+    setReembedding(true);
+    setReembedResult(null);
+    try {
+      const result = await api(`/api/projects/${projectId}/emails/reembed`, { method: "POST", body: {} });
+      setReembedResult(`Done — ${result.updated} of ${result.total} emails re-indexed${result.errors.length ? `, ${result.errors.length} errors` : ""}.`);
+    } catch (err) {
+      setReembedResult(`Error: ${err.message}`);
+    } finally {
+      setReembedding(false);
+    }
+  }
+
   function clearFilters() {
     setFilterFrom("");
     setFilterTo("");
@@ -2426,6 +2442,22 @@ function EmailsTab({ projectId }) {
             >
               Clear filters
             </button>
+          )}
+
+          {/* Re-embed button — rebuilds AI index for existing emails */}
+          <button
+            className="btn"
+            onClick={handleReembed}
+            disabled={reembedding}
+            title="Rebuild the AI search index for all emails in this project. Run once after updating the search engine."
+            style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 12px", fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: "auto" }}
+          >
+            {reembedding ? <><Spinner size={9} /> Indexing…</> : "Re-index"}
+          </button>
+          {reembedResult && (
+            <span style={{ fontSize: 10, color: reembedResult.startsWith("Error") ? ARC_TERRACOTTA : AD_GREEN, letterSpacing: "0.04em" }}>
+              {reembedResult}
+            </span>
           )}
 
           {/* Threshold slider — only visible in search mode */}
