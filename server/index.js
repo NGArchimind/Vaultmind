@@ -1638,6 +1638,20 @@ app.get("/api/projects/:id/emails/:eid", requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /api/projects/:id/emails  — wipe all emails for a project
+app.delete("/api/projects/:id/emails", requireAuth, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from("project_emails")
+      .delete()
+      .eq("project_id", req.params.id);
+    if (error) throw error;
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/projects/:id/emails/:eid
 app.delete("/api/projects/:id/emails/:eid", requireAuth, async (req, res) => {
   try {

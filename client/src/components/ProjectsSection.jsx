@@ -2325,6 +2325,36 @@ function EmailsTab({ projectId }) {
     if (e.key === "Enter") handleSearch();
   }
 
+  async function handleDeleteEmail(id) {
+    if (!window.confirm("Delete this email from the project? This cannot be undone.")) return;
+    try {
+      await api(`/api/projects/${projectId}/emails/${id}`, { method: "DELETE" });
+      const remove = list => list.filter(e => e.id !== id);
+      setAllEmails(prev => remove(prev));
+      setEmails(prev => remove(prev));
+      if (selectedEmail?.id === id) {
+        setSelectedEmail(null);
+        setEmailBody(null);
+      }
+    } catch (err) {
+      alert(`Delete failed: ${err.message}`);
+    }
+  }
+
+  async function handleDeleteAll() {
+    if (!window.confirm(`Delete all ${allEmails.length} emails from this project? This cannot be undone.`)) return;
+    try {
+      await api(`/api/projects/${projectId}/emails`, { method: "DELETE" });
+      setAllEmails([]);
+      setEmails([]);
+      setSelectedEmail(null);
+      setEmailBody(null);
+      setIsSearchMode(false);
+    } catch (err) {
+      alert(`Delete failed: ${err.message}`);
+    }
+  }
+
   async function handleReembed() {
     if (!window.confirm(`Re-embed all emails for this project? This regenerates the AI index using the improved search model. It may take a minute for large inboxes.`)) return;
     setReembedding(true);
@@ -2444,16 +2474,28 @@ function EmailsTab({ projectId }) {
             </button>
           )}
 
-          {/* Re-embed button — rebuilds AI index for existing emails */}
-          <button
-            className="btn"
-            onClick={handleReembed}
-            disabled={reembedding}
-            title="Rebuild the AI search index for all emails in this project. Run once after updating the search engine."
-            style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 12px", fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginLeft: "auto" }}
-          >
-            {reembedding ? <><Spinner size={9} /> Indexing…</> : "Re-index"}
-          </button>
+          {/* Delete all + Re-index — grouped on the right */}
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+            {allEmails.length > 0 && (
+              <button
+                className="btn"
+                onClick={handleDeleteAll}
+                title="Delete all emails from this project (for testing)"
+                style={{ background: "none", border: `1px solid ${ARC_TERRACOTTA}`, color: ARC_TERRACOTTA, padding: "4px 12px", fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}
+              >
+                Delete all
+              </button>
+            )}
+            <button
+              className="btn"
+              onClick={handleReembed}
+              disabled={reembedding}
+              title="Rebuild the AI search index for all emails in this project. Run once after updating the search engine."
+              style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 12px", fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}
+            >
+              {reembedding ? <><Spinner size={9} /> Indexing…</> : "Re-index"}
+            </button>
+          </div>
           {reembedResult && (
             <span style={{ fontSize: 10, color: reembedResult.startsWith("Error") ? ARC_TERRACOTTA : AD_GREEN, letterSpacing: "0.04em" }}>
               {reembedResult}
@@ -2597,6 +2639,7 @@ function EmailsTab({ projectId }) {
                   selected={selectedEmail?.id === email.id}
                   isSearchMode={isSearchMode}
                   onClick={() => handleSelectEmail(email)}
+                  onDelete={handleDeleteEmail}
                 />
               ))}
             </div>
@@ -2620,7 +2663,8 @@ function EmailsTab({ projectId }) {
   );
 }
 
-function EmailRow({ email, selected, isSearchMode, onClick }) {
+function EmailRow({ email, selected, isSearchMode, onClick, onDelete }) {
+  const [hovered, setHovered] = useState(false);
   const sentDate = email.sent_at ? new Date(email.sent_at) : null;
   const dateStr = sentDate ? sentDate.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
   const fromDisplay = email.from_name || email.from_address || "Unknown sender";
@@ -2632,16 +2676,17 @@ function EmailRow({ email, selected, isSearchMode, onClick }) {
   return (
     <div
       onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         padding: "12px 16px",
         borderBottom: "1px solid #f0ede8",
         cursor: "pointer",
-        background: selected ? "#f0ede8" : "#fff",
+        background: selected ? "#f0ede8" : hovered ? "#faf8f5" : "#fff",
         borderLeft: selected ? `3px solid ${ARC_NAVY}` : "3px solid transparent",
         transition: "background 0.1s",
+        position: "relative",
       }}
-      onMouseEnter={e => { if (!selected) e.currentTarget.style.background = "#faf8f5"; }}
-      onMouseLeave={e => { if (!selected) e.currentTarget.style.background = "#fff"; }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 4 }}>
         <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, flex: 1, marginRight: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -2654,6 +2699,15 @@ function EmailRow({ email, selected, isSearchMode, onClick }) {
             </span>
           )}
           <span style={{ fontSize: 10, color: "#9a9088" }}>{dateStr}</span>
+          {hovered && (
+            <button
+              onClick={e => { e.stopPropagation(); onDelete(email.id); }}
+              title="Delete this email"
+              style={{ background: "none", border: "none", cursor: "pointer", color: ARC_TERRACOTTA, fontSize: 13, lineHeight: 1, padding: "0 2px", fontWeight: 700 }}
+            >
+              ×
+            </button>
+          )}
         </div>
       </div>
       <div style={{ fontSize: 12, color: ARC_NAVY, marginBottom: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
