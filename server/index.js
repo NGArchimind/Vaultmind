@@ -1475,6 +1475,60 @@ function stripReplyChain(text) {
   }
   return result.trim();
 }
+
+// Generate a semantic enrichment summary for an email using Gemini Flash.
+// Returns a compact line of related topics, synonyms, and technical terms
+// that get prepended to the embedding text so the vector captures conceptual meaning.
+async function generateSemanticSummary(subject, body) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const prompt = `You are indexing a professional email from an architectural practice for semantic search.
+Given the email below, output a single comma-separated line of key topics, technical terms, synonyms, and related concepts that someone might search for to find this email. Include relevant construction, planning, or building regulation terms where applicable. Maximum 60 words. No explanation — just the comma-separated terms.
+
+Subject: ${subject}
+Body: ${body.slice(0, 2000)}`;
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 150 },
+      }),
+    });
+    if (!response.ok) return "";
+    const data = await response.json();
+    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+  } catch {
+    return ""; // non-fatal — fall back to embedding without enrichment
+  }
+}
+
+// Expand a user's search query with related terms and synonyms before embedding.
+async function expandSearchQuery(query) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const prompt = `Expand this search query into related technical terms and synonyms for searching professional architectural project emails. Include relevant construction, planning, or building regulation terminology. Output as a single comma-separated line only. Maximum 40 words. No explanation.
+
+Query: ${query}`;
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 100 },
+      }),
+    });
+    if (!response.ok) return query;
+    const data = await response.json();
+    const expanded = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    return expanded ? `${query}, ${expanded}` : query;
+  } catch {
+    return query; // non-fatal — fall back to original query
+  }
+}
+
 // POST /api/projects/:id/emails/ingest
 // ArchiSync calls this in batches. Each item in the batch is one parsed email.
 app.post("/api/projects/:id/emails/ingest", requireAuth, async (req, res) => {
@@ -1487,13 +1541,15 @@ app.post("/api/projects/:id/emails/ingest", requireAuth, async (req, res) => {
 
   for (const email of emails) {
     try {
-      // Build text for embedding — strip reply chains to avoid noise from quoted threads
+      // Build text for embedding — strip reply chains, then enrich with semantic summary
       const cleanBody = stripReplyChain(email.body_text || "");
+      const summary = await generateSemanticSummary(email.subject || "", cleanBody);
       const textForEmbedding = [
+        summary,
         email.subject || "",
         email.from_name || email.from_address || "",
         cleanBody,
-      ].join("\n").trim();
+      ].filter(Boolean).join("\n").trim();
 
       if (!textForEmbedding) { results.skipped++; continue; }
 
@@ -1549,8 +1605,9 @@ app.post("/api/projects/:id/emails/search", requireAuth, async (req, res) => {
   try {
     // If there's a query, embed it and do similarity search
     if (query && query.trim()) {
-      // Query embeddings use a different task type than document embeddings — this is critical
-      const queryEmbedding = await generateEmbedding(query.trim(), "RETRIEVAL_QUERY");
+      // Expand the query with related terms before embedding for better semantic matching
+      const expandedQuery = await expandSearchQuery(query.trim());
+      const queryEmbedding = await generateEmbedding(expandedQuery, "RETRIEVAL_QUERY");
 
       // Hybrid RPC: combines pgvector cosine similarity with PostgreSQL full-text keyword search
       // using Reciprocal Rank Fusion (RRF) to blend the two ranked lists
@@ -1684,11 +1741,13 @@ app.post("/api/projects/:id/emails/reembed", requireAuth, async (req, res) => {
     for (const email of emails) {
       try {
         const cleanBody = stripReplyChain(email.body_text || "");
+        const summary = await generateSemanticSummary(email.subject || "", cleanBody);
         const textForEmbedding = [
+          summary,
           email.subject || "",
           email.from_name || email.from_address || "",
           cleanBody,
-        ].join("\n").trim();
+        ].filter(Boolean).join("\n").trim();
 
         if (!textForEmbedding) continue;
 
