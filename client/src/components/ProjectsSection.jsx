@@ -2202,6 +2202,7 @@ function EmailsTab({ projectId }) {
   const [loadingInbox, setLoadingInbox] = useState(true);
   const [reembedding, setReembedding] = useState(false);
   const [reembedResult, setReembedResult] = useState(null);
+  const [reembedErrors, setReembedErrors] = useState([]);
 
   // Similarity threshold slider (0–100, stored as integer percentage)
   const [threshold, setThreshold] = useState(55);
@@ -2359,9 +2360,11 @@ function EmailsTab({ projectId }) {
     if (!window.confirm(`Re-embed all emails for this project? This regenerates the AI index using the improved search model. It may take a minute for large inboxes.`)) return;
     setReembedding(true);
     setReembedResult(null);
+    setReembedErrors([]);
     try {
       const result = await api(`/api/projects/${projectId}/emails/reembed`, { method: "POST", body: {} });
-      setReembedResult(`Done — ${result.updated} of ${result.total} emails re-indexed${result.errors.length ? `, ${result.errors.length} errors` : ""}.`);
+      setReembedResult(`Done — ${result.updated} of ${result.total} emails re-indexed${result.errors.length ? `, ${result.errors.length} failed` : ""}.`);
+      setReembedErrors(result.errors || []);
     } catch (err) {
       setReembedResult(`Error: ${err.message}`);
     } finally {
@@ -2497,9 +2500,18 @@ function EmailsTab({ projectId }) {
             </button>
           </div>
           {reembedResult && (
-            <span style={{ fontSize: 10, color: reembedResult.startsWith("Error") ? ARC_TERRACOTTA : AD_GREEN, letterSpacing: "0.04em" }}>
-              {reembedResult}
-            </span>
+            <div style={{ marginTop: 6 }}>
+              <span style={{ fontSize: 10, color: reembedResult.startsWith("Error") || reembedErrors.length > 0 ? ARC_TERRACOTTA : AD_GREEN, letterSpacing: "0.04em" }}>
+                {reembedResult}
+              </span>
+              {reembedErrors.length > 0 && (
+                <div style={{ marginTop: 4, fontSize: 10, color: ARC_TERRACOTTA, fontFamily: "monospace", lineHeight: 1.6 }}>
+                  {reembedErrors.map((e, i) => (
+                    <div key={i}>ID {e.id}: {e.error}</div>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
 
           {/* Threshold slider — only visible in search mode */}
