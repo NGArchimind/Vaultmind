@@ -49,7 +49,7 @@ function ClauseBlock({ clause, onCitationClick }) {
         {onCitationClick && (
           <button
             onClick={() => onCitationClick(clause.docName, clause.heading)}
-            style={{ background: AD_GREEN, border: "none", cursor: "pointer", color: "#fff", fontSize: 10, padding: "3px 9px", fontFamily: "Inter, Arial, sans-serif", borderRadius: 2, flexShrink: 0, marginLeft: 10, fontWeight: 500, letterSpacing: "0.05em", whiteSpace: "nowrap" }}
+            style={{ background: AD_GREEN, border: "none", cursor: "pointer", color: "#fff", fontSize: 10, padding: "4px 10px", fontFamily: "Inter, Arial, sans-serif", borderRadius: 2, flexShrink: 0, marginLeft: 10, fontWeight: 500, letterSpacing: "0.05em", whiteSpace: "nowrap" }}
           >↗ open</button>
         )}
       </div>
@@ -89,7 +89,7 @@ function DocumentGroup({ docName, clauses, onCitationClick }) {
         <div style={{ color: AD_GREEN, fontSize: 20, marginLeft: 12, flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</div>
       </div>
       {expanded && (
-        <div style={{ borderTop: "1px solid #f0eeec", padding: "0 14px 14px" }}>
+        <div style={{ borderTop: "1px solid #e8e0d5", padding: "0 14px 14px" }}>
           {clauses.map((clause, idx) => (
             <ClauseBlock key={idx} clause={clause} onCitationClick={onCitationClick} />
           ))}
