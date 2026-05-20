@@ -224,7 +224,8 @@ export default function AnswerRenderer({ text, onCitationClick }) {
       }
 
       // If we're inside a document group, handle all lines within it
-      if (groupBuffer) {
+      // ## headings must fall through — the ## handler calls flushGroup and updates currentSection
+      if (groupBuffer && !trimmedLine2.startsWith("## ")) {
         // Citation line: *Doc | Clause*
         const isCitationLine = trimmedLine2.startsWith("*") && trimmedLine2.endsWith("*") && trimmedLine2.includes("|") && !trimmedLine2.startsWith("**") && trimmedLine2.length > 2;
         if (isCitationLine) {
