@@ -8,6 +8,19 @@ const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
 
 const app = express();
+
+const corsOptions = {
+  origin: [
+    "https://archimind.vercel.app",
+    "https://archimind-omega.vercel.app",
+    "https://archimind-git-develop-nathan-greens-projects-192281d0.vercel.app"
+  ],
+  credentials: true
+};
+
+// CORS must run before Helmet so preflight OPTIONS requests are handled first
+app.options("*", cors(corsOptions));
+app.use(cors(corsOptions));
 app.use(helmet({ crossOriginResourcePolicy: false }));
 
 const rateLimitMap = new Map();
