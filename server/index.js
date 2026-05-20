@@ -1,4 +1,6 @@
 // Archimind server
+const path = require("path");
+const { Worker } = require("worker_threads");
 const express = require("express");
 const cors = require("cors");
 const helmet = require("helmet");
@@ -593,6 +595,8 @@ app.post("/api/extract-text", requireAuth, rateLimit(30, 60_000), async (req, re
 });
 
 // ── page extraction — server side ────────────────────────────────────────────
+// mupdf runs in a worker thread so that WASM abort() only kills the worker,
+// not the main process. pdf-lib is the fallback if the worker fails.
 app.post("/api/extract-pages", requireAuth, rateLimit(30, 60_000), async (req, res) => {
   const { base64, pages } = req.body;
   if (!base64 || !pages || !Array.isArray(pages)) {
@@ -603,23 +607,21 @@ app.post("/api/extract-pages", requireAuth, rateLimit(30, 60_000), async (req, r
   const pageList = pages.map(Number).filter(n => !isNaN(n) && n > 0);
   if (pageList.length === 0) return res.status(400).json({ error: "No valid page numbers" });
 
-  // Attempt 1: mupdf
+  // Attempt 1: mupdf in an isolated worker thread
   try {
-    const mupdf = await import("mupdf");
-    const srcDoc = new mupdf.PDFDocument(pdfBytes);
-    const totalPages = srcDoc.countPages();
-    const validPages = pageList.filter(p => p <= totalPages);
-    if (validPages.length === 0) return res.status(400).json({ error: "No valid pages" });
-    const outDoc = new mupdf.PDFDocument();
-    for (const pageNum of validPages) {
-      const graftMap = outDoc.newGraftMap();
-      outDoc.graftPage(outDoc.countPages(), srcDoc, pageNum - 1, graftMap);
-    }
-    const rawBuffer = outDoc.saveToBuffer("compress");
-    const outBytes = Buffer.from(rawBuffer.asUint8Array());
-    return res.json({ base64: outBytes.toString("base64"), pagesExtracted: validPages.length, pageNumbers: validPages });
+    const result = await new Promise((resolve, reject) => {
+      const worker = new Worker(path.join(__dirname, "workers/extractPages.worker.js"), {
+        workerData: { pdfBuffer: pdfBytes, pageList },
+      });
+      worker.once("message", msg => msg.error ? reject(new Error(msg.error)) : resolve(msg));
+      worker.once("error", reject);
+      worker.once("exit", code => { if (code !== 0) reject(new Error(`mupdf worker exited with code ${code}`)); });
+    });
+    if (result.pageNumbers?.length === 0) return res.status(400).json({ error: "No valid pages" });
+    return res.json(result);
   } catch (mupdfErr) {
-    console.warn("mupdf extraction failed, trying pdf-lib:", mupdfErr.message);
+    if (mupdfErr.message === "no-valid-pages") return res.status(400).json({ error: "No valid pages" });
+    console.warn("mupdf worker failed, trying pdf-lib:", mupdfErr.message);
   }
 
   // Attempt 2: pdf-lib fallback
