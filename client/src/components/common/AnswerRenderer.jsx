@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA } from "../../constants";
 
 function formatInline(text) {
@@ -35,6 +36,64 @@ function CitationLine({ citationText, onCitationClick, keyProp }) {
           onClick={() => onCitationClick(docName, heading)}
           style={{ background: AD_GREEN, border: "none", cursor: "pointer", color: "#fff", fontSize: 10, padding: "4px 10px", fontFamily: "Inter, Arial, sans-serif", borderRadius: 2, flexShrink: 0, fontWeight: 500, letterSpacing: "0.05em", whiteSpace: "nowrap" }}
         >↗ open</button>
+      )}
+    </div>
+  );
+}
+
+function ClauseBlock({ clause, onCitationClick }) {
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 5 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: AD_GREEN, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "Inter, Arial, sans-serif" }}>{clause.heading}</div>
+        {onCitationClick && (
+          <button
+            onClick={() => onCitationClick(clause.docName, clause.heading)}
+            style={{ background: AD_GREEN, border: "none", cursor: "pointer", color: "#fff", fontSize: 10, padding: "3px 9px", fontFamily: "Inter, Arial, sans-serif", borderRadius: 2, flexShrink: 0, marginLeft: 10, fontWeight: 500, letterSpacing: "0.05em", whiteSpace: "nowrap" }}
+          >↗ open</button>
+        )}
+      </div>
+      {clause.lines.map((line, idx) =>
+        line.figureNote ? (
+          <div key={idx} style={{ fontSize: 11, fontStyle: "italic", color: "#6b7280", marginTop: 6, fontFamily: "Inter, Arial, sans-serif", display: "flex", alignItems: "center", gap: 6 }}>
+            {line.text}
+            {onCitationClick && (
+              <button
+                onClick={() => onCitationClick(clause.docName, clause.heading)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: AD_GREEN, fontSize: 10, padding: 0, fontFamily: "Inter, Arial, sans-serif", fontWeight: 500 }}
+              >↗ open</button>
+            )}
+          </div>
+        ) : (
+          <div key={idx} style={{ fontSize: 12, color: ARC_NAVY, lineHeight: 1.8, borderLeft: "2px solid #d0ccc8", paddingLeft: 12, marginTop: idx === 0 ? 0 : 6, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(line.text)}</div>
+        )
+      )}
+    </div>
+  );
+}
+
+function DocumentGroup({ docName, clauses, onCitationClick }) {
+  const [expanded, setExpanded] = useState(false);
+  const displayDoc = docName.replace(/\.pdf$/i, "").replace(/__+/g, " — ").trim();
+  const clauseHeadings = clauses.map(c => c.heading).join(" · ");
+  return (
+    <div style={{ border: "1px solid #d0ccc8", borderLeft: `3px solid ${AD_GREEN}`, borderRadius: "0 3px 3px 0", marginBottom: 8, background: "#fff" }}>
+      <div
+        onClick={() => setExpanded(e => !e)}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", cursor: "pointer", userSelect: "none" }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, color: ARC_NAVY, fontSize: 13, fontFamily: "Inter, Arial, sans-serif" }}>{displayDoc}</div>
+          {clauseHeadings && <div style={{ color: "#6b7280", fontSize: 11, marginTop: 4, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{clauseHeadings}</div>}
+        </div>
+        <div style={{ color: AD_GREEN, fontSize: 20, marginLeft: 12, flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</div>
+      </div>
+      {expanded && (
+        <div style={{ borderTop: "1px solid #f0eeec", padding: "0 14px 14px" }}>
+          {clauses.map((clause, idx) => (
+            <ClauseBlock key={idx} clause={clause} onCitationClick={onCitationClick} />
+          ))}
+        </div>
       )}
     </div>
   );
