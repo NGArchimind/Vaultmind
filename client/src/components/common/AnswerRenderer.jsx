@@ -106,6 +106,24 @@ export default function AnswerRenderer({ text, onCitationClick }) {
   let tableBuffer = [];
   let inTable = false;
 
+  let currentSection = null;
+  let groupBuffer = null;   // { docName: string, clauses: Array }
+  let currentClause = null; // { heading: string, docName: string, lines: Array<{text, figureNote}> }
+
+  const flushGroup = (key) => {
+    if (!groupBuffer) return;
+    if (currentClause) {
+      groupBuffer.clauses.push(currentClause);
+      currentClause = null;
+    }
+    if (groupBuffer.clauses.length > 0) {
+      elements.push(
+        <DocumentGroup key={`grp-${key}`} docName={groupBuffer.docName} clauses={groupBuffer.clauses} onCitationClick={onCitationClick} />
+      );
+    }
+    groupBuffer = null;
+  };
+
   const flushTable = (key) => {
     if (tableBuffer.length === 0) return;
     const parseRow = (r) => {
@@ -194,6 +212,51 @@ export default function AnswerRenderer({ text, onCitationClick }) {
       return;
     }
 
+    // Group-aware parsing for Detailed Analysis
+    if (currentSection === "detailed") {
+      const trimmedLine2 = line.trim();
+
+      // ### starts a new document group
+      if (trimmedLine2.startsWith("### ")) {
+        if (currentClause) { groupBuffer?.clauses.push(currentClause); currentClause = null; }
+        if (groupBuffer && groupBuffer.clauses.length > 0) {
+          elements.push(
+            <DocumentGroup key={`grp-${i}`} docName={groupBuffer.docName} clauses={groupBuffer.clauses} onCitationClick={onCitationClick} />
+          );
+        }
+        groupBuffer = { docName: trimmedLine2.slice(4).trim(), clauses: [] };
+        return;
+      }
+
+      // If we're inside a document group, handle all lines within it
+      if (groupBuffer) {
+        // Citation line: *Doc | Clause*
+        const isCitationLine = trimmedLine2.startsWith("*") && trimmedLine2.endsWith("*") && trimmedLine2.includes("|") && !trimmedLine2.startsWith("**") && trimmedLine2.length > 2;
+        if (isCitationLine) {
+          if (currentClause) groupBuffer.clauses.push(currentClause);
+          const { docName, heading } = parseCitation(trimmedLine2.slice(1, -1));
+          currentClause = { heading, docName, lines: [] };
+          return;
+        }
+
+        // Figure note: *See Fig. X.X — ...*  (has * wrapping, no |, matches "see fig")
+        const isFigureNote = trimmedLine2.startsWith("*") && trimmedLine2.endsWith("*") && !trimmedLine2.includes("|") && trimmedLine2.length > 2 && !trimmedLine2.startsWith("**") && /see fig/i.test(trimmedLine2);
+        if (isFigureNote && currentClause) {
+          currentClause.lines.push({ text: trimmedLine2.slice(1, -1), figureNote: true });
+          return;
+        }
+
+        // Verbatim text — attach to current clause
+        if (currentClause && trimmedLine2) {
+          currentClause.lines.push({ text: line, figureNote: false });
+          return;
+        }
+
+        // Skip blank lines and unrecognised lines within the group
+        return;
+      }
+    }
+
     if (line.startsWith("### ")) {
       elements.push(
         <h3 key={i} style={{ color: ARC_TERRACOTTA, fontSize: 11, fontWeight: 600, margin: "20px 0 6px", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "Inter, Arial, sans-serif" }}>
@@ -201,8 +264,15 @@ export default function AnswerRenderer({ text, onCitationClick }) {
         </h3>
       );
     } else if (line.startsWith("## ")) {
+      if (currentSection === "detailed") flushGroup(i);
       const text = line.slice(3);
       const lower = text.toLowerCase();
+      if (lower.includes("detailed analysis")) currentSection = "detailed";
+      else if (lower.includes("summary")) currentSection = "summary";
+      else if (lower.includes("contradictions")) currentSection = "contradictions";
+      else if (lower.includes("practical")) currentSection = "practical";
+      else currentSection = null;
+
       const isSummary = lower.includes("summary");
       const isPractical = lower.includes("practical conclusion");
       if (isSummary) {
@@ -291,5 +361,6 @@ export default function AnswerRenderer({ text, onCitationClick }) {
     }
   });
   if (inTable) flushTable("end");
+  if (currentSection === "detailed") flushGroup("end");
   return <div>{elements}</div>;
 }
