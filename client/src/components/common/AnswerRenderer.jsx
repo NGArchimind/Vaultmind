@@ -218,12 +218,7 @@ export default function AnswerRenderer({ text, onCitationClick }) {
 
       // ### starts a new document group
       if (trimmedLine2.startsWith("### ")) {
-        if (currentClause) { groupBuffer?.clauses.push(currentClause); currentClause = null; }
-        if (groupBuffer && groupBuffer.clauses.length > 0) {
-          elements.push(
-            <DocumentGroup key={`grp-${i}`} docName={groupBuffer.docName} clauses={groupBuffer.clauses} onCitationClick={onCitationClick} />
-          );
-        }
+        flushGroup(i);
         groupBuffer = { docName: trimmedLine2.slice(4).trim(), clauses: [] };
         return;
       }
@@ -255,6 +250,7 @@ export default function AnswerRenderer({ text, onCitationClick }) {
         // Skip blank lines and unrecognised lines within the group
         return;
       }
+      // No groupBuffer yet — fall through to normal rendering below
     }
 
     if (line.startsWith("### ")) {
