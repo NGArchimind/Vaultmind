@@ -1,11 +1,13 @@
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
 
 const app = express();
+app.use(helmet({ crossOriginResourcePolicy: false }));
 
 const rateLimitMap = new Map();
 function rateLimit(maxRequests, windowMs) {
@@ -28,6 +30,7 @@ function rateLimit(maxRequests, windowMs) {
 
 app.use(cors({
   origin: [
+    "https://archimind.vercel.app",
     "https://archimind-omega.vercel.app",
     "https://archimind-git-develop-nathan-greens-projects-192281d0.vercel.app"
   ],
@@ -174,6 +177,12 @@ async function indexDrawing(drawing) {
   }
 }
 
+// ── Safe error helper — logs detail server-side, returns generic message to client ───
+function serverError(res, err, context) {
+  console.error(`[${context}]`, err.message || err);
+  return res.status(500).json({ error: "Something went wrong. Please try again." });
+}
+
 // ── JWT auth middleware ───────────────────────────────────────────────────────
 async function requireAuth(req, res, next) {
   const authHeader = req.headers["authorization"];
@@ -210,7 +219,8 @@ app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => 
 
   try {
     const { model, max_tokens, system, messages, temperature, thinking } = req.body;
-    const requestedModel = model && model.startsWith("gemini-") ? model : "gemini-2.5-flash";
+    const ALLOWED_MODELS = new Set(["gemini-2.5-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"]);
+    const requestedModel = (model && ALLOWED_MODELS.has(model)) ? model : "gemini-2.5-flash";
 
     const contents = [];
 
@@ -264,9 +274,9 @@ app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => 
     }
 
     if (!response.ok) {
-      const err = await response.text();
-      console.error("Gemini error:", err);
-      return res.status(response.status).json({ error: err });
+      const errText = await response.text();
+      console.error("Gemini error:", errText);
+      return res.status(502).json({ error: "AI service error — please try again." });
     }
 
     const data = await response.json();
@@ -327,7 +337,7 @@ app.get("/api/vaults", requireAuth, async (req, res) => {
 
     res.json({ vaults });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "GET /api/vaults");
   }
 });
 
@@ -369,7 +379,7 @@ app.post("/api/vaults", requireAuth, async (req, res) => {
       res.json({ id: name, name, type: "vault" });
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "POST /api/vaults");
   }
 });
 
@@ -380,8 +390,10 @@ function sanitizeVaultPath(raw) {
 // PATCH /api/vaults/:vault — rename a vault
 app.patch("/api/vaults/*", requireAuth, async (req, res) => {
   const vaultPath = sanitizeVaultPath(req.params[0]);
-  const { name: newName } = req.body;
-  if (!newName) return res.status(400).json({ error: "New name required" });
+  const rawNewName = req.body.name;
+  if (!rawNewName) return res.status(400).json({ error: "New name required" });
+  const newName = sanitizeVaultPath(rawNewName);
+  if (!newName) return res.status(400).json({ error: "Invalid vault name" });
 
   try {
     const parts = vaultPath.split("/");
@@ -398,7 +410,7 @@ app.patch("/api/vaults/*", requireAuth, async (req, res) => {
     await movePrefix(fromPrefix, toPrefix);
     res.json({ id: newPath, name: newName });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "PATCH /api/vaults/*");
   }
 });
 
@@ -411,7 +423,7 @@ app.delete("/api/vaults/*", requireAuth, async (req, res) => {
     await deletePrefix(`${vaultPath}/`);
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "DELETE /api/vaults/*");
   }
 });
 
@@ -533,7 +545,7 @@ app.get("/api/vaults/*/index", requireAuth, async (req, res) => {
 });
 
 // ── text extraction — server side ────────────────────────────────────────────
-app.post("/api/extract-text", requireAuth, async (req, res) => {
+app.post("/api/extract-text", requireAuth, rateLimit(30, 60_000), async (req, res) => {
   const { base64 } = req.body;
   if (!base64) return res.status(400).json({ error: "base64 required" });
 
@@ -567,7 +579,7 @@ app.post("/api/extract-text", requireAuth, async (req, res) => {
 });
 
 // ── page extraction — server side ────────────────────────────────────────────
-app.post("/api/extract-pages", requireAuth, async (req, res) => {
+app.post("/api/extract-pages", requireAuth, rateLimit(30, 60_000), async (req, res) => {
   const { base64, pages } = req.body;
   if (!base64 || !pages || !Array.isArray(pages)) {
     return res.status(400).json({ error: "base64 and pages array required" });
@@ -1187,6 +1199,11 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
       results.push({ drawing_number, action: "skipped", error: "Missing required fields" });
       continue;
     }
+    const expectedKeyPrefix = `projects/${req.params.id}/drawings/`;
+    if (!file_key.startsWith(expectedKeyPrefix)) {
+      results.push({ drawing_number, action: "skipped", error: "Invalid file_key — key must be within this project's drawings folder" });
+      continue;
+    }
 
     const safeFileName = file_name.replace(/[^a-zA-Z0-9._-]/g, "_");
 
@@ -1333,7 +1350,7 @@ app.post("/api/projects/:id/drawings/search", requireAuth, async (req, res) => {
 });
 
 // ── Reindex all drawings for a project ───────────────────────────────────────
-app.post("/api/projects/:id/drawings/reindex-all", requireAuth, async (req, res) => {
+app.post("/api/projects/:id/drawings/reindex-all", requireAuth, rateLimit(3, 60_000), async (req, res) => {
   try {
     const { data: drawings, error } = await supabase
       .from("project_drawings")
@@ -1531,7 +1548,7 @@ Query: ${query}`;
 
 // POST /api/projects/:id/emails/ingest
 // ArchiSync calls this in batches. Each item in the batch is one parsed email.
-app.post("/api/projects/:id/emails/ingest", requireAuth, async (req, res) => {
+app.post("/api/projects/:id/emails/ingest", requireAuth, rateLimit(10, 60_000), async (req, res) => {
   const { emails } = req.body; // array of email objects
   if (!Array.isArray(emails) || emails.length === 0) {
     return res.status(400).json({ error: "emails array required" });
@@ -1727,7 +1744,7 @@ app.delete("/api/projects/:id/emails/:eid", requireAuth, async (req, res) => {
 // POST /api/projects/:id/emails/reembed
 // Re-generates embeddings for all existing emails using the correct taskType.
 // Call this once after deploying the search improvements.
-app.post("/api/projects/:id/emails/reembed", requireAuth, async (req, res) => {
+app.post("/api/projects/:id/emails/reembed", requireAuth, rateLimit(3, 60_000), async (req, res) => {
   try {
     const { data: emails, error } = await supabase
       .from("project_emails")
@@ -2695,7 +2712,7 @@ app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     }));
     res.json({ users });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "GET /api/admin/users");
   }
 });
 
@@ -2720,7 +2737,7 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "POST /api/admin/users");
   }
 });
 
@@ -2740,7 +2757,7 @@ app.patch("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) =
       },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "PATCH /api/admin/users/:uid");
   }
 });
 
@@ -2753,7 +2770,7 @@ app.delete("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) 
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "DELETE /api/admin/users/:uid");
   }
 });
 
@@ -3095,7 +3112,6 @@ app.get("/api/team-members", requireAuth, async (req, res) => {
   const members = (data.users || []).map(u => ({
     id: u.id,
     full_name: u.user_metadata?.full_name || u.email,
-    email: u.email,
   }));
   res.json(members);
 });
