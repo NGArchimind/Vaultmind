@@ -1509,31 +1509,45 @@ function stripReplyChain(text) {
   return result.trim();
 }
 
-// Generate a semantic enrichment summary for an email using Gemini Flash.
-// Returns a compact line of related topics, synonyms, and technical terms
-// that get prepended to the embedding text so the vector captures conceptual meaning.
-async function generateSemanticSummary(subject, body) {
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function generateStructuredSummary(subject, fromName, fromAddress, body) {
   const apiKey = process.env.GEMINI_API_KEY;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
-  const prompt = `You are indexing a professional email from an architectural practice for semantic search.
-Given the email below, output a single comma-separated line of key topics, technical terms, synonyms, and related concepts that someone might search for to find this email. Include relevant construction, planning, or building regulation terms where applicable. Maximum 60 words. No explanation — just the comma-separated terms.
+  const prompt = `Analyse this email from an architectural practice.
 
 Subject: ${subject}
-Body: ${body.slice(0, 2000)}`;
+From: ${fromName || ''} <${fromAddress || ''}>
+Body: ${body.slice(0, 3000)}
+
+Return JSON with exactly two fields:
+1. "summary": 80-120 words capturing what was confirmed, decided, or requested; who sent it and their role (client, consultant, contractor, internal); any key dates, amounts, or reference numbers; related topics and technical synonyms for search.
+2. "type": one of: confirmation, query, instruction, information, objection, other
+
+Return only valid JSON. No preamble or explanation.`;
   try {
     const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 150 },
+        generationConfig: { temperature: 0, maxOutputTokens: 300 },
       }),
     });
-    if (!response.ok) return "";
+    if (!response.ok) return { summary: "", type: "other" };
     const data = await response.json();
-    return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+    const clean = raw.replace(/```json|```/g, "").trim();
+    const parsed = JSON.parse(clean);
+    const validTypes = ["confirmation","query","instruction","information","objection","other"];
+    return {
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+      type: validTypes.includes(parsed.type) ? parsed.type : "other",
+    };
   } catch {
-    return ""; // non-fatal — fall back to embedding without enrichment
+    return { summary: "", type: "other" };
   }
 }
 
