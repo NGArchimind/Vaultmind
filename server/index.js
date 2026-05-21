@@ -1631,7 +1631,17 @@ app.post("/api/projects/:id/emails/ingest", requireAuth, rateLimit(10, 60_000), 
 
         if (!textForEmbedding) { results.skipped++; continue; }
 
-        const embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+        let embedding;
+        try {
+          embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+        } catch (embErr) {
+          if (embErr.message && embErr.message.includes("429")) {
+            await sleep(RATE_LIMIT_WAIT_MS);
+            embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+          } else {
+            throw embErr;
+          }
+        }
 
         const { error } = await supabase
           .from("project_emails")
@@ -1863,7 +1873,17 @@ app.post("/api/projects/:id/emails/reembed", requireAuth, rateLimit(3, 60_000), 
 
           if (!textForEmbedding) continue;
 
-          const embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+          let embedding;
+          try {
+            embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+          } catch (embErr) {
+            if (embErr.message && embErr.message.includes("429")) {
+              await sleep(RATE_LIMIT_WAIT_MS);
+              embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+            } else {
+              throw embErr;
+            }
+          }
           const { error: updateError } = await supabase
             .from("project_emails")
             .update({ embedding, email_type: structured.type })
