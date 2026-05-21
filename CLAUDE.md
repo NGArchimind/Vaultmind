@@ -112,3 +112,5 @@ PDF viewer: inline iframe, PDF.js CDN v3.11.174.
 2. **SQL migrations for review tables** — may not be run in production. See memory file for SQL.
 3. **Cross-reference clauses still appearing** (LOW) — AD M Vol 1 cl.0.14 and related still appear despite filtering rule.
 4. **Wide table column extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column boundaries for wide tables.
+5. **Email structured summaries not stored** (ENHANCEMENT) — `generateStructuredSummary` output used only for embedding, not saved. Future: add `email_summary text` column. See HANDOVER.md.
+6. **Email Q&A relevance tuning** (ONGOING) — 0.35 similarity threshold and top-20 limit are starting points. May need tuning as corpus grows beyond 500 emails.
