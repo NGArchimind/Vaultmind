@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA } from "../../constants";
 
 function formatInline(text) {
@@ -40,12 +41,88 @@ function CitationLine({ citationText, onCitationClick, keyProp }) {
   );
 }
 
+function ClauseBlock({ clause, onCitationClick }) {
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 5 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: AD_GREEN, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "Inter, Arial, sans-serif" }}>{clause.heading}</div>
+        {onCitationClick && (
+          <button
+            onClick={() => onCitationClick(clause.docName, clause.heading)}
+            style={{ background: AD_GREEN, border: "none", cursor: "pointer", color: "#fff", fontSize: 10, padding: "4px 10px", fontFamily: "Inter, Arial, sans-serif", borderRadius: 2, flexShrink: 0, marginLeft: 10, fontWeight: 500, letterSpacing: "0.05em", whiteSpace: "nowrap" }}
+          >↗ open</button>
+        )}
+      </div>
+      {clause.lines.map((line, idx) =>
+        line.figureNote ? (
+          <div key={idx} style={{ fontSize: 11, fontStyle: "italic", color: "#6b7280", marginTop: 6, fontFamily: "Inter, Arial, sans-serif", display: "flex", alignItems: "center", gap: 6 }}>
+            {line.text}
+            {onCitationClick && (
+              <button
+                onClick={() => onCitationClick(clause.docName, clause.heading)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: AD_GREEN, fontSize: 10, padding: 0, fontFamily: "Inter, Arial, sans-serif", fontWeight: 500 }}
+              >↗ open</button>
+            )}
+          </div>
+        ) : (
+          <div key={idx} style={{ fontSize: 12, color: ARC_NAVY, lineHeight: 1.8, borderLeft: "2px solid #d0ccc8", paddingLeft: 12, marginTop: idx === 0 ? 0 : 6, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(line.text)}</div>
+        )
+      )}
+    </div>
+  );
+}
+
+function DocumentGroup({ docName, clauses, onCitationClick }) {
+  const [expanded, setExpanded] = useState(false);
+  const displayDoc = docName.replace(/\.pdf$/i, "").replace(/__+/g, " — ").trim();
+  const clauseHeadings = clauses.map(c => c.heading).join(" · ");
+  return (
+    <div style={{ border: "1px solid #d0ccc8", borderLeft: `3px solid ${AD_GREEN}`, borderRadius: "0 3px 3px 0", marginBottom: 8, background: "#fff" }}>
+      <div
+        onClick={() => setExpanded(e => !e)}
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", cursor: "pointer", userSelect: "none" }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 600, color: ARC_NAVY, fontSize: 13, fontFamily: "Inter, Arial, sans-serif" }}>{displayDoc}</div>
+          {clauseHeadings && <div style={{ color: "#6b7280", fontSize: 11, marginTop: 4, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{clauseHeadings}</div>}
+        </div>
+        <div style={{ color: AD_GREEN, fontSize: 20, marginLeft: 12, flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</div>
+      </div>
+      {expanded && (
+        <div style={{ borderTop: "1px solid #e8e0d5", padding: "0 14px 14px" }}>
+          {clauses.map((clause, idx) => (
+            <ClauseBlock key={idx} clause={clause} onCitationClick={onCitationClick} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AnswerRenderer({ text, onCitationClick }) {
   if (!text) return null;
   const lines = text.split("\n");
   const elements = [];
   let tableBuffer = [];
   let inTable = false;
+
+  let currentSection = null;
+  let groupBuffer = null;   // { docName: string, clauses: Array }
+  let currentClause = null; // { heading: string, docName: string, lines: Array<{text, figureNote}> }
+
+  const flushGroup = (key) => {
+    if (!groupBuffer) return;
+    if (currentClause) {
+      groupBuffer.clauses.push(currentClause);
+      currentClause = null;
+    }
+    if (groupBuffer.clauses.length > 0) {
+      elements.push(
+        <DocumentGroup key={`grp-${key}`} docName={groupBuffer.docName} clauses={groupBuffer.clauses} onCitationClick={onCitationClick} />
+      );
+    }
+    groupBuffer = null;
+  };
 
   const flushTable = (key) => {
     if (tableBuffer.length === 0) return;
@@ -135,6 +212,48 @@ export default function AnswerRenderer({ text, onCitationClick }) {
       return;
     }
 
+    // Group-aware parsing for Detailed Analysis
+    if (currentSection === "detailed") {
+      const trimmedLine2 = line.trim();
+
+      // ### starts a new document group
+      if (trimmedLine2.startsWith("### ")) {
+        flushGroup(i);
+        groupBuffer = { docName: trimmedLine2.slice(4).trim(), clauses: [] };
+        return;
+      }
+
+      // If we're inside a document group, handle all lines within it
+      // ## headings must fall through — the ## handler calls flushGroup and updates currentSection
+      if (groupBuffer && !trimmedLine2.startsWith("## ")) {
+        // Citation line: *Doc | Clause*
+        const isCitationLine = trimmedLine2.startsWith("*") && trimmedLine2.endsWith("*") && trimmedLine2.includes("|") && !trimmedLine2.startsWith("**") && trimmedLine2.length > 2;
+        if (isCitationLine) {
+          if (currentClause) groupBuffer.clauses.push(currentClause);
+          const { docName, heading } = parseCitation(trimmedLine2.slice(1, -1));
+          currentClause = { heading, docName, lines: [] };
+          return;
+        }
+
+        // Figure note: *See Fig. X.X — ...*  (has * wrapping, no |, matches "see fig")
+        const isFigureNote = trimmedLine2.startsWith("*") && trimmedLine2.endsWith("*") && !trimmedLine2.includes("|") && trimmedLine2.length > 2 && !trimmedLine2.startsWith("**") && /see fig/i.test(trimmedLine2);
+        if (isFigureNote && currentClause) {
+          currentClause.lines.push({ text: trimmedLine2.slice(1, -1), figureNote: true });
+          return;
+        }
+
+        // Verbatim text — attach to current clause
+        if (currentClause && trimmedLine2) {
+          currentClause.lines.push({ text: line, figureNote: false });
+          return;
+        }
+
+        // Skip blank lines and unrecognised lines within the group
+        return;
+      }
+      // No groupBuffer yet — fall through to normal rendering below
+    }
+
     if (line.startsWith("### ")) {
       elements.push(
         <h3 key={i} style={{ color: ARC_TERRACOTTA, fontSize: 11, fontWeight: 600, margin: "20px 0 6px", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "Inter, Arial, sans-serif" }}>
@@ -142,8 +261,15 @@ export default function AnswerRenderer({ text, onCitationClick }) {
         </h3>
       );
     } else if (line.startsWith("## ")) {
+      if (currentSection === "detailed") flushGroup(i);
       const text = line.slice(3);
       const lower = text.toLowerCase();
+      if (lower.includes("detailed analysis")) currentSection = "detailed";
+      else if (lower.includes("summary")) currentSection = "summary";
+      else if (lower.includes("contradictions")) currentSection = "contradictions";
+      else if (lower.includes("practical")) currentSection = "practical";
+      else currentSection = null;
+
       const isSummary = lower.includes("summary");
       const isPractical = lower.includes("practical conclusion");
       if (isSummary) {
@@ -232,5 +358,6 @@ export default function AnswerRenderer({ text, onCitationClick }) {
     }
   });
   if (inTable) flushTable("end");
+  if (currentSection === "detailed") flushGroup("end");
   return <div>{elements}</div>;
 }

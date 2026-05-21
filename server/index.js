@@ -1,11 +1,29 @@
+// Archimind server
+const path = require("path");
+const { Worker } = require("worker_threads");
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand, CopyObjectCommand } = require("@aws-sdk/client-s3");
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
 
 const app = express();
+
+const corsOptions = {
+  origin: [
+    "https://archimind.vercel.app",
+    "https://archimind-omega.vercel.app",
+    "https://archimind-git-develop-nathan-greens-projects-192281d0.vercel.app"
+  ],
+  credentials: true
+};
+
+// CORS must run before Helmet so preflight OPTIONS requests are handled first
+app.options("*", cors(corsOptions));
+app.use(cors(corsOptions));
+app.use(helmet({ crossOriginResourcePolicy: false }));
 
 const rateLimitMap = new Map();
 function rateLimit(maxRequests, windowMs) {
@@ -28,6 +46,7 @@ function rateLimit(maxRequests, windowMs) {
 
 app.use(cors({
   origin: [
+    "https://archimind.vercel.app",
     "https://archimind-omega.vercel.app",
     "https://archimind-git-develop-nathan-greens-projects-192281d0.vercel.app"
   ],
@@ -174,6 +193,12 @@ async function indexDrawing(drawing) {
   }
 }
 
+// ── Safe error helper — logs detail server-side, returns generic message to client ───
+function serverError(res, err, context) {
+  console.error(`[${context}]`, err.message || err);
+  return res.status(500).json({ error: "Something went wrong. Please try again." });
+}
+
 // ── JWT auth middleware ───────────────────────────────────────────────────────
 async function requireAuth(req, res, next) {
   const authHeader = req.headers["authorization"];
@@ -210,7 +235,8 @@ app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => 
 
   try {
     const { model, max_tokens, system, messages, temperature, thinking } = req.body;
-    const requestedModel = model && model.startsWith("gemini-") ? model : "gemini-2.5-flash";
+    const ALLOWED_MODELS = new Set(["gemini-2.5-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"]);
+    const requestedModel = (model && ALLOWED_MODELS.has(model)) ? model : "gemini-2.5-flash";
 
     const contents = [];
 
@@ -264,9 +290,9 @@ app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => 
     }
 
     if (!response.ok) {
-      const err = await response.text();
-      console.error("Gemini error:", err);
-      return res.status(response.status).json({ error: err });
+      const errText = await response.text();
+      console.error("Gemini error:", errText);
+      return res.status(502).json({ error: "AI service error — please try again." });
     }
 
     const data = await response.json();
@@ -327,7 +353,7 @@ app.get("/api/vaults", requireAuth, async (req, res) => {
 
     res.json({ vaults });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "GET /api/vaults");
   }
 });
 
@@ -369,7 +395,7 @@ app.post("/api/vaults", requireAuth, async (req, res) => {
       res.json({ id: name, name, type: "vault" });
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "POST /api/vaults");
   }
 });
 
@@ -380,8 +406,10 @@ function sanitizeVaultPath(raw) {
 // PATCH /api/vaults/:vault — rename a vault
 app.patch("/api/vaults/*", requireAuth, async (req, res) => {
   const vaultPath = sanitizeVaultPath(req.params[0]);
-  const { name: newName } = req.body;
-  if (!newName) return res.status(400).json({ error: "New name required" });
+  const rawNewName = req.body.name;
+  if (!rawNewName) return res.status(400).json({ error: "New name required" });
+  const newName = sanitizeVaultPath(rawNewName);
+  if (!newName) return res.status(400).json({ error: "Invalid vault name" });
 
   try {
     const parts = vaultPath.split("/");
@@ -398,7 +426,7 @@ app.patch("/api/vaults/*", requireAuth, async (req, res) => {
     await movePrefix(fromPrefix, toPrefix);
     res.json({ id: newPath, name: newName });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "PATCH /api/vaults/*");
   }
 });
 
@@ -411,7 +439,7 @@ app.delete("/api/vaults/*", requireAuth, async (req, res) => {
     await deletePrefix(`${vaultPath}/`);
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "DELETE /api/vaults/*");
   }
 });
 
@@ -533,7 +561,7 @@ app.get("/api/vaults/*/index", requireAuth, async (req, res) => {
 });
 
 // ── text extraction — server side ────────────────────────────────────────────
-app.post("/api/extract-text", requireAuth, async (req, res) => {
+app.post("/api/extract-text", requireAuth, rateLimit(30, 60_000), async (req, res) => {
   const { base64 } = req.body;
   if (!base64) return res.status(400).json({ error: "base64 required" });
 
@@ -567,7 +595,9 @@ app.post("/api/extract-text", requireAuth, async (req, res) => {
 });
 
 // ── page extraction — server side ────────────────────────────────────────────
-app.post("/api/extract-pages", requireAuth, async (req, res) => {
+// mupdf runs in a worker thread so that WASM abort() only kills the worker,
+// not the main process. pdf-lib is the fallback if the worker fails.
+app.post("/api/extract-pages", requireAuth, rateLimit(30, 60_000), async (req, res) => {
   const { base64, pages } = req.body;
   if (!base64 || !pages || !Array.isArray(pages)) {
     return res.status(400).json({ error: "base64 and pages array required" });
@@ -577,23 +607,21 @@ app.post("/api/extract-pages", requireAuth, async (req, res) => {
   const pageList = pages.map(Number).filter(n => !isNaN(n) && n > 0);
   if (pageList.length === 0) return res.status(400).json({ error: "No valid page numbers" });
 
-  // Attempt 1: mupdf
+  // Attempt 1: mupdf in an isolated worker thread
   try {
-    const mupdf = await import("mupdf");
-    const srcDoc = new mupdf.PDFDocument(pdfBytes);
-    const totalPages = srcDoc.countPages();
-    const validPages = pageList.filter(p => p <= totalPages);
-    if (validPages.length === 0) return res.status(400).json({ error: "No valid pages" });
-    const outDoc = new mupdf.PDFDocument();
-    for (const pageNum of validPages) {
-      const graftMap = outDoc.newGraftMap();
-      outDoc.graftPage(outDoc.countPages(), srcDoc, pageNum - 1, graftMap);
-    }
-    const rawBuffer = outDoc.saveToBuffer("compress");
-    const outBytes = Buffer.from(rawBuffer.asUint8Array());
-    return res.json({ base64: outBytes.toString("base64"), pagesExtracted: validPages.length, pageNumbers: validPages });
+    const result = await new Promise((resolve, reject) => {
+      const worker = new Worker(path.join(__dirname, "workers/extractPages.worker.js"), {
+        workerData: { pdfBuffer: pdfBytes, pageList },
+      });
+      worker.once("message", msg => msg.error ? reject(new Error(msg.error)) : resolve(msg));
+      worker.once("error", reject);
+      worker.once("exit", code => { if (code !== 0) reject(new Error(`mupdf worker exited with code ${code}`)); });
+    });
+    if (result.pageNumbers?.length === 0) return res.status(400).json({ error: "No valid pages" });
+    return res.json(result);
   } catch (mupdfErr) {
-    console.warn("mupdf extraction failed, trying pdf-lib:", mupdfErr.message);
+    if (mupdfErr.message === "no-valid-pages") return res.status(400).json({ error: "No valid pages" });
+    console.warn("mupdf worker failed, trying pdf-lib:", mupdfErr.message);
   }
 
   // Attempt 2: pdf-lib fallback
@@ -1187,6 +1215,11 @@ app.post("/api/projects/:id/drawings/sync", requireAuth, async (req, res) => {
       results.push({ drawing_number, action: "skipped", error: "Missing required fields" });
       continue;
     }
+    const expectedKeyPrefix = `projects/${req.params.id}/drawings/`;
+    if (!file_key.startsWith(expectedKeyPrefix)) {
+      results.push({ drawing_number, action: "skipped", error: "Invalid file_key — key must be within this project's drawings folder" });
+      continue;
+    }
 
     const safeFileName = file_name.replace(/[^a-zA-Z0-9._-]/g, "_");
 
@@ -1333,7 +1366,7 @@ app.post("/api/projects/:id/drawings/search", requireAuth, async (req, res) => {
 });
 
 // ── Reindex all drawings for a project ───────────────────────────────────────
-app.post("/api/projects/:id/drawings/reindex-all", requireAuth, async (req, res) => {
+app.post("/api/projects/:id/drawings/reindex-all", requireAuth, rateLimit(3, 60_000), async (req, res) => {
   try {
     const { data: drawings, error } = await supabase
       .from("project_drawings")
@@ -1434,7 +1467,7 @@ app.delete("/api/projects/:id/todos/:tid", requireAuth, async (req, res) => {
 // ── Email routes ──────────────────────────────────────────────────────────────
 
 // Helper: generate embedding via Gemini
-async function generateEmbedding(text) {
+async function generateEmbedding(text, taskType = "RETRIEVAL_DOCUMENT") {
   const apiKey = process.env.GEMINI_API_KEY;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`;
   const response = await fetch(url, {
@@ -1443,6 +1476,7 @@ async function generateEmbedding(text) {
     body: JSON.stringify({
       model: "models/gemini-embedding-001",
       content: { parts: [{ text: text.slice(0, 8000) }] },
+      taskType,
       outputDimensionality: 768,
     }),
   });
@@ -1453,50 +1487,185 @@ async function generateEmbedding(text) {
   const data = await response.json();
   return data.embedding.values; // array of 768 numbers
 }
+
+// Strip reply chain quoted text from email body before embedding
+function stripReplyChain(text) {
+  if (!text) return "";
+  const cutMarkers = [
+    /^On .{10,200} wrote:\s*$/m,          // Gmail/Apple: "On Mon 12 May, John wrote:"
+    /^-{5,}[\s\S]*?Original Message/m,    // Outlook: "-----Original Message-----"
+    /^From:.+\nSent:.+\nTo:/m,            // Outlook reply header block
+    /^_{10,}$/m,                           // Outlook underline separator
+    /^>+ /m,                               // Quoted lines starting with ">"
+  ];
+  let result = text;
+  for (const marker of cutMarkers) {
+    const match = result.match(marker);
+    // Only cut if marker isn't right at the start (avoid gutting genuine content)
+    if (match && match.index > 80) {
+      result = result.slice(0, match.index);
+    }
+  }
+  return result.trim();
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function generateStructuredSummary(subject, fromName, fromAddress, body) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const prompt = `Analyse this email from an architectural practice.
+
+Subject: ${subject}
+From: ${fromName || ''} <${fromAddress || ''}>
+Body: ${body.slice(0, 3000)}
+
+Return JSON with exactly two fields:
+1. "summary": 80-120 words capturing what was confirmed, decided, or requested; who sent it and their role (client, consultant, contractor, internal); any key dates, amounts, or reference numbers; related topics and technical synonyms for search.
+2. "type": one of: confirmation, query, instruction, information, objection, other
+
+Return only valid JSON. No preamble or explanation.`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 300 },
+    }),
+  });
+  if (!response.ok) throw new Error(`${response.status}`);
+  const data = await response.json();
+  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+  const clean = raw.replace(/```json|```/g, "").trim();
+  try {
+    const parsed = JSON.parse(clean);
+    const validTypes = ["confirmation","query","instruction","information","objection","other"];
+    return {
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+      type: validTypes.includes(parsed.type) ? parsed.type : "other",
+    };
+  } catch {
+    return { summary: "", type: "other" };
+  }
+}
+
+// Expand a user's search query with related terms and synonyms before embedding.
+async function expandSearchQuery(query) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const prompt = `Expand this search query into related technical terms and synonyms for searching professional architectural project emails. Include relevant construction, planning, or building regulation terminology. Output as a single comma-separated line only. Maximum 40 words. No explanation.
+
+Query: ${query}`;
+  try {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0, maxOutputTokens: 100 },
+      }),
+    });
+    if (!response.ok) return query;
+    const data = await response.json();
+    const expanded = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    return expanded ? `${query}, ${expanded}` : query;
+  } catch {
+    return query; // non-fatal — fall back to original query
+  }
+}
+
 // POST /api/projects/:id/emails/ingest
 // ArchiSync calls this in batches. Each item in the batch is one parsed email.
-app.post("/api/projects/:id/emails/ingest", requireAuth, async (req, res) => {
+app.post("/api/projects/:id/emails/ingest", requireAuth, rateLimit(10, 60_000), async (req, res) => {
   const { emails } = req.body; // array of email objects
   if (!Array.isArray(emails) || emails.length === 0) {
     return res.status(400).json({ error: "emails array required" });
   }
 
+  const INGEST_CHUNK_SIZE = 10;
+  const INGEST_CHUNK_DELAY_MS = 1200;
+  const RATE_LIMIT_WAIT_MS = 15000;
+
   const results = { inserted: 0, skipped: 0, errors: [] };
 
-  for (const email of emails) {
-    try {
-      // Build text for embedding: subject + body (trimmed)
-      const textForEmbedding = [
-        email.subject || "",
-        email.from_name || email.from_address || "",
-        email.body_text || "",
-      ].join("\n").trim();
+  const chunks = [];
+  for (let i = 0; i < emails.length; i += INGEST_CHUNK_SIZE) {
+    chunks.push(emails.slice(i, i + INGEST_CHUNK_SIZE));
+  }
 
-      if (!textForEmbedding) { results.skipped++; continue; }
+  for (let ci = 0; ci < chunks.length; ci++) {
+    if (ci > 0) await sleep(INGEST_CHUNK_DELAY_MS);
+    for (const email of chunks[ci]) {
+      try {
+        const cleanBody = stripReplyChain(email.body_text || "");
+        let structured = { summary: "", type: "other" };
+        try {
+          structured = await generateStructuredSummary(
+            email.subject || "",
+            email.from_name || "",
+            email.from_address || "",
+            cleanBody
+          );
+        } catch (err) {
+          if (err.message && err.message.includes("429")) {
+            await sleep(RATE_LIMIT_WAIT_MS);
+            try {
+              structured = await generateStructuredSummary(
+                email.subject || "",
+                email.from_name || "",
+                email.from_address || "",
+                cleanBody
+              );
+            } catch { /* use defaults */ }
+          }
+        }
 
-      const embedding = await generateEmbedding(textForEmbedding);
+        const textForEmbedding = [
+          structured.summary,
+          email.subject || "",
+          email.from_name || email.from_address || "",
+          cleanBody,
+        ].filter(Boolean).join("\n").trim();
 
-      const { error } = await supabase
-        .from("project_emails")
-        .upsert({
-          project_id: req.params.id,
-          message_id: email.message_id,
-          subject: email.subject || null,
-          from_address: email.from_address || null,
-          from_name: email.from_name || null,
-          to_addresses: email.to_addresses || [],
-          cc_addresses: email.cc_addresses || [],
-          sent_at: email.sent_at || null,
-          body_text: email.body_text || null,
-          has_attachments: email.has_attachments || false,
-          attachment_names: email.attachment_names || [],
-          embedding,
-        }, { onConflict: "project_id,message_id", ignoreDuplicates: false });
+        if (!textForEmbedding) { results.skipped++; continue; }
 
-      if (error) throw error;
-      results.inserted++;
-    } catch (err) {
-      results.errors.push({ message_id: email.message_id, error: err.message });
+        let embedding;
+        try {
+          embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+        } catch (embErr) {
+          if (embErr.message && embErr.message.includes("429")) {
+            await sleep(RATE_LIMIT_WAIT_MS);
+            embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+          } else {
+            throw embErr;
+          }
+        }
+
+        const { error } = await supabase
+          .from("project_emails")
+          .upsert({
+            project_id: req.params.id,
+            message_id: email.message_id,
+            subject: email.subject || null,
+            from_address: email.from_address || null,
+            from_name: email.from_name || null,
+            to_addresses: email.to_addresses || [],
+            cc_addresses: email.cc_addresses || [],
+            sent_at: email.sent_at || null,
+            body_text: email.body_text || null,
+            has_attachments: email.has_attachments || false,
+            attachment_names: email.attachment_names || [],
+            email_type: structured.type,
+            embedding,
+          }, { onConflict: "project_id,message_id", ignoreDuplicates: false });
+
+        if (error) throw error;
+        results.inserted++;
+      } catch (err) {
+        results.errors.push({ message_id: email.message_id, error: err.message });
+      }
     }
   }
 
@@ -1518,6 +1687,170 @@ app.get("/api/projects/:id/emails/synced-ids", requireAuth, async (req, res) => 
   }
 });
 
+// GET /api/projects/:id/emails — paginated, server-side filtered
+app.get("/api/projects/:id/emails", requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      page = "1",
+      limit = "50",
+      from,
+      date_from,
+      date_to,
+      subject,
+      has_attachments,
+      email_type,
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
+    const offset = (pageNum - 1) * limitNum;
+
+    let q = supabase
+      .from("project_emails")
+      .select(
+        "id, subject, from_address, from_name, to_addresses, cc_addresses, sent_at, has_attachments, attachment_names, email_type",
+        { count: "exact" }
+      )
+      .eq("project_id", id)
+      .order("sent_at", { ascending: false })
+      .range(offset, offset + limitNum - 1);
+
+    // Strip PostgREST syntax characters from free-text filters to prevent injection
+    if (from) {
+      const safeFrom = from.replace(/[,()%_|]/g, "");
+      if (safeFrom) q = q.or(`from_address.ilike.%${safeFrom}%,from_name.ilike.%${safeFrom}%`);
+    }
+    if (date_from) q = q.gte("sent_at", date_from);
+    if (date_to) q = q.lte("sent_at", date_to);
+    if (subject) q = q.ilike("subject", `%${subject}%`);
+    if (has_attachments === "true") q = q.eq("has_attachments", true);
+    if (email_type) q = q.eq("email_type", email_type);
+
+    const { data, error, count } = await q;
+    if (error) throw error;
+
+    res.json({ emails: data || [], total: count || 0, page: pageNum, limit: limitNum });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/:id/emails/ask — Q&A: find relevant emails and summarise
+app.post("/api/projects/:id/emails/ask", requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { question, filters = {}, limit = 20 } = req.body;
+
+    if (!question || !question.trim()) {
+      return res.status(400).json({ error: "question is required" });
+    }
+
+    // Step 1: Apply metadata filters to get email ID pool
+    let q = supabase
+      .from("project_emails")
+      .select("id")
+      .eq("project_id", id);
+
+    if (filters.from) {
+      const safeFrom = String(filters.from).replace(/[,()%_|]/g, "");
+      if (safeFrom) q = q.or(`from_address.ilike.%${safeFrom}%,from_name.ilike.%${safeFrom}%`);
+    }
+    if (filters.date_from) q = q.gte("sent_at", filters.date_from);
+    if (filters.date_to) q = q.lte("sent_at", filters.date_to);
+    if (filters.subject) q = q.ilike("subject", `%${filters.subject}%`);
+    if (filters.has_attachments === true) q = q.eq("has_attachments", true);
+    if (filters.email_type) q = q.eq("email_type", filters.email_type);
+
+    const { data: poolData, error: poolError } = await q;
+    if (poolError) throw poolError;
+
+    if (!poolData || poolData.length === 0) {
+      return res.json({
+        summary: null,
+        supportingEmailIds: [],
+        message: "No emails match your filters — try broadening the date range or removing filters.",
+      });
+    }
+
+    const filteredIds = poolData.map(e => e.id);
+
+    // Step 2: Expand query and embed
+    const expandedQuery = await expandSearchQuery(question.trim());
+    const queryEmbedding = await generateEmbedding(expandedQuery, "RETRIEVAL_QUERY");
+
+    // Step 3: Hybrid semantic search restricted to filtered pool
+    const { data: searchResults, error: searchError } = await supabase.rpc(
+      "search_project_emails_hybrid",
+      {
+        p_project_id: id,
+        p_embedding: queryEmbedding,
+        p_query_text: question.trim(),
+        p_limit: Math.min(limit * 3, 60),
+        p_email_ids: filteredIds,
+      }
+    );
+    if (searchError) throw searchError;
+
+    const topResults = (searchResults || []).slice(0, limit);
+    if (topResults.length === 0) {
+      return res.json({
+        summary: null,
+        supportingEmailIds: [],
+        message: "No relevant emails found for that question — try rephrasing.",
+      });
+    }
+
+    const emailIds = topResults.map(r => r.id);
+
+    // Step 4: Fetch email bodies for summarisation
+    const { data: emailBodies, error: bodyError } = await supabase
+      .from("project_emails")
+      .select("id, subject, from_name, from_address, sent_at, body_text")
+      .in("id", emailIds);
+    if (bodyError) throw bodyError;
+
+    // Step 5: Gemini summarisation
+    const emailsText = (emailBodies || [])
+      .map(e =>
+        `Subject: ${e.subject || "(no subject)"}\nFrom: ${e.from_name || ""} <${e.from_address || ""}>\nDate: ${e.sent_at || ""}\nBody: ${(e.body_text || "").slice(0, 1200)}`
+      )
+      .join("\n\n---\n\n");
+
+    let summary = null;
+    const apiKey = process.env.GEMINI_API_KEY;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    try {
+      const prompt = `You are reviewing emails from an architectural practice project.
+Question: ${question.trim()}
+
+Based only on the emails provided below, answer the question directly. Summarise what was confirmed, agreed, or decided. Note any contradictions or unresolved points. If no clear answer is found, say so plainly. Keep the summary under 100 words.
+
+Emails:
+${emailsText}`;
+
+      const geminiRes = await fetch(geminiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 300 },
+        }),
+      });
+      if (geminiRes.ok) {
+        const geminiData = await geminiRes.json();
+        summary = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+      }
+    } catch (e) {
+      console.warn("Email Q&A summarisation failed:", e.message);
+    }
+
+    res.json({ summary, supportingEmailIds: emailIds });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/projects/:id/emails/search
 // Frontend calls this with a natural language question + optional filters
 app.post("/api/projects/:id/emails/search", requireAuth, async (req, res) => {
@@ -1526,17 +1859,17 @@ app.post("/api/projects/:id/emails/search", requireAuth, async (req, res) => {
   try {
     // If there's a query, embed it and do similarity search
     if (query && query.trim()) {
-      const queryEmbedding = await generateEmbedding(query.trim());
+      // Expand the query with related terms before embedding for better semantic matching
+      const expandedQuery = await expandSearchQuery(query.trim());
+      const queryEmbedding = await generateEmbedding(expandedQuery, "RETRIEVAL_QUERY");
 
-      // Build filter conditions for the RPC call
-      const filterConditions = { p_project_id: req.params.id, p_limit: limit };
-
-      // We do the similarity search via a raw Supabase RPC (pgvector)
-      // then filter in JS for simplicity — acceptable at this scale
-      const { data, error } = await supabase.rpc("search_project_emails", {
+      // Hybrid RPC: combines pgvector cosine similarity with PostgreSQL full-text keyword search
+      // using Reciprocal Rank Fusion (RRF) to blend the two ranked lists
+      const { data, error } = await supabase.rpc("search_project_emails_hybrid", {
         p_project_id: req.params.id,
         p_embedding: queryEmbedding,
-        p_limit: Math.min(limit * 3, 100), // fetch more, then filter down
+        p_query_text: query.trim(),
+        p_limit: Math.min(limit * 3, 300), // cast a wide net before applying metadata filters
       });
 
       if (error) throw error;
@@ -1616,6 +1949,20 @@ app.get("/api/projects/:id/emails/:eid", requireAuth, async (req, res) => {
   }
 });
 
+// DELETE /api/projects/:id/emails  — wipe all emails for a project
+app.delete("/api/projects/:id/emails", requireAuth, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from("project_emails")
+      .delete()
+      .eq("project_id", req.params.id);
+    if (error) throw error;
+    res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // DELETE /api/projects/:id/emails/:eid
 app.delete("/api/projects/:id/emails/:eid", requireAuth, async (req, res) => {
   try {
@@ -1626,6 +1973,95 @@ app.delete("/api/projects/:id/emails/:eid", requireAuth, async (req, res) => {
       .eq("project_id", req.params.id);
     if (error) throw error;
     res.json({ deleted: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/:id/emails/reembed
+// Re-generates embeddings for all existing emails using the correct taskType.
+// Call this once after deploying the search improvements.
+app.post("/api/projects/:id/emails/reembed", requireAuth, rateLimit(3, 60_000), async (req, res) => {
+  try {
+    const { data: emails, error } = await supabase
+      .from("project_emails")
+      .select("id, subject, from_name, from_address, body_text")
+      .eq("project_id", req.params.id);
+    if (error) throw error;
+
+    let updated = 0;
+    const errors = [];
+
+    const INGEST_CHUNK_SIZE = 10;
+    const INGEST_CHUNK_DELAY_MS = 1200;
+    const RATE_LIMIT_WAIT_MS = 15000;
+
+    const chunks = [];
+    for (let i = 0; i < emails.length; i += INGEST_CHUNK_SIZE) {
+      chunks.push(emails.slice(i, i + INGEST_CHUNK_SIZE));
+    }
+
+    for (let ci = 0; ci < chunks.length; ci++) {
+      if (ci > 0) await sleep(INGEST_CHUNK_DELAY_MS);
+      for (const email of chunks[ci]) {
+        try {
+          const cleanBody = stripReplyChain(email.body_text || "");
+          let structured = { summary: "", type: "other" };
+          try {
+            structured = await generateStructuredSummary(
+              email.subject || "",
+              email.from_name || "",
+              email.from_address || "",
+              cleanBody
+            );
+          } catch (err) {
+            if (err.message && err.message.includes("429")) {
+              await sleep(RATE_LIMIT_WAIT_MS);
+              try {
+                structured = await generateStructuredSummary(
+                  email.subject || "",
+                  email.from_name || "",
+                  email.from_address || "",
+                  cleanBody
+                );
+              } catch { /* use defaults */ }
+            }
+          }
+
+          const textForEmbedding = [
+            structured.summary,
+            email.subject || "",
+            email.from_name || email.from_address || "",
+            cleanBody,
+          ].filter(Boolean).join("\n").trim();
+
+          if (!textForEmbedding) continue;
+
+          let embedding;
+          try {
+            embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+          } catch (embErr) {
+            if (embErr.message && embErr.message.includes("429")) {
+              await sleep(RATE_LIMIT_WAIT_MS);
+              embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+            } else {
+              throw embErr;
+            }
+          }
+          const { error: updateError } = await supabase
+            .from("project_emails")
+            .update({ embedding, email_type: structured.type })
+            .eq("id", email.id);
+
+          if (updateError) throw updateError;
+          updated++;
+        } catch (err) {
+          errors.push({ id: email.id, error: err.message });
+        }
+      }
+    }
+
+    res.json({ total: emails.length, updated, errors });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -2556,7 +2992,7 @@ app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     }));
     res.json({ users });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "GET /api/admin/users");
   }
 });
 
@@ -2581,7 +3017,7 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
       },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "POST /api/admin/users");
   }
 });
 
@@ -2601,7 +3037,7 @@ app.patch("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) =
       },
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "PATCH /api/admin/users/:uid");
   }
 });
 
@@ -2614,7 +3050,7 @@ app.delete("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) 
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, "DELETE /api/admin/users/:uid");
   }
 });
 
@@ -2956,7 +3392,6 @@ app.get("/api/team-members", requireAuth, async (req, res) => {
   const members = (data.users || []).map(u => ({
     id: u.id,
     full_name: u.user_metadata?.full_name || u.email,
-    email: u.email,
   }));
   res.json(members);
 });
