@@ -1815,10 +1815,10 @@ app.post("/api/projects/:id/emails/ask", requireAuth, async (req, res) => {
       .in("id", emailIds);
     if (bodyError) throw bodyError;
 
-    // Step 5: Gemini summarisation
+    // Step 5: Gemini extract-per-email analysis
     const emailsText = (emailBodies || [])
-      .map(e =>
-        `Subject: ${e.subject || "(no subject)"}\nFrom: ${e.from_name || ""} <${e.from_address || ""}>\nDate: ${e.sent_at || ""}\nBody: ${(e.body_text || "").slice(0, 1200)}`
+      .map((e, i) =>
+        `EMAIL ${i + 1}\nID: ${e.id}\nFrom: ${e.from_name || ""} <${e.from_address || ""}>\nDate: ${e.sent_at ? new Date(e.sent_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "unknown"}\nSubject: ${e.subject || "(no subject)"}\nBody:\n${(e.body_text || "").slice(0, 3000)}`
       )
       .join("\n\n---\n\n");
 
@@ -1826,10 +1826,22 @@ app.post("/api/projects/:id/emails/ask", requireAuth, async (req, res) => {
     const apiKey = process.env.GEMINI_API_KEY;
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
     try {
-      const prompt = `You are reviewing emails from an architectural practice project.
+      const prompt = `You are reviewing emails from an architectural practice project. Your job is to answer the question below by finding the specific evidence in each email — not to write a general summary.
+
 Question: ${question.trim()}
 
-Based only on the emails provided below, answer the question directly. Summarise what was confirmed, agreed, or decided. Note any contradictions or unresolved points. If no clear answer is found, say so plainly. Keep the summary under 100 words.
+Instructions:
+1. Read each email and decide whether it contains relevant evidence for the question.
+2. For each email that does, quote the specific sentence or short paragraph that constitutes the evidence. Use the sender's name and date as the reference. Use the exact words from the email — do not paraphrase.
+3. If an email contains no relevant evidence, skip it entirely.
+4. Begin your response with one sentence stating how many emails contained relevant evidence and what the overall finding is (e.g. "Found 4 emails confirming approval of the electrical works.").
+5. Then list each piece of evidence in this format:
+
+**[Sender name] — [Date]**
+"[Exact quoted passage from the email]"
+
+6. If no emails contain relevant evidence, say so plainly in one sentence.
+7. Do not add commentary, analysis, or padding beyond the quotes and the opening sentence.
 
 Emails:
 ${emailsText}`;
@@ -1839,7 +1851,7 @@ ${emailsText}`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 300 },
+          generationConfig: { temperature: 0.1, maxOutputTokens: 1500 },
         }),
       });
       if (geminiRes.ok) {
