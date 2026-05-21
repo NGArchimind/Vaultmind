@@ -1422,7 +1422,7 @@ export default function App() {
                         placeholder="Ask a question about this document…"
                         disabled={isRunning} rows={2} className="arc-input"
                         style={{ flex: 1, border: "1px solid #ddd8d0", borderRight: "none", padding: "12px 16px", color: ARC_NAVY, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#faf8f5" : "#ffffff", letterSpacing: "0.01em" }} />
-                      <button className="btn" onClick={askQuestion} disabled={isRunning || !question.trim()}
+                      <button className="btn" onClick={() => askQuestion()} disabled={isRunning || !question.trim()}
                         style={{ background: isRunning || !question.trim() ? "#f0ede8" : ARC_NAVY, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                         {isRunning ? <Spinner size={14} /> : "Search"}
                       </button>
@@ -1668,7 +1668,7 @@ export default function App() {
                             placeholder="Ask a question about your building regulations documents…"
                             disabled={isRunning} rows={2} className="arc-input"
                             style={{ flex: 1, border: `1px solid #ddd8d0`, borderRight: "none", padding: "12px 16px", color: ARC_NAVY, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#faf8f5" : "#ffffff", letterSpacing: "0.01em" }} />
-                          <button className="btn" onClick={askQuestion} disabled={isRunning || !question.trim()}
+                          <button className="btn" onClick={() => askQuestion()} disabled={isRunning || !question.trim()}
                             style={{ background: isRunning || !question.trim() ? "#f0ede8" : ARC_NAVY, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                             {isRunning ? <Spinner size={14} /> : "Search"}
                           </button>
