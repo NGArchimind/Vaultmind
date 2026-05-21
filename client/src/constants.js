@@ -9,6 +9,7 @@ export const ARC_TERRACOTTA = "#c25a45";
 export const ARC_STONE = "#e8e0d5";
 export const LIBRARY_BLUE = "#2a6496";
 export const LIBRARY_BLUE_LIGHT = "#eef4f8";
+export const ARC_SLATE = "#5a6a7a";
 
 // ── Document pipeline ─────────────────────────────────────────────────────────
 export const BOILERPLATE_HEADINGS = [
