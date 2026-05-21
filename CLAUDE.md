@@ -106,11 +106,9 @@ PDF viewer: inline iframe, PDF.js CDN v3.11.174.
 
 ---
 
-## Outstanding issues (as of 2026-05-20)
+## Outstanding issues (as of 2026-05-21)
 
-1. **Pass 2 silent fallback** (HIGH) — `effectivePdfs.slice(0, 2)` at ~line 856 in App.js. Should error explicitly or use all docs.
-2. **Conversation history contamination** (MEDIUM) — failed answers stored in `conversationHistory` pollute subsequent Pass 1 scoring. Workaround: page refresh.
-3. **SQL migrations for review tables** — may not be run in production. See memory file for SQL.
-4. **Cross-reference clauses still appearing** (LOW) — AD M Vol 1 cl.0.14 and related still appear despite filtering rule.
-5. **Multi-clause blocks not always combining** (LOW) — same-doc clauses (e.g. AD K 1.38–1.40) get separate citation blocks.
-6. **Wide table column extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column boundaries for wide tables.
+1. **Conversation history contamination** (MEDIUM) — failed answers stored in `conversationHistory` pollute subsequent Pass 1 scoring. Workaround: page refresh.
+2. **SQL migrations for review tables** — may not be run in production. See memory file for SQL.
+3. **Cross-reference clauses still appearing** (LOW) — AD M Vol 1 cl.0.14 and related still appear despite filtering rule.
+4. **Wide table column extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column boundaries for wide tables.

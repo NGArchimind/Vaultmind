@@ -59,6 +59,18 @@ PDFs are never served via presigned R2 URLs to the client — R2 CORS blocks the
 
 ---
 
+## Temp doc Q&A — fixes applied (2026-05-21)
+
+**Problem 1: Search buttons were broken** — both Search buttons (temp doc section ~line 1425, vault section ~line 1671) used `onClick={askQuestion}`, which accidentally passed the browser's click event as the `overrideVaultId` argument. This triggered the cross-vault code path with a garbage ID, causing "That vault has not been indexed yet." Fix: both changed to `onClick={() => askQuestion()}`.
+
+**Problem 2: Silent error display** — the temp doc content area only showed `statusMsg` if it started with `"Error:"`. Timeout and rate-limit messages don't start with that, so query failures were invisible: question cleared, spinner ran, fell back to idle UI with no message. Fixed by changing the render condition to show any non-empty statusMsg except `"Answer ready"`.
+
+**Problem 3: Question cleared too early** — the original `setQuestion("")` was at the very top of `askQuestion()`, before the async indexing wait. So if the user pressed Enter while still indexing, the question vanished immediately even if the query then aborted. Fixed: `setQuestion("")` moved to after the indexing wait and early-return guards — the question only clears once the pipeline is committed to running.
+
+**useEffect for temp doc focus** (around line 347): fires when `tempDocIndexing` flips from true→false with a valid `tempDocIndex`. Focuses the temp doc textarea and clears any stale statusMsg so the next query starts clean.
+
+---
+
 ## Deployment
 
 | Target | How |

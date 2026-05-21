@@ -877,8 +877,12 @@ export default function App() {
         const docsNeeded = effectivePdfs.filter(p =>
           selectedDocNames.some(n => p.name.includes(n) || n.includes(p.name))
         );
-        const docsToFetch = docsNeeded.length > 0 ? docsNeeded : effectivePdfs.slice(0, 2);
-        for (const pdf of docsToFetch) {
+        if (docsNeeded.length === 0) {
+          setStage(null);
+          setStatusMsg("No relevant documents found for that question — try rephrasing.");
+          return;
+        }
+        for (const pdf of docsNeeded) {
           // Resolve citation map entries that match this PDF
           selectedDocNames.forEach(docName => {
             if (pdf.name.includes(docName) || docName.includes(pdf.name)) {
