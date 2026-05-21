@@ -212,6 +212,8 @@ export default function App() {
   const [showManageModal, setShowManageModal] = useState(false);
   const fileInputRef = useRef();
   const tempDocInputRef = useRef();
+  const tempDocTextareaRef = useRef(null);
+  const prevTempDocIndexingRef = useRef(null);
 
   // ── Auth state ────────────────────────────────────────────────────────────────
   const [authLoading, setAuthLoading] = useState(true);
@@ -339,6 +341,14 @@ export default function App() {
     if (!selectedVault) return;
     loadVaultContents(selectedVault);
   }, [selectedVault]);
+
+  // Re-focus the temp doc textarea when indexing completes so Enter still works
+  useEffect(() => {
+    if (prevTempDocIndexingRef.current === true && !tempDocIndexing && tempDocIndex) {
+      tempDocTextareaRef.current?.focus();
+    }
+    prevTempDocIndexingRef.current = tempDocIndexing;
+  }, [tempDocIndexing, tempDocIndex]);
 
   const loadVaultContents = async (vaultId) => {
     setAnswer(null);
@@ -709,6 +719,7 @@ export default function App() {
           resolvedTempIndex = tempDocIndexRef.current; // already resolved
         }
         if (!resolvedTempIndex) {
+          if (!overrideQuestion) setQuestion(q); // restore question so user can retry
           setStage(null);
           setStatusMsg("Document indexing failed — please try removing and re-uploading the file.");
           return;
@@ -1055,6 +1066,7 @@ export default function App() {
       setStatusMsg("Answer ready");
     } catch (err) {
       console.error("askQuestion error:", err);
+      if (!overrideQuestion) setQuestion(q); // restore typed question so user can retry without retyping
       setStage(null);
       if (err.message === "TIMEOUT") {
         setTimedOut(true);
@@ -1402,7 +1414,7 @@ export default function App() {
                   </div>
                   <div style={{ padding: "16px 32px 20px", borderTop: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0 }}>
                     <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
-                      <textarea value={question} onChange={e => setQuestion(e.target.value)}
+                      <textarea ref={tempDocTextareaRef} value={question} onChange={e => setQuestion(e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
                         placeholder="Ask a question about this document…"
                         disabled={isRunning} rows={2} className="arc-input"
