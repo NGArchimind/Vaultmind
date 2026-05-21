@@ -1527,19 +1527,19 @@ Return JSON with exactly two fields:
 2. "type": one of: confirmation, query, instruction, information, objection, other
 
 Return only valid JSON. No preamble or explanation.`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0, maxOutputTokens: 300 },
+    }),
+  });
+  if (!response.ok) throw new Error(`${response.status}`);
+  const data = await response.json();
+  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+  const clean = raw.replace(/```json|```/g, "").trim();
   try {
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 300 },
-      }),
-    });
-    if (!response.ok) return { summary: "", type: "other" };
-    const data = await response.json();
-    const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-    const clean = raw.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(clean);
     const validTypes = ["confirmation","query","instruction","information","objection","other"];
     return {
