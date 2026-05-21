@@ -2283,7 +2283,7 @@ function EmailsTab({ projectId }) {
 
       const result = await api(`/api/projects/${projectId}/emails/ask`, {
         method: "POST",
-        body: { question: question.trim(), filters, limit: 20 },
+        body: { question: question.trim(), filters, limit: 8 },
       });
 
       if (result.message && (!result.supportingEmailIds || result.supportingEmailIds.length === 0)) {

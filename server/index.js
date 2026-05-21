@@ -1792,7 +1792,12 @@ app.post("/api/projects/:id/emails/ask", requireAuth, async (req, res) => {
     );
     if (searchError) throw searchError;
 
-    const topResults = (searchResults || []).slice(0, limit);
+    // Filter by minimum similarity score, then cap at limit.
+    // sem_score is cosine similarity (0–1). Emails below 0.35 are unlikely to be relevant.
+    const SIM_THRESHOLD = 0.35;
+    const topResults = (searchResults || [])
+      .filter(r => r.similarity == null || r.similarity >= SIM_THRESHOLD)
+      .slice(0, limit);
     if (topResults.length === 0) {
       return res.json({
         summary: null,
