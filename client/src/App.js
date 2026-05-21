@@ -1214,6 +1214,14 @@ export default function App() {
   }
 
   // ── Main UI ───────────────────────────────────────────────────────────────────
+  const NAV_LABELS = {
+    vault: "Vault",
+    compare: "Data Sheet Compare",
+    library: "Product Library",
+    projects: "Projects",
+    timesheets: "Timesheets",
+  };
+
   return (
     <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", color: "#0b0c0c", display: "flex", flexDirection: "column" }}>
       <style>{globalStyles}</style>
@@ -1234,21 +1242,12 @@ export default function App() {
           Archimind
         </button>
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          {(() => {
-            const NAV_LABELS = {
-              vault: "Vault",
-              compare: "Data Sheet Compare",
-              library: "Product Library",
-              projects: "Projects",
-              timesheets: "Timesheets",
-            };
-            return ["vault", "compare", "library", "projects", "timesheets"].map(section => (
-              <button key={section} className="btn" onClick={() => navigate(section)}
-                style={{ background: appSection === section ? "rgba(255,255,255,0.12)" : "none", color: appSection === section ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === section ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
-                {NAV_LABELS[section] ?? section}
-              </button>
-            ));
-          })()}
+          {["vault", "compare", "library", "projects", "timesheets"].map(section => (
+            <button key={section} className="btn" onClick={() => navigate(section)}
+              style={{ background: appSection === section ? "rgba(255,255,255,0.12)" : "none", color: appSection === section ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === section ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
+              {NAV_LABELS[section] ?? section}
+            </button>
+          ))}
           {isAdmin && (
             <button className="btn" onClick={() => navigate("admin")}
               style={{ background: appSection === "admin" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "admin" ? "#ffffff" : ARC_TERRACOTTA, padding: "6px 14px", fontSize: 12, fontWeight: appSection === "admin" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none", opacity: 0.85 }}>
