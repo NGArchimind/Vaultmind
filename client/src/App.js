@@ -342,10 +342,12 @@ export default function App() {
     loadVaultContents(selectedVault);
   }, [selectedVault]);
 
-  // Re-focus the temp doc textarea when indexing completes so Enter still works
+  // Re-focus the temp doc textarea when indexing completes so Enter still works,
+  // and clear any stale "Indexing…" status message left over from background indexing.
   useEffect(() => {
     if (prevTempDocIndexingRef.current === true && !tempDocIndexing && tempDocIndex) {
       tempDocTextareaRef.current?.focus();
+      setStatusMsg("");
     }
     prevTempDocIndexingRef.current = tempDocIndexing;
   }, [tempDocIndexing, tempDocIndex]);
@@ -653,7 +655,6 @@ export default function App() {
     setCostEst(null);
     setAnswerVaultName("");
     setCitationPageMap({});
-    if (!overrideQuestion) setQuestion("");
     setFollowUpQuestion("");
     setFollowUpVaultId("");
     setLastQuestion(q);
@@ -719,12 +720,14 @@ export default function App() {
           resolvedTempIndex = tempDocIndexRef.current; // already resolved
         }
         if (!resolvedTempIndex) {
-          if (!overrideQuestion) setQuestion(q); // restore question so user can retry
           setStage(null);
           setStatusMsg("Document indexing failed — please try removing and re-uploading the file.");
-          return;
+          return; // question was never cleared so nothing to restore
         }
       }
+
+      // Committed to running — now clear the question input
+      if (!overrideQuestion) setQuestion("");
 
       const useAllSubVaults = !overrideVaultId && queryScope === "all" && parentMaster;
       const activeIndex = resolvedTempIndex ? resolvedTempIndex
@@ -1066,7 +1069,6 @@ export default function App() {
       setStatusMsg("Answer ready");
     } catch (err) {
       console.error("askQuestion error:", err);
-      if (!overrideQuestion) setQuestion(q); // restore typed question so user can retry without retyping
       setStage(null);
       if (err.message === "TIMEOUT") {
         setTimedOut(true);
@@ -1389,13 +1391,14 @@ export default function App() {
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
                         <p style={{ fontSize: 12, color: "#9a9088" }}>{statusMsg}</p>
                       </div>
-                    ) : statusMsg && statusMsg.startsWith("Error") ? (
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%" }}>
-                        <p style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{statusMsg}</p>
-                      </div>
                     ) : answer ? (
                       <div style={{ maxWidth: 680, margin: "0 auto" }}>
                         <AnswerRenderer text={answer} onCitationClick={handleCitationClick} />
+                      </div>
+                    ) : statusMsg && statusMsg !== "Answer ready" ? (
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
+                        <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>📄 {tempDoc.name}</p>
+                        <p style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{statusMsg}</p>
                       </div>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
