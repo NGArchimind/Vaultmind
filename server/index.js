@@ -1687,6 +1687,51 @@ app.get("/api/projects/:id/emails/synced-ids", requireAuth, async (req, res) => 
   }
 });
 
+// GET /api/projects/:id/emails — paginated, server-side filtered
+app.get("/api/projects/:id/emails", requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      page = "1",
+      limit = "50",
+      from,
+      date_from,
+      date_to,
+      subject,
+      has_attachments,
+      email_type,
+    } = req.query;
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
+    const offset = (pageNum - 1) * limitNum;
+
+    let q = supabase
+      .from("project_emails")
+      .select(
+        "id, subject, from_address, from_name, to_addresses, cc_addresses, sent_at, has_attachments, attachment_names, email_type",
+        { count: "exact" }
+      )
+      .eq("project_id", id)
+      .order("sent_at", { ascending: false })
+      .range(offset, offset + limitNum - 1);
+
+    if (from) q = q.or(`from_address.ilike.%${from}%,from_name.ilike.%${from}%`);
+    if (date_from) q = q.gte("sent_at", date_from);
+    if (date_to) q = q.lte("sent_at", date_to);
+    if (subject) q = q.ilike("subject", `%${subject}%`);
+    if (has_attachments === "true") q = q.eq("has_attachments", true);
+    if (email_type) q = q.eq("email_type", email_type);
+
+    const { data, error, count } = await q;
+    if (error) throw error;
+
+    res.json({ emails: data || [], total: count || 0, page: pageNum, limit: limitNum });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/projects/:id/emails/search
 // Frontend calls this with a natural language question + optional filters
 app.post("/api/projects/:id/emails/search", requireAuth, async (req, res) => {
