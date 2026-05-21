@@ -1702,8 +1702,8 @@ app.get("/api/projects/:id/emails", requireAuth, async (req, res) => {
       email_type,
     } = req.query;
 
-    const pageNum = Math.max(1, parseInt(page, 10));
-    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
+    const pageNum = Math.max(1, parseInt(page, 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10) || 50));
     const offset = (pageNum - 1) * limitNum;
 
     let q = supabase
@@ -1716,7 +1716,11 @@ app.get("/api/projects/:id/emails", requireAuth, async (req, res) => {
       .order("sent_at", { ascending: false })
       .range(offset, offset + limitNum - 1);
 
-    if (from) q = q.or(`from_address.ilike.%${from}%,from_name.ilike.%${from}%`);
+    // Strip PostgREST syntax characters from free-text filters to prevent injection
+    if (from) {
+      const safeFrom = from.replace(/[,()%_]/g, "");
+      if (safeFrom) q = q.or(`from_address.ilike.%${safeFrom}%,from_name.ilike.%${safeFrom}%`);
+    }
     if (date_from) q = q.gte("sent_at", date_from);
     if (date_to) q = q.lte("sent_at", date_to);
     if (subject) q = q.ilike("subject", `%${subject}%`);
