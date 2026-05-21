@@ -1269,7 +1269,7 @@ export default function App() {
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden", maxHeight: "calc(100vh - 56px)" }}>
 
-        {appSection === "home" && <LandingPage onSelect={navigate} isAdmin={isAdmin} />}
+        {appSection === "home" && <LandingPage onSelect={navigate} />}
         {appSection === "compare" && <CompareSection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
         {appSection === "library" && <DatasheetsLibrarySection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
         {appSection === "projects" && <ProjectsSection key={sectionKey} isAdmin={isAdmin} />}
