@@ -1818,29 +1818,62 @@ app.post("/api/projects/:id/emails/reembed", requireAuth, rateLimit(3, 60_000), 
     let updated = 0;
     const errors = [];
 
-    for (const email of emails) {
-      try {
-        const cleanBody = stripReplyChain(email.body_text || "");
-        const summary = await generateSemanticSummary(email.subject || "", cleanBody);
-        const textForEmbedding = [
-          summary,
-          email.subject || "",
-          email.from_name || email.from_address || "",
-          cleanBody,
-        ].filter(Boolean).join("\n").trim();
+    const INGEST_CHUNK_SIZE = 10;
+    const INGEST_CHUNK_DELAY_MS = 1200;
+    const RATE_LIMIT_WAIT_MS = 15000;
 
-        if (!textForEmbedding) continue;
+    const chunks = [];
+    for (let i = 0; i < emails.length; i += INGEST_CHUNK_SIZE) {
+      chunks.push(emails.slice(i, i + INGEST_CHUNK_SIZE));
+    }
 
-        const embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
-        const { error: updateError } = await supabase
-          .from("project_emails")
-          .update({ embedding })
-          .eq("id", email.id);
+    for (let ci = 0; ci < chunks.length; ci++) {
+      if (ci > 0) await sleep(INGEST_CHUNK_DELAY_MS);
+      for (const email of chunks[ci]) {
+        try {
+          const cleanBody = stripReplyChain(email.body_text || "");
+          let structured = { summary: "", type: "other" };
+          try {
+            structured = await generateStructuredSummary(
+              email.subject || "",
+              email.from_name || "",
+              email.from_address || "",
+              cleanBody
+            );
+          } catch (err) {
+            if (err.message && err.message.includes("429")) {
+              await sleep(RATE_LIMIT_WAIT_MS);
+              try {
+                structured = await generateStructuredSummary(
+                  email.subject || "",
+                  email.from_name || "",
+                  email.from_address || "",
+                  cleanBody
+                );
+              } catch { /* use defaults */ }
+            }
+          }
 
-        if (updateError) throw updateError;
-        updated++;
-      } catch (err) {
-        errors.push({ id: email.id, error: err.message });
+          const textForEmbedding = [
+            structured.summary,
+            email.subject || "",
+            email.from_name || email.from_address || "",
+            cleanBody,
+          ].filter(Boolean).join("\n").trim();
+
+          if (!textForEmbedding) continue;
+
+          const embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+          const { error: updateError } = await supabase
+            .from("project_emails")
+            .update({ embedding, email_type: structured.type })
+            .eq("id", email.id);
+
+          if (updateError) throw updateError;
+          updated++;
+        } catch (err) {
+          errors.push({ id: email.id, error: err.message });
+        }
       }
     }
 
