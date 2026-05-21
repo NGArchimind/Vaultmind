@@ -2256,11 +2256,11 @@ function EmailsTab({ projectId }) {
 
   useEffect(() => {
     loadEmails(1);
-  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projectId]); // eslint-disable-line
 
   useEffect(() => {
     if (!qaMode) loadEmails(1);
-  }, [filterFrom, filterDateFrom, filterDateTo, filterSubject, filterHasAttachments, filterEmailType]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [filterFrom, filterDateFrom, filterDateTo, filterSubject, filterHasAttachments, filterEmailType]); // eslint-disable-line
 
   async function handleAsk() {
     if (!question.trim()) return;
