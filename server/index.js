@@ -1736,6 +1736,121 @@ app.get("/api/projects/:id/emails", requireAuth, async (req, res) => {
   }
 });
 
+// POST /api/projects/:id/emails/ask — Q&A: find relevant emails and summarise
+app.post("/api/projects/:id/emails/ask", requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { question, filters = {}, limit = 20 } = req.body;
+
+    if (!question || !question.trim()) {
+      return res.status(400).json({ error: "question is required" });
+    }
+
+    // Step 1: Apply metadata filters to get email ID pool
+    let q = supabase
+      .from("project_emails")
+      .select("id")
+      .eq("project_id", id);
+
+    if (filters.from) {
+      const safeFrom = String(filters.from).replace(/[,()%_]/g, "");
+      if (safeFrom) q = q.or(`from_address.ilike.%${safeFrom}%,from_name.ilike.%${safeFrom}%`);
+    }
+    if (filters.date_from) q = q.gte("sent_at", filters.date_from);
+    if (filters.date_to) q = q.lte("sent_at", filters.date_to);
+    if (filters.subject) q = q.ilike("subject", `%${filters.subject}%`);
+    if (filters.has_attachments === true) q = q.eq("has_attachments", true);
+    if (filters.email_type) q = q.eq("email_type", filters.email_type);
+
+    const { data: poolData, error: poolError } = await q;
+    if (poolError) throw poolError;
+
+    if (!poolData || poolData.length === 0) {
+      return res.json({
+        summary: null,
+        supportingEmailIds: [],
+        message: "No emails match your filters — try broadening the date range or removing filters.",
+      });
+    }
+
+    const filteredIds = poolData.map(e => e.id);
+
+    // Step 2: Expand query and embed
+    const expandedQuery = await expandSearchQuery(question.trim());
+    const queryEmbedding = await generateEmbedding(expandedQuery, "RETRIEVAL_QUERY");
+
+    // Step 3: Hybrid semantic search restricted to filtered pool
+    const { data: searchResults, error: searchError } = await supabase.rpc(
+      "search_project_emails_hybrid",
+      {
+        p_project_id: id,
+        p_embedding: queryEmbedding,
+        p_query_text: question.trim(),
+        p_limit: Math.min(limit * 3, 60),
+        p_email_ids: filteredIds,
+      }
+    );
+    if (searchError) throw searchError;
+
+    const topResults = (searchResults || []).slice(0, limit);
+    if (topResults.length === 0) {
+      return res.json({
+        summary: null,
+        supportingEmailIds: [],
+        message: "No relevant emails found for that question — try rephrasing.",
+      });
+    }
+
+    const emailIds = topResults.map(r => r.id);
+
+    // Step 4: Fetch email bodies for summarisation
+    const { data: emailBodies, error: bodyError } = await supabase
+      .from("project_emails")
+      .select("id, subject, from_name, from_address, sent_at, body_text")
+      .in("id", emailIds);
+    if (bodyError) throw bodyError;
+
+    // Step 5: Gemini summarisation
+    const emailsText = (emailBodies || [])
+      .map(e =>
+        `Subject: ${e.subject || "(no subject)"}\nFrom: ${e.from_name || ""} <${e.from_address || ""}>\nDate: ${e.sent_at || ""}\nBody: ${(e.body_text || "").slice(0, 1200)}`
+      )
+      .join("\n\n---\n\n");
+
+    let summary = null;
+    const apiKey = process.env.GEMINI_API_KEY;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    try {
+      const prompt = `You are reviewing emails from an architectural practice project.
+Question: ${question.trim()}
+
+Based only on the emails provided below, answer the question directly. Summarise what was confirmed, agreed, or decided. Note any contradictions or unresolved points. If no clear answer is found, say so plainly. Keep the summary under 100 words.
+
+Emails:
+${emailsText}`;
+
+      const geminiRes = await fetch(geminiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 300 },
+        }),
+      });
+      if (geminiRes.ok) {
+        const geminiData = await geminiRes.json();
+        summary = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
+      }
+    } catch (e) {
+      console.warn("Email Q&A summarisation failed:", e.message);
+    }
+
+    res.json({ summary, supportingEmailIds: emailIds });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/projects/:id/emails/search
 // Frontend calls this with a natural language question + optional filters
 app.post("/api/projects/:id/emails/search", requireAuth, async (req, res) => {
