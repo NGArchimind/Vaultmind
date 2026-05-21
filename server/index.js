@@ -1718,7 +1718,7 @@ app.get("/api/projects/:id/emails", requireAuth, async (req, res) => {
 
     // Strip PostgREST syntax characters from free-text filters to prevent injection
     if (from) {
-      const safeFrom = from.replace(/[,()%_]/g, "");
+      const safeFrom = from.replace(/[,()%_|]/g, "");
       if (safeFrom) q = q.or(`from_address.ilike.%${safeFrom}%,from_name.ilike.%${safeFrom}%`);
     }
     if (date_from) q = q.gte("sent_at", date_from);
@@ -1753,7 +1753,7 @@ app.post("/api/projects/:id/emails/ask", requireAuth, async (req, res) => {
       .eq("project_id", id);
 
     if (filters.from) {
-      const safeFrom = String(filters.from).replace(/[,()%_]/g, "");
+      const safeFrom = String(filters.from).replace(/[,()%_|]/g, "");
       if (safeFrom) q = q.or(`from_address.ilike.%${safeFrom}%,from_name.ilike.%${safeFrom}%`);
     }
     if (filters.date_from) q = q.gte("sent_at", filters.date_from);
