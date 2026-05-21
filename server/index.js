@@ -1584,45 +1584,78 @@ app.post("/api/projects/:id/emails/ingest", requireAuth, rateLimit(10, 60_000), 
     return res.status(400).json({ error: "emails array required" });
   }
 
+  const INGEST_CHUNK_SIZE = 10;
+  const INGEST_CHUNK_DELAY_MS = 1200;
+  const RATE_LIMIT_WAIT_MS = 15000;
+
   const results = { inserted: 0, skipped: 0, errors: [] };
 
-  for (const email of emails) {
-    try {
-      // Build text for embedding — strip reply chains, then enrich with semantic summary
-      const cleanBody = stripReplyChain(email.body_text || "");
-      const summary = await generateSemanticSummary(email.subject || "", cleanBody);
-      const textForEmbedding = [
-        summary,
-        email.subject || "",
-        email.from_name || email.from_address || "",
-        cleanBody,
-      ].filter(Boolean).join("\n").trim();
+  const chunks = [];
+  for (let i = 0; i < emails.length; i += INGEST_CHUNK_SIZE) {
+    chunks.push(emails.slice(i, i + INGEST_CHUNK_SIZE));
+  }
 
-      if (!textForEmbedding) { results.skipped++; continue; }
+  for (let ci = 0; ci < chunks.length; ci++) {
+    if (ci > 0) await sleep(INGEST_CHUNK_DELAY_MS);
+    for (const email of chunks[ci]) {
+      try {
+        const cleanBody = stripReplyChain(email.body_text || "");
+        let structured = { summary: "", type: "other" };
+        try {
+          structured = await generateStructuredSummary(
+            email.subject || "",
+            email.from_name || "",
+            email.from_address || "",
+            cleanBody
+          );
+        } catch (err) {
+          if (err.message && err.message.includes("429")) {
+            await sleep(RATE_LIMIT_WAIT_MS);
+            try {
+              structured = await generateStructuredSummary(
+                email.subject || "",
+                email.from_name || "",
+                email.from_address || "",
+                cleanBody
+              );
+            } catch { /* use defaults */ }
+          }
+        }
 
-      const embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+        const textForEmbedding = [
+          structured.summary,
+          email.subject || "",
+          email.from_name || email.from_address || "",
+          cleanBody,
+        ].filter(Boolean).join("\n").trim();
 
-      const { error } = await supabase
-        .from("project_emails")
-        .upsert({
-          project_id: req.params.id,
-          message_id: email.message_id,
-          subject: email.subject || null,
-          from_address: email.from_address || null,
-          from_name: email.from_name || null,
-          to_addresses: email.to_addresses || [],
-          cc_addresses: email.cc_addresses || [],
-          sent_at: email.sent_at || null,
-          body_text: email.body_text || null,
-          has_attachments: email.has_attachments || false,
-          attachment_names: email.attachment_names || [],
-          embedding,
-        }, { onConflict: "project_id,message_id", ignoreDuplicates: false });
+        if (!textForEmbedding) { results.skipped++; continue; }
 
-      if (error) throw error;
-      results.inserted++;
-    } catch (err) {
-      results.errors.push({ message_id: email.message_id, error: err.message });
+        const embedding = await generateEmbedding(textForEmbedding, "RETRIEVAL_DOCUMENT");
+
+        const { error } = await supabase
+          .from("project_emails")
+          .upsert({
+            project_id: req.params.id,
+            message_id: email.message_id,
+            subject: email.subject || null,
+            from_address: email.from_address || null,
+            from_name: email.from_name || null,
+            to_addresses: email.to_addresses || [],
+            cc_addresses: email.cc_addresses || [],
+            sent_at: email.sent_at || null,
+            body_text: email.body_text || null,
+            has_attachments: email.has_attachments || false,
+            attachment_names: email.attachment_names || [],
+            email_type: structured.type,
+            embedding,
+          }, { onConflict: "project_id,message_id", ignoreDuplicates: false });
+
+        if (error) throw error;
+        results.inserted++;
+      } catch (err) {
+        results.errors.push({ message_id: email.message_id, error: err.message });
+      }
     }
   }
 
