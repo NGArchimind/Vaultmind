@@ -1,98 +1,176 @@
 import { useState } from "react";
-import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, LIBRARY_BLUE } from "../constants";
+import {
+  DESIGN_GROUND, DESIGN_MUTED,
+  DESIGN_PLACEHOLDER_BORDER, DESIGN_PLACEHOLDER_TEXT,
+  VAULT_FULL, VAULT_WASH,
+  COMPARE_FULL, COMPARE_WASH,
+  LIBRARY_FULL, LIBRARY_WASH,
+  PROJECTS_FULL, PROJECTS_WASH,
+  TIMESHEETS_FULL, TIMESHEETS_WASH,
+} from "../constants";
 
-export default function LandingPage({ onSelect, isAdmin }) {
-  const [hoverVault, setHoverVault] = useState(false);
-  const [hoverCompare, setHoverCompare] = useState(false);
-  const [hoverLibrary, setHoverLibrary] = useState(false);
-
+function Tile({ id, label, category, washColor, fullColor, cta, description, onSelect }) {
+  const [hover, setHover] = useState(false);
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: ARC_STONE, padding: "40px 24px" }}>
-      <div style={{ marginBottom: 48, textAlign: "center" }}>
-        <p style={{ fontSize: 13, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Select a tool to get started</p>
+    <div
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onClick={() => onSelect(id)}
+      style={{
+        flex: 1,
+        background: "#fff",
+        overflow: "hidden",
+        cursor: "pointer",
+        boxShadow: hover ? "0 6px 20px rgba(0,0,0,0.12)" : "0 1px 4px rgba(0,0,0,0.06)",
+        transform: hover ? "translateY(-2px)" : "none",
+        transition: "box-shadow 0.22s ease, transform 0.22s ease",
+      }}
+    >
+      <div
+        style={{
+          padding: "20px 18px 16px",
+          background: hover ? fullColor : washColor,
+          transition: "background 0.22s ease",
+        }}
+      >
+        <span
+          style={{
+            fontSize: 14,
+            fontWeight: 500,
+            color: "#fff",
+            letterSpacing: ".04em",
+            display: "block",
+            marginBottom: 4,
+          }}
+        >
+          {label}
+        </span>
+        <span
+          style={{
+            fontSize: 8,
+            fontWeight: 500,
+            color: "rgba(255,255,255,0.55)",
+            letterSpacing: ".14em",
+            textTransform: "uppercase",
+          }}
+        >
+          {category}
+        </span>
       </div>
 
-      <div style={{ display: "flex", gap: 24, width: "100%", maxWidth: 1200 }}>
-
-        {/* Vault tile */}
-        <button className="btn" onClick={() => onSelect("vault")}
-          onMouseEnter={() => setHoverVault(true)}
-          onMouseLeave={() => setHoverVault(false)}
+      <div
+        style={{
+          padding: 18,
+          display: "flex",
+          flexDirection: "column",
+          flex: 1,
+        }}
+      >
+        <p
           style={{
-            flex: 1, background: hoverVault ? ARC_NAVY : "#ffffff",
-            border: `2px solid ${hoverVault ? ARC_NAVY : "#ddd8d0"}`,
-            padding: "48px 32px", textAlign: "left", cursor: "pointer",
-            transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 16,
-          }}>
-          <div style={{ fontSize: 40 }}>🗄️</div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 300, color: hoverVault ? "#ffffff" : ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
-              Vault
-            </div>
-            <div style={{ fontSize: 13, color: hoverVault ? "#b8d4da" : "#9a9088", lineHeight: 1.7, fontFamily: "Inter, Arial, sans-serif" }}>
-              Query your building regulations documents. Upload PDFs, index vaults, and ask natural language questions across Approved Documents, British Standards, and NHBC guidance.
-            </div>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: hoverVault ? AD_GREEN_MID : AD_GREEN, display: "flex", alignItems: "center", gap: 6 }}>
-              Open Vault →
-            </span>
-          </div>
-        </button>
-
-        {/* Compare tile */}
-        <button className="btn" onClick={() => onSelect("compare")}
-          onMouseEnter={() => setHoverCompare(true)}
-          onMouseLeave={() => setHoverCompare(false)}
+            fontSize: 9,
+            color: DESIGN_MUTED,
+            lineHeight: 1.8,
+            margin: "0 0 14px",
+          }}
+        >
+          {description}
+        </p>
+        <div
           style={{
-            flex: 1, background: hoverCompare ? ARC_TERRACOTTA : "#ffffff",
-            border: `2px solid ${hoverCompare ? ARC_TERRACOTTA : "#ddd8d0"}`,
-            padding: "48px 32px", textAlign: "left", cursor: "pointer",
-            transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 16,
-          }}>
-          <div style={{ fontSize: 40 }}>⚖️</div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 300, color: hoverCompare ? "#ffffff" : ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
-              Compare
-            </div>
-            <div style={{ fontSize: 13, color: hoverCompare ? "#f0d0cb" : "#9a9088", lineHeight: 1.7, fontFamily: "Inter, Arial, sans-serif" }}>
-              Upload two product datasheets or technical documents. Get a detailed AI comparison of key differences, then check both products against your vault documents for compliance.
-            </div>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: hoverCompare ? "#f0d0cb" : ARC_TERRACOTTA, display: "flex", alignItems: "center", gap: 6 }}>
-              Open Compare →
-            </span>
-          </div>
-        </button>
-
-        {/* Library tile */}
-        <button className="btn" onClick={() => onSelect("library")}
-          onMouseEnter={() => setHoverLibrary(true)}
-          onMouseLeave={() => setHoverLibrary(false)}
-          style={{
-            flex: 1, background: hoverLibrary ? LIBRARY_BLUE : "#ffffff",
-            border: `2px solid ${hoverLibrary ? LIBRARY_BLUE : "#ddd8d0"}`,
-            padding: "48px 32px", textAlign: "left", cursor: "pointer",
-            transition: "all 0.2s", display: "flex", flexDirection: "column", gap: 16,
-          }}>
-          <div style={{ fontSize: 40 }}>📋</div>
-          <div>
-            <div style={{ fontSize: 22, fontWeight: 300, color: hoverLibrary ? "#ffffff" : ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
-              Library
-            </div>
-            <div style={{ fontSize: 13, color: hoverLibrary ? "#c8dce8" : "#9a9088", lineHeight: 1.7, fontFamily: "Inter, Arial, sans-serif" }}>
-              Upload product datasheets and build a searchable library. Filter by manufacturer and type, check compliance against your vaults, and download datasheets on demand.
-            </div>
-          </div>
-          <div style={{ marginTop: 8 }}>
-            <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: hoverLibrary ? "#c8dce8" : LIBRARY_BLUE, display: "flex", alignItems: "center", gap: 6 }}>
-              Open Library →
-            </span>
-          </div>
-        </button>
-
+            marginTop: "auto",
+            fontSize: 8,
+            fontWeight: 500,
+            letterSpacing: ".16em",
+            textTransform: "uppercase",
+            color: hover ? fullColor : washColor,
+            transition: "color 0.22s ease",
+          }}
+        >
+          {cta}
+        </div>
       </div>
+    </div>
+  );
+}
+
+const DOCUMENT_TILES = [
+  { id: "vault",   label: "Vault",              category: "Document Intelligence", washColor: VAULT_WASH,      fullColor: VAULT_FULL,      cta: "Open Vault →",    description: "Query your building regulations documents with natural language. Get precise answers with clause references." },
+  { id: "compare", label: "Data Sheet Compare", category: "Document Intelligence", washColor: COMPARE_WASH,    fullColor: COMPARE_FULL,    cta: "Open Compare →",  description: "Upload two product datasheets and compare them against your specification requirements for compliance." },
+  { id: "library", label: "Product Library",    category: "Document Intelligence", washColor: LIBRARY_WASH,    fullColor: LIBRARY_FULL,    cta: "Open Library →",  description: "Build a searchable library of product datasheets. Query across all your uploaded products at once." },
+];
+
+const PRACTICE_TILES = [
+  { id: "projects",   label: "Projects",   category: "Practice Management", washColor: PROJECTS_WASH,   fullColor: PROJECTS_FULL,   cta: "Open Projects →",   description: "Manage projects, tasks, drawing reviews, and client email correspondence in one place." },
+  { id: "timesheets", label: "Timesheets", category: "Practice Management", washColor: TIMESHEETS_WASH, fullColor: TIMESHEETS_FULL, cta: "Open Timesheets →", description: "Log time against projects, track fees, and monitor budget against programme across the practice." },
+];
+
+const GROUP_LABEL = {
+  fontSize: 9,
+  fontWeight: 500,
+  letterSpacing: ".22em",
+  textTransform: "uppercase",
+  color: DESIGN_MUTED,
+  margin: "0 0 14px",
+  fontFamily: "Inter, Arial, sans-serif",
+};
+
+export default function LandingPage({ onSelect }) {
+  return (
+    <div
+      style={{
+        flex: 1,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        background: DESIGN_GROUND,
+        padding: "40px",
+        gap: 32,
+        overflowY: "auto",
+        fontFamily: "Inter, Arial, sans-serif",
+      }}
+    >
+
+      {/* Document Intelligence group */}
+      <div style={{ width: "100%", maxWidth: 1200 }}>
+        <p style={GROUP_LABEL}>Document Intelligence</p>
+        <div style={{ display: "flex", gap: 20 }}>
+          {DOCUMENT_TILES.map(t => <Tile key={t.id} {...t} onSelect={onSelect} />)}
+        </div>
+      </div>
+
+      {/* Practice Management group */}
+      <div style={{ width: "100%", maxWidth: 1200 }}>
+        <p style={GROUP_LABEL}>Practice Management</p>
+        <div style={{ display: "flex", gap: 20 }}>
+          {PRACTICE_TILES.map(t => <Tile key={t.id} {...t} onSelect={onSelect} />)}
+          {/* Coming soon placeholder */}
+          <div
+            style={{
+              flex: 1,
+              background: DESIGN_GROUND,
+              border: `1px dashed ${DESIGN_PLACEHOLDER_BORDER}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              minHeight: 180,
+            }}
+          >
+            <span
+              style={{
+                fontSize: 8,
+                fontWeight: 500,
+                color: DESIGN_PLACEHOLDER_TEXT,
+                letterSpacing: ".18em",
+                textTransform: "uppercase",
+              }}
+            >
+              Coming soon
+            </span>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }

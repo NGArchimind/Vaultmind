@@ -1,20 +1,20 @@
 import { useState } from "react";
 import { api } from "../api/client";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE } from "../constants";
+import { ARC_TERRACOTTA, DESIGN_SHELL, DESIGN_GROUND } from "../constants";
 
 function MenuOption({ icon, title, desc, onClick, disabled, danger }) {
   return (
     <button className="btn" onClick={onClick} disabled={disabled}
       style={{
-        background: "transparent", border: `1px solid ${disabled ? "#eee" : danger ? "#f0d0cb" : ARC_STONE}`,
+        background: "transparent", border: `1px solid ${disabled ? "#eee" : danger ? "#f0d0cb" : DESIGN_GROUND}`,
         padding: "12px 16px", textAlign: "left", width: "100%",
         opacity: disabled ? 0.4 : 1, cursor: disabled ? "not-allowed" : "pointer",
       }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
         <span style={{ fontSize: 18 }}>{icon}</span>
         <div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: danger ? ARC_TERRACOTTA : ARC_NAVY, letterSpacing: "0.01em" }}>{title}</div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: danger ? ARC_TERRACOTTA : DESIGN_SHELL, letterSpacing: "0.01em" }}>{title}</div>
           <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>{desc}</div>
         </div>
       </div>
@@ -101,11 +101,11 @@ export default function VaultManagementModal({ vaults, onClose, onRefresh, isAdm
   const inputEl = (val, set, placeholder, autoFocus = false) => (
     <input value={val} onChange={e => set(e.target.value)} placeholder={placeholder} autoFocus={autoFocus}
       className="arc-input"
-      style={{ width: "100%", border: `1px solid #ccc`, padding: "9px 12px", fontSize: 13, color: ARC_NAVY, marginBottom: 14, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }} />
+      style={{ width: "100%", border: `1px solid #e4e4e8`, padding: "9px 12px", fontSize: 13, color: DESIGN_SHELL, marginBottom: 14, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }} />
   );
   const selectEl = (val, set, options, placeholder) => (
     <select value={val} onChange={e => set(e.target.value)}
-      style={{ width: "100%", border: `1px solid #ccc`, padding: "9px 12px", fontSize: 13, color: val ? ARC_NAVY : "#9a9088", marginBottom: 14, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }}>
+      style={{ width: "100%", border: `1px solid #e4e4e8`, padding: "9px 12px", fontSize: 13, color: val ? DESIGN_SHELL : "#9a9088", marginBottom: 14, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }}>
       <option value="">{placeholder}</option>
       {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
     </select>
@@ -113,9 +113,9 @@ export default function VaultManagementModal({ vaults, onClose, onRefresh, isAdm
   const btn = (label, onClick, variant = "primary") => (
     <button className="btn" onClick={onClick} disabled={busy}
       style={{
-        background: variant === "primary" ? ARC_NAVY : variant === "danger" ? ARC_TERRACOTTA : "transparent",
+        background: variant === "primary" ? DESIGN_SHELL : variant === "danger" ? ARC_TERRACOTTA : "transparent",
         color: variant === "ghost" ? "#9a9088" : "#fff",
-        border: variant === "ghost" ? "1px solid #ccc" : "none",
+        border: variant === "ghost" ? "1px solid #e4e4e8" : "none",
         padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginRight: 8,
       }}>{busy ? <Spinner size={12} /> : label}</button>
   );
@@ -134,7 +134,7 @@ export default function VaultManagementModal({ vaults, onClose, onRefresh, isAdm
     <div style={modalStyle} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={cardStyle}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-          <h2 style={{ fontSize: 16, fontWeight: 500, color: ARC_NAVY, letterSpacing: "0.02em" }}>
+          <h2 style={{ fontSize: 16, fontWeight: 500, color: DESIGN_SHELL, letterSpacing: "0.02em" }}>
             {mode === "menu" ? "Manage Vaults" :
              mode === "createMaster" ? "New Master Vault" :
              mode === "createSub" ? "New Sub-Vault" :

@@ -4,10 +4,10 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
 import { api } from "../api/client";
-import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
+import { DESIGN_GROUND, DESIGN_TEXT, TIMESHEETS_FULL, COMPARE_FULL } from "../constants";
 
 const CHART_COLORS = [
-  AD_GREEN, "#2a6496", ARC_TERRACOTTA, "#7a6aaa", "#c28a20",
+  TIMESHEETS_FULL, "#2a6496", COMPARE_FULL, "#7a6aaa", "#c28a20",
   "#4a7c20", "#505a5f", "#0d8a78", "#6a4a20", "#3a5aaa",
 ];
 
@@ -49,7 +49,7 @@ function SummaryCard({ label, value, sub, color }) {
   return (
     <div style={{ flex: 1, minWidth: 160, background: "#fff", border: "1px solid #dde4e8", padding: "18px 22px" }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: "#8a9aa8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>{label}</div>
-      <div style={{ fontSize: 28, fontWeight: 300, color: color || ARC_NAVY, letterSpacing: "0.01em" }}>{value}</div>
+      <div style={{ fontSize: 28, fontWeight: 300, color: color || DESIGN_TEXT, letterSpacing: "0.01em" }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: "#8a9aa8", marginTop: 4 }}>{sub}</div>}
     </div>
   );
@@ -59,7 +59,7 @@ const CustomTooltip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
   return (
     <div style={{ background: "#fff", border: "1px solid #dde4e8", padding: "10px 14px", fontSize: 12, boxShadow: "0 2px 8px rgba(0,0,0,0.1)" }}>
-      <p style={{ margin: "0 0 6px", fontWeight: 700, color: ARC_NAVY }}>{label}</p>
+      <p style={{ margin: "0 0 6px", fontWeight: 700, color: DESIGN_TEXT }}>{label}</p>
       {payload.map((p, i) => (
         <p key={i} style={{ margin: "2px 0", color: p.color }}>
           {p.name}: <strong>{p.value}h</strong>
@@ -168,19 +168,23 @@ export default function TimesheetReport({ onBack }) {
     .forEach(r => tableRows.push(r));
 
   // ── Styles ────────────────────────────────────────────────────────────────
-  const selStyle = { padding: "6px 10px", fontSize: 12, border: "1px solid #d0d8de", background: "#fff", color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" };
-  const thStyle  = { padding: "10px 14px", fontSize: 11, fontWeight: 700, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "left", borderBottom: "2px solid #dde4e8", background: ARC_STONE };
-  const tdStyle  = { padding: "10px 14px", fontSize: 13, color: ARC_NAVY, borderBottom: "1px solid #eef2f4" };
+  const selStyle = { padding: "6px 10px", fontSize: 12, border: "1px solid #d0d8de", background: "#fff", color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" };
+  const thStyle  = { padding: "10px 14px", fontSize: 11, fontWeight: 700, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "left", borderBottom: "2px solid #dde4e8", background: DESIGN_GROUND };
+  const tdStyle  = { padding: "10px 14px", fontSize: 13, color: DESIGN_TEXT, borderBottom: "1px solid #eef2f4" };
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f7f8" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
+      <div style={{ background: TIMESHEETS_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+        <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Timesheets</span>
+        <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— Report</span>
+      </div>
       {/* Header */}
       <div style={{ background: "#fff", borderBottom: "1px solid #dde4e8", padding: "16px 32px", flexShrink: 0, display: "flex", alignItems: "center", gap: 20 }}>
         <button onClick={onBack}
-          style={{ background: "none", border: "none", color: AD_GREEN, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: 0 }}>
+          style={{ background: "none", border: "none", color: TIMESHEETS_FULL, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: 0 }}>
           ← Back
         </button>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: ARC_NAVY }}>Reports & Analytics</h2>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: DESIGN_TEXT }}>Reports & Analytics</h2>
       </div>
 
       <div style={{ flex: 1, overflow: "auto", padding: "24px 32px" }}>
@@ -208,7 +212,7 @@ export default function TimesheetReport({ onBack }) {
 
           {(filterUser || filterProject) && (
             <button onClick={() => { setFilterUser(""); setFilterProject(""); }}
-              style={{ background: "none", border: "none", color: ARC_TERRACOTTA, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+              style={{ background: "none", border: "none", color: COMPARE_FULL, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
               Clear filters
             </button>
           )}
@@ -218,7 +222,7 @@ export default function TimesheetReport({ onBack }) {
 
         {/* Summary cards */}
         <div style={{ display: "flex", gap: 16, marginBottom: 28, flexWrap: "wrap" }}>
-          <SummaryCard label="Total hours" value={formatMins(totalMins)} sub={`${entries.length} entries`} color={AD_GREEN} />
+          <SummaryCard label="Total hours" value={formatMins(totalMins)} sub={`${entries.length} entries`} color={TIMESHEETS_FULL} />
           <SummaryCard label="Active projects" value={activeProjects} sub="with logged time" />
           <SummaryCard label="Staff" value={activeStaff} sub="with logged time" />
           <SummaryCard label="Weeks covered" value={Object.keys(byWeek).length} sub={filterFrom && filterTo ? `${filterFrom} → ${filterTo}` : "all time"} />
@@ -235,21 +239,21 @@ export default function TimesheetReport({ onBack }) {
 
               {/* Hours by week */}
               <div style={{ background: "#fff", border: "1px solid #dde4e8", padding: "20px 20px 12px" }}>
-                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: ARC_NAVY, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hours by Week</h3>
+                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: DESIGN_TEXT, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hours by Week</h3>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={weekChartData} margin={{ top: 0, right: 8, bottom: 0, left: -10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#eef2f4" />
                     <XAxis dataKey="week" tick={{ fontSize: 11, fill: "#8a9aa8" }} />
                     <YAxis tick={{ fontSize: 11, fill: "#8a9aa8" }} unit="h" />
                     <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="hours" fill={AD_GREEN} radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="hours" fill={TIMESHEETS_FULL} radius={[2, 2, 0, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
 
               {/* Hours by project */}
               <div style={{ background: "#fff", border: "1px solid #dde4e8", padding: "20px 20px 12px" }}>
-                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: ARC_NAVY, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hours by Project</h3>
+                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: DESIGN_TEXT, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hours by Project</h3>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={projectChartData.slice(0, 10)} layout="vertical" margin={{ top: 0, right: 16, bottom: 0, left: 8 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#eef2f4" horizontal={false} />
@@ -269,7 +273,7 @@ export default function TimesheetReport({ onBack }) {
             {/* Hours by person */}
             {personChartData.length > 1 && (
               <div style={{ background: "#fff", border: "1px solid #dde4e8", padding: "20px 20px 12px", marginBottom: 20 }}>
-                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: ARC_NAVY, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hours by Person</h3>
+                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: DESIGN_TEXT, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hours by Person</h3>
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart data={personChartData} margin={{ top: 0, right: 8, bottom: 0, left: -10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#eef2f4" />
@@ -280,8 +284,8 @@ export default function TimesheetReport({ onBack }) {
                         if (!active || !payload?.length) return null;
                         return (
                           <div style={{ background: "#fff", border: "1px solid #dde4e8", padding: "10px 14px", fontSize: 12 }}>
-                            <p style={{ margin: "0 0 4px", fontWeight: 700, color: ARC_NAVY }}>{payload[0].payload.fullEmail}</p>
-                            <p style={{ margin: 0, color: AD_GREEN }}>{payload[0].value}h</p>
+                            <p style={{ margin: "0 0 4px", fontWeight: 700, color: DESIGN_TEXT }}>{payload[0].payload.fullEmail}</p>
+                            <p style={{ margin: 0, color: TIMESHEETS_FULL }}>{payload[0].value}h</p>
                           </div>
                         );
                       }}
@@ -300,7 +304,7 @@ export default function TimesheetReport({ onBack }) {
             {projectChartData.length > 1 && (
               <div style={{ display: "grid", gridTemplateColumns: "320px 1fr", gap: 20, marginBottom: 20 }}>
                 <div style={{ background: "#fff", border: "1px solid #dde4e8", padding: "20px" }}>
-                  <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: ARC_NAVY, textTransform: "uppercase", letterSpacing: "0.06em" }}>Project Split</h3>
+                  <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: DESIGN_TEXT, textTransform: "uppercase", letterSpacing: "0.06em" }}>Project Split</h3>
                   <ResponsiveContainer width="100%" height={240}>
                     <PieChart>
                       <Pie data={projectChartData} dataKey="hours" nameKey="name" cx="50%" cy="50%" outerRadius={90} labelLine={false}
@@ -323,7 +327,7 @@ export default function TimesheetReport({ onBack }) {
                       <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "3px 0" }}>
                         <div style={{ width: 10, height: 10, borderRadius: 2, background: CHART_COLORS[i % CHART_COLORS.length], flexShrink: 0 }} />
                         <span style={{ fontSize: 11, color: "#6a8a9a", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.name}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: ARC_NAVY }}>{p.hours}h</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: DESIGN_TEXT }}>{p.hours}h</span>
                       </div>
                     ))}
                   </div>
@@ -331,7 +335,7 @@ export default function TimesheetReport({ onBack }) {
 
                 {/* Project totals table */}
                 <div style={{ background: "#fff", border: "1px solid #dde4e8", overflow: "hidden" }}>
-                  <h3 style={{ margin: 0, padding: "16px 20px", fontSize: 13, fontWeight: 700, color: ARC_NAVY, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #eef2f4" }}>Project Totals</h3>
+                  <h3 style={{ margin: 0, padding: "16px 20px", fontSize: 13, fontWeight: 700, color: DESIGN_TEXT, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #eef2f4" }}>Project Totals</h3>
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr>
@@ -347,7 +351,7 @@ export default function TimesheetReport({ onBack }) {
                             <div style={{ width: 8, height: 8, borderRadius: 2, background: CHART_COLORS[i % CHART_COLORS.length], flexShrink: 0 }} />
                             {p.name}
                           </td>
-                          <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: AD_GREEN }}>{p.hours}h</td>
+                          <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: TIMESHEETS_FULL }}>{p.hours}h</td>
                           <td style={{ ...tdStyle, textAlign: "right", color: "#8a9aa8" }}>
                             {totalMins ? `${((p.hours / minsToHours(totalMins)) * 100).toFixed(1)}%` : "—"}
                           </td>
@@ -355,9 +359,9 @@ export default function TimesheetReport({ onBack }) {
                       ))}
                     </tbody>
                     <tfoot>
-                      <tr style={{ background: ARC_STONE }}>
+                      <tr style={{ background: DESIGN_GROUND }}>
                         <td style={{ ...tdStyle, fontWeight: 700 }}>Total</td>
-                        <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: AD_GREEN }}>{minsToHours(totalMins)}h</td>
+                        <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: TIMESHEETS_FULL }}>{minsToHours(totalMins)}h</td>
                         <td style={{ ...tdStyle, textAlign: "right", color: "#8a9aa8" }}>100%</td>
                       </tr>
                     </tfoot>
@@ -368,7 +372,7 @@ export default function TimesheetReport({ onBack }) {
 
             {/* Detailed breakdown table */}
             <div style={{ background: "#fff", border: "1px solid #dde4e8" }}>
-              <h3 style={{ margin: 0, padding: "16px 20px", fontSize: 13, fontWeight: 700, color: ARC_NAVY, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #eef2f4" }}>
+              <h3 style={{ margin: 0, padding: "16px 20px", fontSize: 13, fontWeight: 700, color: DESIGN_TEXT, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #eef2f4" }}>
                 Weekly Breakdown by Staff Member
               </h3>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -388,16 +392,16 @@ export default function TimesheetReport({ onBack }) {
                       <td style={{ ...tdStyle, color: "#6a8a9a", fontSize: 12 }}>
                         {r.projects.size > 0 ? [...r.projects].join(", ") : "—"}
                       </td>
-                      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: r.mins >= 37.5 * 60 ? AD_GREEN : ARC_TERRACOTTA }}>
+                      <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: r.mins >= 37.5 * 60 ? TIMESHEETS_FULL : COMPARE_FULL }}>
                         {formatMins(r.mins)}
                       </td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr style={{ background: ARC_STONE }}>
+                  <tr style={{ background: DESIGN_GROUND }}>
                     <td colSpan={3} style={{ ...tdStyle, fontWeight: 700 }}>Grand total</td>
-                    <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: AD_GREEN }}>{formatMins(totalMins)}</td>
+                    <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: TIMESHEETS_FULL }}>{formatMins(totalMins)}</td>
                   </tr>
                 </tfoot>
               </table>

@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api } from "../api/client";
-import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
+import { DESIGN_TEXT, PROJECTS_FULL, COMPARE_FULL } from "../constants";
 import DrawingReview from "./DrawingReview";
 
-const PRIORITY_COLOR = { high: ARC_TERRACOTTA, medium: "#b07800", low: "#5a7a9a" };
+const PRIORITY_COLOR = { high: COMPARE_FULL, medium: "#b07800", low: "#5a7a9a" };
 const PRIORITY_LABEL = { high: "High", medium: "Medium", low: "Low" };
 
 function isOverdue(due_date) {
@@ -89,13 +89,13 @@ function UserChip({ userId, users }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
       <div style={{
-        width: 24, height: 24, borderRadius: "50%", background: AD_GREEN,
+        width: 24, height: 24, borderRadius: "50%", background: PROJECTS_FULL,
         color: "#fff", fontSize: 9, fontWeight: 700,
         display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0,
       }}>
         {initials(user.full_name)}
       </div>
-      <span style={{ fontSize: 12, color: ARC_NAVY }}>{user.full_name}</span>
+      <span style={{ fontSize: 12, color: DESIGN_TEXT }}>{user.full_name}</span>
     </div>
   );
 }
@@ -139,26 +139,26 @@ function TaskModal({ task, columns, users, createdByUser, onSave, onDelete, onCl
   };
 
   const label = { fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
-  const input = { width: "100%", border: "1px solid #dde4e8", padding: "8px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", boxSizing: "border-box", marginBottom: 16, background: "#fff" };
+  const input = { width: "100%", border: "1px solid #dde4e8", padding: "8px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", boxSizing: "border-box", marginBottom: 16, background: "#fff" };
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}
       onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: "#faf8f5", width: 560, maxHeight: "90vh", overflowY: "auto", borderTop: `3px solid ${ARC_NAVY}`, fontFamily: "Inter, Arial, sans-serif" }}>
+      <div style={{ background: "#f8f8fa", width: 560, maxHeight: "90vh", overflowY: "auto", borderTop: `3px solid ${DESIGN_TEXT}`, fontFamily: "Inter, Arial, sans-serif" }}>
 
         {/* Modal header */}
-        <div style={{ background: "#fff", padding: "20px 28px", borderBottom: "1px solid #e8e0d5", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ background: "#fff", padding: "20px 28px", borderBottom: "1px solid #e4e4e8", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4 }}>Task</div>
             <input value={form.title} onChange={e => set("title", e.target.value)}
-              style={{ fontSize: 16, fontWeight: 500, color: ARC_NAVY, border: "none", outline: "none", background: "transparent", width: 400, fontFamily: "Inter, Arial, sans-serif", padding: 0 }} />
+              style={{ fontSize: 16, fontWeight: 500, color: DESIGN_TEXT, border: "none", outline: "none", background: "transparent", width: 400, fontFamily: "Inter, Arial, sans-serif", padding: 0 }} />
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", fontSize: 22, color: "#9a9088", cursor: "pointer", lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
 
         <div style={{ padding: "24px 28px" }}>
           {/* Meta grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 24px", background: "#fff", border: "1px solid #e8e0d5", padding: "16px 20px", marginBottom: 20 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 24px", background: "#fff", border: "1px solid #e4e4e8", padding: "16px 20px", marginBottom: 20 }}>
             {[
               ["Status", <select value={form.column_id} onChange={e => set("column_id", e.target.value)} style={{ ...input, margin: 0, fontSize: 12 }}>
                 {columns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -173,8 +173,8 @@ function TaskModal({ task, columns, users, createdByUser, onSave, onDelete, onCl
                 {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
               </select>],
               ["Due Date", <input type="date" value={form.due_date} onChange={e => set("due_date", e.target.value)} style={{ ...input, margin: 0, fontSize: 12 }} />],
-              ["Created by", <div style={{ fontSize: 12, color: ARC_NAVY, padding: "8px 0" }}>{createdByUser?.full_name || "—"}</div>],
-              ["Created", <div style={{ fontSize: 12, color: ARC_NAVY, padding: "8px 0" }}>{fmtDate(task.created_at)}</div>],
+              ["Created by", <div style={{ fontSize: 12, color: DESIGN_TEXT, padding: "8px 0" }}>{createdByUser?.full_name || "—"}</div>],
+              ["Created", <div style={{ fontSize: 12, color: DESIGN_TEXT, padding: "8px 0" }}>{fmtDate(task.created_at)}</div>],
             ].map(([k, v]) => (
               <div key={k} style={{ marginBottom: 12 }}>
                 <div style={label}>{k}</div>
@@ -194,7 +194,7 @@ function TaskModal({ task, columns, users, createdByUser, onSave, onDelete, onCl
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={handleSave} disabled={!form.title.trim() || saving}
-                style={{ background: form.title.trim() ? ARC_NAVY : "#ccc", color: "#fff", border: "none", padding: "9px 22px", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", cursor: form.title.trim() ? "pointer" : "default", fontFamily: "Inter, Arial, sans-serif" }}>
+                style={{ background: form.title.trim() ? DESIGN_TEXT : "#ccc", color: "#fff", border: "none", padding: "9px 22px", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", cursor: form.title.trim() ? "pointer" : "default", fontFamily: "Inter, Arial, sans-serif" }}>
                 {saving ? "Saving…" : "Save Changes"}
               </button>
               <button onClick={onClose} style={{ background: "none", border: "1px solid #dde4e8", color: "#9a9088", padding: "9px 16px", fontSize: 11, cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
@@ -203,14 +203,14 @@ function TaskModal({ task, columns, users, createdByUser, onSave, onDelete, onCl
             </div>
             {!confirmDel ? (
               <button onClick={() => setConfirmDel(true)}
-                style={{ background: "none", border: `1px solid ${ARC_TERRACOTTA}`, color: ARC_TERRACOTTA, padding: "9px 14px", fontSize: 11, cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
+                style={{ background: "none", border: `1px solid ${COMPARE_FULL}`, color: COMPARE_FULL, padding: "9px 14px", fontSize: 11, cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
                 Delete task
               </button>
             ) : (
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                 <span style={{ fontSize: 11, color: "#9a9088" }}>Confirm?</span>
                 <button onClick={handleDelete} disabled={deleting}
-                  style={{ background: ARC_TERRACOTTA, color: "#fff", border: "none", padding: "7px 14px", fontSize: 11, cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
+                  style={{ background: COMPARE_FULL, color: "#fff", border: "none", padding: "7px 14px", fontSize: 11, cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
                   {deleting ? "…" : "Yes, delete"}
                 </button>
                 <button onClick={() => setConfirmDel(false)}
@@ -239,7 +239,7 @@ function AddTaskForm({ columns, users, onSave, onCancel }) {
     setSaving(false);
   };
 
-  const cellInput = { border: "1px solid #dde4e8", padding: "6px 8px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", width: "100%", background: "#fff", boxSizing: "border-box" };
+  const cellInput = { border: "1px solid #dde4e8", padding: "6px 8px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", width: "100%", background: "#fff", boxSizing: "border-box" };
 
   return (
     <tr style={{ background: "#f5fbf7" }}>
@@ -271,7 +271,7 @@ function AddTaskForm({ columns, users, onSave, onCancel }) {
       <td style={{ padding: "8px 8px", whiteSpace: "nowrap" }}>
         <div style={{ display: "flex", gap: 6 }}>
           <button onClick={handleSave} disabled={!form.title.trim() || saving}
-            style={{ background: form.title.trim() ? AD_GREEN : "#ccc", color: "#fff", border: "none", padding: "5px 14px", fontSize: 11, fontWeight: 700, cursor: form.title.trim() ? "pointer" : "default", fontFamily: "Inter, Arial, sans-serif" }}>
+            style={{ background: form.title.trim() ? PROJECTS_FULL : "#ccc", color: "#fff", border: "none", padding: "5px 14px", fontSize: 11, fontWeight: 700, cursor: form.title.trim() ? "pointer" : "default", fontFamily: "Inter, Arial, sans-serif" }}>
             {saving ? "…" : "Add"}
           </button>
           <button onClick={onCancel}
@@ -360,10 +360,10 @@ export default function TaskBoard({ projectId }) {
       return sortDir === "asc" ? (av < bv ? -1 : av > bv ? 1 : 0) : (av > bv ? -1 : av < bv ? 1 : 0);
     });
 
-  const filterSelect = { fontSize: 12, border: "1px solid #dde4e8", padding: "5px 8px", fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, background: "#fff", outline: "none", cursor: "pointer" };
+  const filterSelect = { fontSize: 12, border: "1px solid #dde4e8", padding: "5px 8px", fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, background: "#fff", outline: "none", cursor: "pointer" };
   const thStyle = (key) => ({
     padding: "10px 12px", fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
-    color: sortKey === key ? AD_GREEN : "#fff", background: ARC_NAVY, textAlign: "left",
+    color: sortKey === key ? PROJECTS_FULL : "#fff", background: DESIGN_TEXT, textAlign: "left",
     cursor: "pointer", userSelect: "none", whiteSpace: "nowrap",
   });
   const sortArrow = (key) => sortKey === key ? (sortDir === "asc" ? " ↑" : " ↓") : "";
@@ -398,7 +398,7 @@ export default function TaskBoard({ projectId }) {
           </select>
           {(fStatus !== "all" || fPriority !== "all" || fAssignee !== "all" || fDue !== "all") && (
             <button onClick={() => { setFStatus("all"); setFPriority("all"); setFAssignee("all"); setFDue("all"); }}
-              style={{ ...filterSelect, color: ARC_TERRACOTTA, border: `1px solid ${ARC_TERRACOTTA}`, background: "none", fontWeight: 600 }}>
+              style={{ ...filterSelect, color: COMPARE_FULL, border: `1px solid ${COMPARE_FULL}`, background: "none", fontWeight: 600 }}>
               Clear filters
             </button>
           )}
@@ -406,14 +406,14 @@ export default function TaskBoard({ projectId }) {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 12, color: "#9a9088" }}>{visible.length} task{visible.length !== 1 ? "s" : ""}</span>
           <button onClick={() => setAddingTask(true)} disabled={addingTask}
-            style={{ background: AD_GREEN, color: "#fff", border: "none", padding: "7px 18px", fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
+            style={{ background: PROJECTS_FULL, color: "#fff", border: "none", padding: "7px 18px", fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
             + New Task
           </button>
         </div>
       </div>
 
       {/* Table */}
-      <div style={{ border: "1px solid #e8e0d5", overflowX: "auto" }}>
+      <div style={{ border: "1px solid #e4e4e8", overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
           <thead>
             <tr>
@@ -441,11 +441,11 @@ export default function TaskBoard({ projectId }) {
               return (
                 <tr key={task.id}
                   onClick={() => setModal(task)}
-                  style={{ background: i % 2 === 0 ? "#fff" : "#faf8f5", borderBottom: "1px solid #f0ede8", cursor: "pointer", transition: "background 0.1s" }}
+                  style={{ background: i % 2 === 0 ? "#fff" : "#f8f8fa", borderBottom: "1px solid #f0f0f4", cursor: "pointer", transition: "background 0.1s" }}
                   onMouseEnter={e => e.currentTarget.style.background = "#f0f8f4"}
-                  onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "#fff" : "#faf8f5"}
+                  onMouseLeave={e => e.currentTarget.style.background = i % 2 === 0 ? "#fff" : "#f8f8fa"}
                 >
-                  <td style={{ padding: "12px 14px", color: ARC_NAVY, fontWeight: 500, maxWidth: 300 }}>
+                  <td style={{ padding: "12px 14px", color: DESIGN_TEXT, fontWeight: 500, maxWidth: 300 }}>
                     <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</div>
                     {task.description && (
                       <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.description}</div>
@@ -454,7 +454,7 @@ export default function TaskBoard({ projectId }) {
                   <td style={{ padding: "12px 10px" }}><StatusBadge name={colName} /></td>
                   <td style={{ padding: "12px 10px" }}><PriorityBadge priority={task.priority || "medium"} /></td>
                   <td style={{ padding: "12px 10px" }}><UserChip userId={task.assignee_id} users={users} /></td>
-                  <td style={{ padding: "12px 10px", whiteSpace: "nowrap", color: overdue ? ARC_TERRACOTTA : "#5a7a9a", fontWeight: overdue ? 600 : 400, fontSize: 12 }}>
+                  <td style={{ padding: "12px 10px", whiteSpace: "nowrap", color: overdue ? COMPARE_FULL : "#5a7a9a", fontWeight: overdue ? 600 : 400, fontSize: 12 }}>
                     {task.due_date ? (overdue ? `⚠ ${fmtDateShort(task.due_date)}` : fmtDateShort(task.due_date)) : "—"}
                   </td>
                   <td style={{ padding: "8px 10px", textAlign: "right", whiteSpace: "nowrap" }}>
@@ -462,7 +462,7 @@ export default function TaskBoard({ projectId }) {
                       <ReviewBadge review={task._review} />
                       <button
                         onClick={e => { e.stopPropagation(); setDrawingReview({ taskId: task.id, taskTitle: task.title, review: task._review }); }}
-                        style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", background: task._review?.status === "in_review" ? ARC_TERRACOTTA : task._review?.status === "reviewed" ? "#e8f5e9" : "#f0f4f8", color: task._review?.status === "in_review" ? "#fff" : task._review?.status === "reviewed" ? "#2a7a3a" : "#5a7a9a", border: "none", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
+                        style={{ fontSize: 11, fontWeight: 600, padding: "4px 12px", background: task._review?.status === "in_review" ? COMPARE_FULL : task._review?.status === "reviewed" ? "#e8f5e9" : "#f0f4f8", color: task._review?.status === "in_review" ? "#fff" : task._review?.status === "reviewed" ? "#2a7a3a" : "#5a7a9a", border: "none", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
                         {task._review ? "Drawings" : "📄 Upload"}
                       </button>
                       <span style={{ fontSize: 11, color: "#b0b8c0" }}>View →</span>

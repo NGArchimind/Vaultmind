@@ -4,7 +4,7 @@ import {
   Tooltip, ReferenceLine, ResponsiveContainer, Legend,
 } from "recharts";
 import { api } from "../api/client";
-import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
+import { DESIGN_GROUND, DESIGN_TEXT, TIMESHEETS_FULL, COMPARE_FULL } from "../constants";
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
 
@@ -31,9 +31,9 @@ function fmtGBP(n) {
 function entryHours(e) { return (e.hours || 0) + (e.minutes || 0) / 60; }
 
 function pctColor(pct) {
-  if (pct >= 90) return ARC_TERRACOTTA;
+  if (pct >= 90) return COMPARE_FULL;
   if (pct >= 70) return "#c28a20";
-  return AD_GREEN;
+  return TIMESHEETS_FULL;
 }
 
 // ── Fee progress bar ───────────────────────────────────────────────────────────
@@ -64,12 +64,12 @@ function EditableAmount({ value, onSave, prefix = "£", placeholder = "Set amoun
     return (
       <input autoFocus value={draft} onChange={e => setDraft(e.target.value)} onBlur={commit}
         onKeyDown={e => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setDraft(value != null ? String(value) : ""); setEditing(false); } }}
-        style={{ width: 120, padding: "3px 8px", fontSize: 13, border: `1px solid ${AD_GREEN}`, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY }} />
+        style={{ width: 120, padding: "3px 8px", fontSize: 13, border: `1px solid ${TIMESHEETS_FULL}`, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT }} />
     );
   }
   return (
     <span onClick={() => setEditing(true)} title="Click to edit"
-      style={{ cursor: "pointer", borderBottom: `1px dashed ${AD_GREEN}`, color: value != null ? ARC_NAVY : "#aaa", fontSize: 13 }}>
+      style={{ cursor: "pointer", borderBottom: `1px dashed ${TIMESHEETS_FULL}`, color: value != null ? DESIGN_TEXT : "#aaa", fontSize: 13 }}>
       {value != null ? `${prefix}${Number(value).toLocaleString("en-GB")}` : placeholder}
     </span>
   );
@@ -81,7 +81,7 @@ function BurnTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
   return (
     <div style={{ background: "#fff", border: "1px solid #dde4e8", padding: "10px 14px", fontSize: 12, boxShadow: "0 2px 8px rgba(0,0,0,.1)" }}>
-      <p style={{ margin: "0 0 6px", fontWeight: 700, color: ARC_NAVY }}>{label}</p>
+      <p style={{ margin: "0 0 6px", fontWeight: 700, color: DESIGN_TEXT }}>{label}</p>
       {payload.map((p, i) => (
         <p key={i} style={{ margin: "2px 0", color: p.color }}>
           {p.name}: <strong>{fmtGBP(p.value)}</strong>
@@ -130,17 +130,17 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
   const avgWeeklyBurn = weeks.length > 0 ? totalSpent / weeks.length : 0;
   const weeksLeft     = avgWeeklyBurn > 0 ? Math.ceil(remaining / avgWeeklyBurn) : null;
 
-  const thStyle = { padding: "9px 14px", fontSize: 11, fontWeight: 700, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "left", borderBottom: "2px solid #dde4e8", background: ARC_STONE };
-  const tdStyle = { padding: "10px 14px", fontSize: 13, color: ARC_NAVY, borderBottom: "1px solid #eef2f4" };
+  const thStyle = { padding: "9px 14px", fontSize: 11, fontWeight: 700, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "left", borderBottom: "2px solid #dde4e8", background: DESIGN_GROUND };
+  const tdStyle = { padding: "10px 14px", fontSize: 13, color: DESIGN_TEXT, borderBottom: "1px solid #eef2f4" };
 
   return (
     <div>
       <button onClick={onBack}
-        style={{ background: "none", border: "none", color: AD_GREEN, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: "0 0 20px", display: "flex", alignItems: "center", gap: 6 }}>
+        style={{ background: "none", border: "none", color: TIMESHEETS_FULL, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: "0 0 20px", display: "flex", alignItems: "center", gap: 6 }}>
         ← All projects
       </button>
 
-      <h3 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 400, color: ARC_NAVY }}>
+      <h3 style={{ margin: "0 0 4px", fontSize: 18, fontWeight: 400, color: DESIGN_TEXT }}>
         {project.job_number ? `${project.job_number} — ` : ""}{project.name}
       </h3>
       <p style={{ margin: "0 0 24px", fontSize: 13, color: "#6a8a9a" }}>Fee review</p>
@@ -148,9 +148,9 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
       {/* Summary cards */}
       <div style={{ display: "flex", gap: 16, marginBottom: 28, flexWrap: "wrap" }}>
         {[
-          { label: "Total fee",    value: fmtGBP(fee),         color: ARC_NAVY },
+          { label: "Total fee",    value: fmtGBP(fee),         color: DESIGN_TEXT },
           { label: "Spent to date", value: fmtGBP(totalSpent), color: pctColor(pct) },
-          { label: "Remaining",    value: fmtGBP(remaining),   color: remaining >= 0 ? AD_GREEN : ARC_TERRACOTTA },
+          { label: "Remaining",    value: fmtGBP(remaining),   color: remaining >= 0 ? TIMESHEETS_FULL : COMPARE_FULL },
           { label: "% consumed",   value: `${pct.toFixed(1)}%`, color: pctColor(pct) },
           ...(weeksLeft != null && remaining > 0 ? [{ label: "Est. weeks remaining", value: weeksLeft, color: "#6a8a9a" }] : []),
         ].map(c => (
@@ -171,7 +171,7 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
           <div style={{ width: `${Math.min(pct, 100)}%`, height: "100%", background: pctColor(pct), borderRadius: 6, transition: "width 0.5s" }} />
         </div>
         {pct > 100 && (
-          <p style={{ margin: "8px 0 0", fontSize: 12, color: ARC_TERRACOTTA, fontWeight: 600 }}>
+          <p style={{ margin: "8px 0 0", fontSize: 12, color: COMPARE_FULL, fontWeight: 600 }}>
             ⚠ Fee overrun — {fmtGBP(Math.abs(remaining))} over budget
           </p>
         )}
@@ -180,7 +180,7 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
       {/* Burn chart */}
       {chartData.length > 0 && (
         <div style={{ background: "#fff", border: "1px solid #dde4e8", padding: "20px 20px 12px", marginBottom: 20 }}>
-          <h4 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: ARC_NAVY, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+          <h4 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: DESIGN_TEXT, textTransform: "uppercase", letterSpacing: "0.06em" }}>
             Week-by-week burn
           </h4>
           <ResponsiveContainer width="100%" height={260}>
@@ -190,11 +190,11 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
               <YAxis tick={{ fontSize: 11, fill: "#8a9aa8" }} tickFormatter={v => `£${(v / 1000).toFixed(0)}k`} />
               <Tooltip content={<BurnTooltip />} />
               <Legend iconSize={10} wrapperStyle={{ fontSize: 12 }} />
-              <Bar dataKey="weekly" name="Weekly spend" fill={`${AD_GREEN}66`} radius={[2, 2, 0, 0]} />
-              <Line dataKey="cumulative" name="Cumulative spend" stroke={AD_GREEN} strokeWidth={2} dot={{ r: 3, fill: AD_GREEN }} />
+              <Bar dataKey="weekly" name="Weekly spend" fill={`${TIMESHEETS_FULL}66`} radius={[2, 2, 0, 0]} />
+              <Line dataKey="cumulative" name="Cumulative spend" stroke={TIMESHEETS_FULL} strokeWidth={2} dot={{ r: 3, fill: TIMESHEETS_FULL }} />
               {fee > 0 && (
-                <ReferenceLine y={fee} stroke={ARC_TERRACOTTA} strokeDasharray="6 3"
-                  label={{ value: "Total fee", position: "insideTopRight", fill: ARC_TERRACOTTA, fontSize: 11 }} />
+                <ReferenceLine y={fee} stroke={COMPARE_FULL} strokeDasharray="6 3"
+                  label={{ value: "Total fee", position: "insideTopRight", fill: COMPARE_FULL, fontSize: 11 }} />
               )}
             </ComposedChart>
           </ResponsiveContainer>
@@ -204,7 +204,7 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
       {/* Per-person breakdown */}
       {Object.keys(byPerson).length > 0 && (
         <div style={{ background: "#fff", border: "1px solid #dde4e8" }}>
-          <h4 style={{ margin: 0, padding: "14px 20px", fontSize: 13, fontWeight: 700, color: ARC_NAVY, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #eef2f4" }}>
+          <h4 style={{ margin: 0, padding: "14px 20px", fontSize: 13, fontWeight: 700, color: DESIGN_TEXT, textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #eef2f4" }}>
             Staff breakdown
           </h4>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -225,7 +225,7 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
                   <td style={{ ...tdStyle, textAlign: "right", color: "#6a8a9a" }}>
                     {fmtGBP(rates[Object.keys(byPerson).find(k => k === email)] || 0)}/h
                   </td>
-                  <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: AD_GREEN }}>{fmtGBP(cost)}</td>
+                  <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: TIMESHEETS_FULL }}>{fmtGBP(cost)}</td>
                   <td style={{ ...tdStyle, textAlign: "right", color: "#8a9aa8" }}>
                     {totalSpent > 0 ? `${((cost / totalSpent) * 100).toFixed(1)}%` : "—"}
                   </td>
@@ -233,13 +233,13 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
               ))}
             </tbody>
             <tfoot>
-              <tr style={{ background: ARC_STONE }}>
+              <tr style={{ background: DESIGN_GROUND }}>
                 <td style={{ ...tdStyle, fontWeight: 700 }}>Total</td>
                 <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600 }}>
                   {Object.values(byPerson).reduce((s, p) => s + p.hours, 0).toFixed(1)}h
                 </td>
                 <td style={tdStyle} />
-                <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: AD_GREEN }}>{fmtGBP(totalSpent)}</td>
+                <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: TIMESHEETS_FULL }}>{fmtGBP(totalSpent)}</td>
                 <td style={{ ...tdStyle, textAlign: "right", color: "#8a9aa8" }}>100%</td>
               </tr>
             </tfoot>
@@ -303,10 +303,10 @@ export default function FeeReview({ onBack }) {
   if (drillProject) {
     const projectEntries = allEntries.filter(e => e.project_id === drillProject.id);
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f7f8" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
         <div style={{ background: "#fff", borderBottom: "1px solid #dde4e8", padding: "16px 32px", flexShrink: 0, display: "flex", alignItems: "center", gap: 20 }}>
-          <button onClick={onBack} style={{ background: "none", border: "none", color: AD_GREEN, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: 0 }}>← Back</button>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: ARC_NAVY }}>Fee Review</h2>
+          <button onClick={onBack} style={{ background: "none", border: "none", color: TIMESHEETS_FULL, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: 0 }}>← Back</button>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: DESIGN_TEXT }}>Fee Review</h2>
         </div>
         <div style={{ flex: 1, overflow: "auto", padding: "28px 32px" }}>
           <ProjectDrillDown
@@ -334,18 +334,22 @@ export default function FeeReview({ onBack }) {
 
   const projectsNoFee = projects.filter(p => !p.fee);
 
-  const selStyle = { padding: "6px 10px", fontSize: 13, border: "1px solid #d0d8de", fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, background: "#fff" };
-  const thStyle  = { padding: "9px 14px", fontSize: 11, fontWeight: 700, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "left", borderBottom: "1px solid #dde4e8", background: ARC_STONE };
-  const tdStyle  = { padding: "11px 14px", fontSize: 13, color: ARC_NAVY, borderBottom: "1px solid #eef2f4", verticalAlign: "middle" };
+  const selStyle = { padding: "6px 10px", fontSize: 13, border: "1px solid #d0d8de", fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, background: "#fff" };
+  const thStyle  = { padding: "9px 14px", fontSize: 11, fontWeight: 700, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "left", borderBottom: "1px solid #dde4e8", background: DESIGN_GROUND };
+  const tdStyle  = { padding: "11px 14px", fontSize: 13, color: DESIGN_TEXT, borderBottom: "1px solid #eef2f4", verticalAlign: "middle" };
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f7f8" }}>
-      {toast && <div style={{ position: "fixed", bottom: 24, right: 24, background: ARC_NAVY, color: "#fff", padding: "10px 20px", fontSize: 13, zIndex: 9999 }}>{toast}</div>}
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
+      <div style={{ background: TIMESHEETS_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+        <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Timesheets</span>
+        <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— Fee Review</span>
+      </div>
+      {toast && <div style={{ position: "fixed", bottom: 24, right: 24, background: DESIGN_TEXT, color: "#fff", padding: "10px 20px", fontSize: 13, zIndex: 9999 }}>{toast}</div>}
 
       {/* Header */}
       <div style={{ background: "#fff", borderBottom: "1px solid #dde4e8", padding: "16px 32px", flexShrink: 0, display: "flex", alignItems: "center", gap: 20 }}>
-        <button onClick={onBack} style={{ background: "none", border: "none", color: AD_GREEN, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: 0 }}>← Back</button>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: ARC_NAVY }}>Fee Review</h2>
+        <button onClick={onBack} style={{ background: "none", border: "none", color: TIMESHEETS_FULL, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: 0 }}>← Back</button>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: DESIGN_TEXT }}>Fee Review</h2>
       </div>
 
       <div style={{ flex: 1, overflow: "auto", padding: "24px 32px" }}>
@@ -358,7 +362,7 @@ export default function FeeReview({ onBack }) {
               <button onClick={() => setSetupOpen(o => !o)}
                 style={{ width: "100%", background: "none", border: "none", padding: "12px 18px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", textAlign: "left" }}>
                 <span style={{ fontSize: 14 }}>{setupOpen ? "▲" : "▼"}</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY }}>Setup — project fees & staff rates</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT }}>Setup — project fees & staff rates</span>
                 <span style={{ fontSize: 12, color: "#8a9aa8", marginLeft: 8 }}>Click to expand</span>
               </button>
 
@@ -442,15 +446,15 @@ export default function FeeReview({ onBack }) {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
                     <div>
                       {p.job_number && <div style={{ fontSize: 11, color: "#8a9aa8", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 2 }}>{p.job_number}</div>}
-                      <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY }}>{p.name}</div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: DESIGN_TEXT }}>{p.name}</div>
                     </div>
-                    <span style={{ fontSize: 11, color: AD_GREEN, fontWeight: 700, border: `1px solid ${AD_GREEN}33`, background: `${AD_GREEN}0d`, padding: "2px 8px" }}>View detail →</span>
+                    <span style={{ fontSize: 11, color: TIMESHEETS_FULL, fontWeight: 700, border: `1px solid ${TIMESHEETS_FULL}33`, background: `${TIMESHEETS_FULL}0d`, padding: "2px 8px" }}>View detail →</span>
                   </div>
 
                   <div style={{ display: "flex", gap: 16, marginBottom: 12 }}>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 10, color: "#8a9aa8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Total fee</div>
-                      <div style={{ fontSize: 18, fontWeight: 300, color: ARC_NAVY }}>{fmtGBP(p.fee)}</div>
+                      <div style={{ fontSize: 18, fontWeight: 300, color: DESIGN_TEXT }}>{fmtGBP(p.fee)}</div>
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 10, color: "#8a9aa8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Spent</div>
@@ -458,7 +462,7 @@ export default function FeeReview({ onBack }) {
                     </div>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 10, color: "#8a9aa8", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Remaining</div>
-                      <div style={{ fontSize: 18, fontWeight: 300, color: p.fee - p.spent >= 0 ? AD_GREEN : ARC_TERRACOTTA }}>
+                      <div style={{ fontSize: 18, fontWeight: 300, color: p.fee - p.spent >= 0 ? TIMESHEETS_FULL : COMPARE_FULL }}>
                         {fmtGBP(p.fee - p.spent)}
                       </div>
                     </div>

@@ -248,26 +248,90 @@ PDF viewer: inline iframe, PDF.js CDN v3.11.174. Two-pass heading search (±20 p
 
 ## Outstanding Issues
 
-### 1. Pass 2 fallback to first 2 PDFs (HIGH PRIORITY)
-```javascript
-const docsToFetch = docsNeeded.length > 0 ? docsNeeded : effectivePdfs.slice(0, 2);
+### 1. Multi-clause blocks not combining — FIXED
+`answerPrompt` already contains rules to combine same-requirement clauses and sub-clauses under one block.
+
+### 2. Email work (PARKED — defer to dedicated email session)
+- Email structured summaries generated at index time but not stored in DB. Future: add `email_summary text` column, store in ingest + reembed upserts, surface as snippet in EmailRow UI.
+- Email Q&A relevance tuning: `SIM_THRESHOLD = 0.35` and `limit = 20` are starting points — may need adjustment as corpus grows.
+
+---
+
+## Resolved Issues (session 2026-05-22)
+
+- **Pass 2 fallback bug** — `effectivePdfs.slice(0, 2)` replaced with explicit "No relevant documents found" error message. Wrong PDFs no longer fetched silently.
+- **SQL migrations** — `task_review_rounds` and `task_review_comments` confirmed present in Supabase.
+- **Conversation history contamination** — "Context: N Q&As stored — clear" indicator added below search bar in both vault and temp doc areas (`App.js`). One click resets history without page refresh.
+- **Cross-reference clauses in Detailed Analysis** — `answerPrompt` rule extended to also exclude introductory and document-relationship clauses (0.x sections, "should be read in conjunction with" etc.).
+
+---
+
+## New Features Built (session 2026-05-22)
+
+### "Test Yourself" Quiz Feature
+
+**Files:**
+- `client/src/components/QuizModal.jsx` — full quiz UI (subject picker → document picker → question screen)
+- `client/src/components/AdminSection.jsx` — Quiz Management section added at bottom
+- `client/src/App.js` — "✎ Test Yourself" button added to vault toolbar; QuizModal import and state
+- `server/index.js` — 6 new endpoints (see below)
+
+**What it does:**
+- Grey outline "✎ Test Yourself" button in vault toolbar (always visible, not admin-gated)
+- Modal opens with two tiles: Approved Documents (teal) and CITB CSCS (slate)
+- **AD path:** picks a document from the designated vault → serves shuffled questions one at a time
+- **CSCS path:** jumps straight to quiz from the question bank
+- Per-question feedback: correct option turns green ✓, wrong option red ✗ with correct highlighted and explanation shown
+- Questions cycle indefinitely (reshuffled when exhausted), no score shown to user
+
+**Server endpoints (in `server/index.js`):**
+- `GET /api/quiz/questions` — fetch questions (params: `type`, `vault_name`, `document_name`)
+- `POST /api/quiz/answer` — record answer; upserts user's `quiz_stats` row
+- `GET /api/admin/quiz/settings` — get designated AD vault name
+- `PUT /api/admin/quiz/settings` — set designated AD vault name
+- `GET /api/admin/quiz/stats` — admin-only; all users' correct/incorrect counts with emails
+- `POST /api/admin/quiz/generate` — generate 25 questions for one AD doc via Gemini + R2
+- `DELETE /api/admin/quiz/questions` — clear questions for a doc or all CSCS
+- `POST /api/admin/quiz/upload-cscs` — parse CSCS PDF verbatim, store questions
+
+**Admin Quiz Management section** (bottom of Admin panel):
+- AD vault selector dropdown + Save
+- Per-document table: question count, Generate button (calls Gemini ~15s), Clear button
+- CSCS section: Upload PDF button, question count, Clear all
+- User stats table: email + AD correct/incorrect + CSCS correct/incorrect (admin-only)
+
+**Database tables (already migrated):**
+```sql
+quiz_questions (id, type, vault_name, document_name, question_text, options jsonb, explanation, source_clause, created_at)
+quiz_stats (id, user_id, quiz_type, correct_count, incorrect_count, updated_at) -- UNIQUE(user_id, quiz_type)
+app_settings (key, value, updated_at) -- stores quiz_ad_vault_name
 ```
-When scoring returns doc names that don't match any PDF filename, silently fetches the wrong 2 PDFs. Should either error explicitly or fall back to ALL PDFs.
 
-### 2. SQL migrations may not have been run (MUST CHECK)
-The `task_review_rounds` and `task_review_comments` tables need to exist in Supabase before the drawing review feature will work. SQL is in the Drawing Review section above.
+**Status:** Code complete, pending Nathan's live testing. Deploy: client → Vercel, server → Railway.
 
-### 3. Conversation history contamination (MEDIUM)
-Bad/failed answers stored in `conversationHistory` pollute subsequent Pass 1 scoring. Workaround = page refresh.
+---
 
-### 4. Cross-reference clauses still appearing in Detailed Analysis (LOW)
-AD M Vol 1 cl.0.14 and AD M Vol 2 relationship clause still appear despite filtering rule.
+## Feature Backlog
 
-### 5. Multi-clause blocks from same document not always combining (LOW)
-AD K 1.38, 1.39, 1.40 etc. get separate blocks. Prompt rule covers same-section but not same-subject across sections.
+### Vault
+- **Loading animation** — add "test while you wait" content during answer generation (building regs or CSCS themed animation/tips)
+- **Part K guarding question** — question references Part K but not the correct clause; correct clause should appear front and centre in the answer
+- **Wrong diagram page** — most critical diagram for an answer is not being surfaced; should be the first/most prominent thing shown
+- **Forward answer via email** — ability to email a Q&A answer directly from the vault interface
 
-### 6. Wide table column extraction (KNOWN LIMITATION)
-mupdf linearises text, loses column boundaries for wide tables. Cannot be fixed by prompt alone.
+### Projects
+- **Bottom Q&A — data coverage** — update project Q&A to cover all data within the project section; recently added data types need connecting to the index
+- **Bottom Q&A bug — contact vs drawings** — when asking about a contact (e.g. Ed/Jason), Q&A returns drawings instead; happens consistently for every question
+- **Consultant dropdown** — add dropdown for selecting consultant info (client/company) when adding to a project; consultant records saved globally and reusable across projects
+- **Programme tab** — new tab in project detail; tiled options for Client programme and Internal programme; each is a single PDF upload (replaceable); standard PDF viewer tools
+- **U-Values tab** — upload SAPs PDF covering all U-values (multiple, replaceable); plus individual upload button per U-value row for individual calc PDFs (multiple per row)
+- **Documents sub-categories** — sub-categorise project documents as External / Internal / Transmittals; upload button per category; search by name, type, and rough content
+- **Products — multi-system** — ability to add a product to more than one system within project products
+- **Todo list — email notifications** — email alerts for todo list items (assignee notifications, due date reminders etc.)
+
+### New Functions
+- **Schedule Compare** — upload two schedules, AI summarises differences, highlights changed cells, exports comparison as PDF
+- **IFC Organiser** — batch drawing upload; create a register per supplier/contractor (drawing number, revision, title, status); LLM detects new vs duplicate vs updated drawings; drawings go into folders; user comments added to register; stamp editor (when applied, register updated); completed batches go to an 'Out' folder
 
 ---
 

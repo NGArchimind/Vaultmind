@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA } from "../../constants";
+import { AD_GREEN_MID, AD_GREEN_LIGHT, ARC_TERRACOTTA, DESIGN_TEXT, VAULT_FULL } from "../../constants";
 
 function formatInline(text) {
   const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g);
@@ -20,36 +20,36 @@ function parseCitation(citationText) {
   return { docName, heading };
 }
 
-function CitationLine({ citationText, onCitationClick, keyProp }) {
+function CitationLine({ citationText, onCitationClick, keyProp, accentColor }) {
   const { docName, heading } = parseCitation(citationText);
   const displayDoc = docName.replace(/\.pdf$/i, "").replace(/__+/g, " — ").trim();
   return (
-    <div key={keyProp} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: "#f0f5f6", borderLeft: `3px solid ${AD_GREEN}`, padding: "10px 14px", margin: "20px 0 4px", borderRadius: "0 2px 2px 0" }}>
+    <div key={keyProp} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: AD_GREEN_LIGHT, borderLeft: `3px solid ${accentColor}`, padding: "10px 14px", margin: "20px 0 4px", borderRadius: "0 2px 2px 0" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-          <span style={{ fontWeight: 600, color: ARC_NAVY, fontSize: 13, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{displayDoc}</span>
+          <span style={{ fontWeight: 600, color: DESIGN_TEXT, fontSize: 13, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{displayDoc}</span>
         </div>
         {heading && <div style={{ color: "#6b7280", fontSize: 11, marginTop: 3, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{heading}</div>}
       </div>
       {onCitationClick && (
         <button
           onClick={() => onCitationClick(docName, heading)}
-          style={{ background: AD_GREEN, border: "none", cursor: "pointer", color: "#fff", fontSize: 10, padding: "4px 10px", fontFamily: "Inter, Arial, sans-serif", borderRadius: 2, flexShrink: 0, fontWeight: 500, letterSpacing: "0.05em", whiteSpace: "nowrap" }}
+          style={{ background: accentColor, border: "none", cursor: "pointer", color: "#fff", fontSize: 10, padding: "4px 10px", fontFamily: "Inter, Arial, sans-serif", borderRadius: 2, flexShrink: 0, fontWeight: 500, letterSpacing: "0.05em", whiteSpace: "nowrap" }}
         >↗ open</button>
       )}
     </div>
   );
 }
 
-function ClauseBlock({ clause, onCitationClick }) {
+function ClauseBlock({ clause, onCitationClick, accentColor }) {
   return (
     <div style={{ marginTop: 12 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 5 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: AD_GREEN, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "Inter, Arial, sans-serif" }}>{clause.heading}</div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: accentColor, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "Inter, Arial, sans-serif" }}>{clause.heading}</div>
         {onCitationClick && (
           <button
             onClick={() => onCitationClick(clause.docName, clause.heading)}
-            style={{ background: AD_GREEN, border: "none", cursor: "pointer", color: "#fff", fontSize: 10, padding: "4px 10px", fontFamily: "Inter, Arial, sans-serif", borderRadius: 2, flexShrink: 0, marginLeft: 10, fontWeight: 500, letterSpacing: "0.05em", whiteSpace: "nowrap" }}
+            style={{ background: accentColor, border: "none", cursor: "pointer", color: "#fff", fontSize: 10, padding: "4px 10px", fontFamily: "Inter, Arial, sans-serif", borderRadius: 2, flexShrink: 0, marginLeft: 10, fontWeight: 500, letterSpacing: "0.05em", whiteSpace: "nowrap" }}
           >↗ open</button>
         )}
       </div>
@@ -60,38 +60,38 @@ function ClauseBlock({ clause, onCitationClick }) {
             {onCitationClick && (
               <button
                 onClick={() => onCitationClick(clause.docName, clause.heading)}
-                style={{ background: "none", border: "none", cursor: "pointer", color: AD_GREEN, fontSize: 10, padding: 0, fontFamily: "Inter, Arial, sans-serif", fontWeight: 500 }}
+                style={{ background: "none", border: "none", cursor: "pointer", color: accentColor, fontSize: 10, padding: 0, fontFamily: "Inter, Arial, sans-serif", fontWeight: 500 }}
               >↗ open</button>
             )}
           </div>
         ) : (
-          <div key={idx} style={{ fontSize: 12, color: ARC_NAVY, lineHeight: 1.8, borderLeft: "2px solid #d0ccc8", paddingLeft: 12, marginTop: idx === 0 ? 0 : 6, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(line.text)}</div>
+          <div key={idx} style={{ fontSize: 12, color: DESIGN_TEXT, lineHeight: 1.8, borderLeft: "2px solid #d0ccc8", paddingLeft: 12, marginTop: idx === 0 ? 0 : 6, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(line.text)}</div>
         )
       )}
     </div>
   );
 }
 
-function DocumentGroup({ docName, clauses, onCitationClick }) {
+function DocumentGroup({ docName, clauses, onCitationClick, accentColor }) {
   const [expanded, setExpanded] = useState(false);
   const displayDoc = docName.replace(/\.pdf$/i, "").replace(/__+/g, " — ").trim();
   const clauseHeadings = clauses.map(c => c.heading).join(" · ");
   return (
-    <div style={{ border: "1px solid #d0ccc8", borderLeft: `3px solid ${AD_GREEN}`, borderRadius: "0 3px 3px 0", marginBottom: 8, background: "#fff" }}>
+    <div style={{ border: "1px solid #d0ccc8", borderLeft: `3px solid ${accentColor}`, borderRadius: "0 3px 3px 0", marginBottom: 8, background: "#fff" }}>
       <div
         onClick={() => setExpanded(e => !e)}
         style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", cursor: "pointer", userSelect: "none" }}
       >
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 600, color: ARC_NAVY, fontSize: 13, fontFamily: "Inter, Arial, sans-serif" }}>{displayDoc}</div>
+          <div style={{ fontWeight: 600, color: DESIGN_TEXT, fontSize: 13, fontFamily: "Inter, Arial, sans-serif" }}>{displayDoc}</div>
           {clauseHeadings && <div style={{ color: "#6b7280", fontSize: 11, marginTop: 4, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{clauseHeadings}</div>}
         </div>
-        <div style={{ color: AD_GREEN, fontSize: 20, marginLeft: 12, flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</div>
+        <div style={{ color: accentColor, fontSize: 20, marginLeft: 12, flexShrink: 0, transform: expanded ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>›</div>
       </div>
       {expanded && (
         <div style={{ borderTop: "1px solid #e8e0d5", padding: "0 14px 14px" }}>
           {clauses.map((clause, idx) => (
-            <ClauseBlock key={idx} clause={clause} onCitationClick={onCitationClick} />
+            <ClauseBlock key={idx} clause={clause} onCitationClick={onCitationClick} accentColor={accentColor} />
           ))}
         </div>
       )}
@@ -99,7 +99,7 @@ function DocumentGroup({ docName, clauses, onCitationClick }) {
   );
 }
 
-export default function AnswerRenderer({ text, onCitationClick }) {
+export default function AnswerRenderer({ text, onCitationClick, accentColor = VAULT_FULL }) {
   if (!text) return null;
   const lines = text.split("\n");
   const elements = [];
@@ -118,7 +118,7 @@ export default function AnswerRenderer({ text, onCitationClick }) {
     }
     if (groupBuffer.clauses.length > 0) {
       elements.push(
-        <DocumentGroup key={`grp-${key}`} docName={groupBuffer.docName} clauses={groupBuffer.clauses} onCitationClick={onCitationClick} />
+        <DocumentGroup key={`grp-${key}`} docName={groupBuffer.docName} clauses={groupBuffer.clauses} onCitationClick={onCitationClick} accentColor={accentColor} />
       );
     }
     groupBuffer = null;
@@ -146,19 +146,19 @@ export default function AnswerRenderer({ text, onCitationClick }) {
     elements.push(
       <div key={`tbl-${key}`} style={{ overflowX: "auto", margin: "16px 0", border: "1px solid #aaa" }}>
         {tableTitle && (
-          <div style={{ background: "#f5f3f0", borderBottom: "1px solid #ccc", padding: "7px 14px", fontSize: 11, fontWeight: 600, color: ARC_NAVY, letterSpacing: "0.03em" }}>{tableTitle}</div>
+          <div style={{ background: "#f5f3f0", borderBottom: "1px solid #ccc", padding: "7px 14px", fontSize: 11, fontWeight: 600, color: DESIGN_TEXT, letterSpacing: "0.03em" }}>{tableTitle}</div>
         )}
         <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
           <thead>
             <tr>{header.map((h, i) => (
-              <th key={i} style={{ background: ARC_NAVY, color: "#ffffff", padding: "8px 14px", border: "none", textAlign: "left", fontWeight: 500, fontSize: 11, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</th>
+              <th key={i} style={{ background: DESIGN_TEXT, color: "#ffffff", padding: "8px 14px", border: "none", textAlign: "left", fontWeight: 500, fontSize: 11, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</th>
             ))}</tr>
           </thead>
           <tbody>
             {body.map((row, ri) => (
               <tr key={ri} style={{ background: row.highlighted ? "#fff8e8" : ri % 2 === 0 ? "#ffffff" : "#f5f9fa" }}>
                 {row.cells.map((cell, ci) => (
-                  <td key={ci} style={{ padding: "9px 14px", border: "none", borderBottom: "1px solid #e8e0d5", color: row.highlighted ? "#7a4f00" : ARC_NAVY, fontWeight: row.highlighted ? 600 : 400, verticalAlign: "top", fontSize: 12, lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif" }}>{cell}</td>
+                  <td key={ci} style={{ padding: "9px 14px", border: "none", borderBottom: "1px solid #e8e0d5", color: row.highlighted ? "#7a4f00" : DESIGN_TEXT, fontWeight: row.highlighted ? 600 : 400, verticalAlign: "top", fontSize: 12, lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif" }}>{cell}</td>
                 ))}
               </tr>
             ))}
@@ -274,27 +274,27 @@ export default function AnswerRenderer({ text, onCitationClick }) {
       const isPractical = lower.includes("practical conclusion");
       if (isSummary) {
         elements.push(
-          <div key={i} style={{ background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${AD_GREEN}`, padding: "14px 18px", margin: "16px 0 8px" }}>
-            <h2 style={{ color: AD_GREEN, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
+          <div key={i} style={{ background: AD_GREEN_LIGHT, border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${accentColor}`, padding: "14px 18px", margin: "16px 0 8px" }}>
+            <h2 style={{ color: accentColor, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
           </div>
         );
       } else if (isPractical) {
         elements.push(
-          <div key={i} style={{ background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${AD_GREEN}`, borderTop: `2px solid ${AD_GREEN}`, padding: "14px 18px", margin: "32px 0 8px" }}>
-            <h2 style={{ color: AD_GREEN, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
+          <div key={i} style={{ background: AD_GREEN_LIGHT, border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${accentColor}`, borderTop: `2px solid ${accentColor}`, padding: "14px 18px", margin: "32px 0 8px" }}>
+            <h2 style={{ color: accentColor, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
           </div>
         );
       } else {
         elements.push(
           <div key={i} style={{ borderBottom: `1px solid #e8e0d5`, marginTop: 28, marginBottom: 10, paddingBottom: 6 }}>
-            <h2 style={{ color: ARC_NAVY, fontSize: 16, fontWeight: 400, margin: 0, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.02em" }}>{text}</h2>
+            <h2 style={{ color: DESIGN_TEXT, fontSize: 16, fontWeight: 400, margin: 0, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.02em" }}>{text}</h2>
           </div>
         );
       }
     } else if (line.startsWith("# ")) {
       elements.push(
         <div key={i} style={{ borderBottom: `2px solid ${ARC_TERRACOTTA}`, marginTop: 32, marginBottom: 14, paddingBottom: 6 }}>
-          <h1 style={{ color: ARC_NAVY, fontSize: 20, fontWeight: 300, margin: 0, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.02em" }}>{line.slice(2)}</h1>
+          <h1 style={{ color: DESIGN_TEXT, fontSize: 20, fontWeight: 300, margin: 0, fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.02em" }}>{line.slice(2)}</h1>
         </div>
       );
     } else if (line.startsWith("> ")) {
@@ -304,7 +304,7 @@ export default function AnswerRenderer({ text, onCitationClick }) {
       const isSeparatorRow = /^\|[\s:|-]+\|/.test(quoteText);
       if (isCitation) {
         elements.push(
-          <CitationLine key={i} keyProp={i} citationText={quoteText.slice(1, -1)} onCitationClick={onCitationClick} />
+          <CitationLine key={i} keyProp={i} citationText={quoteText.slice(1, -1)} onCitationClick={onCitationClick} accentColor={accentColor} />
         );
       } else if (isTableRow && !isSeparatorRow) {
         inTable = true; tableBuffer.push(quoteText);
@@ -324,10 +324,10 @@ export default function AnswerRenderer({ text, onCitationClick }) {
       if (isBulletCitationWrapped || isBulletCitationUnwrapped) {
         const citationText = isBulletCitationWrapped ? trimmedBullet.slice(1, -1) : trimmedBullet.slice(1).trim();
         elements.push(
-          <CitationLine key={i} keyProp={i} citationText={citationText} onCitationClick={onCitationClick} />
+          <CitationLine key={i} keyProp={i} citationText={citationText} onCitationClick={onCitationClick} accentColor={accentColor} />
         );
       } else {
-        elements.push(<li key={i} style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.7, marginLeft: 20, marginBottom: 4, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(line.slice(2))}</li>);
+        elements.push(<li key={i} style={{ color: DESIGN_TEXT, fontSize: 13, lineHeight: 1.7, marginLeft: 20, marginBottom: 4, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(line.slice(2))}</li>);
       }
     } else if (line.match(/^\d+\.\d+ /)) {
       const numMatch = line.match(/^(\d+\.\d+) (.+)/);
@@ -335,7 +335,7 @@ export default function AnswerRenderer({ text, onCitationClick }) {
         elements.push(
           <div key={i} style={{ display: "flex", gap: 12, margin: "6px 0", fontFamily: "Arial, sans-serif" }}>
             <span style={{ color: ARC_TERRACOTTA, fontWeight: 600, fontSize: 12, flexShrink: 0, minWidth: 28 }}>{numMatch[1]}</span>
-            <p style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.7, margin: 0, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(numMatch[2])}</p>
+            <p style={{ color: DESIGN_TEXT, fontSize: 13, lineHeight: 1.7, margin: 0, fontFamily: "Inter, Arial, sans-serif" }}>{formatInline(numMatch[2])}</p>
           </div>
         );
       }
@@ -350,10 +350,10 @@ export default function AnswerRenderer({ text, onCitationClick }) {
       if (isWrappedCitation || isUnwrappedCitation) {
         const citationText = isWrappedCitation ? trimmed.slice(1, -1) : trimmed.slice(1).trim();
         elements.push(
-          <CitationLine key={i} keyProp={i} citationText={citationText} onCitationClick={onCitationClick} />
+          <CitationLine key={i} keyProp={i} citationText={citationText} onCitationClick={onCitationClick} accentColor={accentColor} />
         );
       } else {
-        elements.push(<p key={i} style={{ color: ARC_NAVY, fontSize: 13, lineHeight: 1.8, margin: "6px 0", fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.01em" }}>{formatInline(line)}</p>);
+        elements.push(<p key={i} style={{ color: DESIGN_TEXT, fontSize: 13, lineHeight: 1.8, margin: "6px 0", fontFamily: "Inter, Arial, sans-serif", letterSpacing: "0.01em" }}>{formatInline(line)}</p>);
       }
     }
   });

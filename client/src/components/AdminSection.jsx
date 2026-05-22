@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "../api/client";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN_FOREST_FOREST } from "../constants";
+import { ARC_TERRACOTTA, DESIGN_SHELL, DESIGN_GROUND, DESIGN_GOLD } from "../constants";
 
 const DEFAULT_COLOURS = {
   header:      "#1a2332",
@@ -65,12 +65,29 @@ export default function AdminSection() {
   const [archisyncPassword, setArchisyncPassword] = useState("");
   const [archisyncShowPassword, setArchisyncShowPassword] = useState(false);
 
+  // Quiz management
+  const [quizVaults, setQuizVaults] = useState([]);
+  const [quizAdVault, setQuizAdVault] = useState("");
+  const [quizAdVaultSaving, setQuizAdVaultSaving] = useState(false);
+  const [quizDocs, setQuizDocs] = useState([]); // [{ document_name, count }]
+  const [quizDocsLoading, setQuizDocsLoading] = useState(false);
+  const [generatingDoc, setGeneratingDoc] = useState(null); // document_name | null
+  const [clearingDoc, setClearingDoc] = useState(null);
+  const [cscsCount, setCscsCount] = useState(null);
+  const [cscsUploading, setCscsUploading] = useState(false);
+  const [quizStats, setQuizStats] = useState([]);
+  const [quizStatsLoading, setQuizStatsLoading] = useState(false);
+  const [quizMsg, setQuizMsg] = useState(null); // { type: 'ok'|'err', text }
+  const [cscsClearing, setCscsClearing] = useState(false);
+  const cscsInputRef = useRef(null);
+  const quizDocsTokenRef = useRef(0); // race guard for loadQuizDocs
+
   function showMsg(setter, type, text) {
     setter({ type, text });
     setTimeout(() => setter(null), 6000);
   }
 
-  useEffect(() => { loadUsers(); loadLogo(); loadColours(); }, []);
+  useEffect(() => { loadUsers(); loadLogo(); loadColours(); loadQuizInit(); }, []);
 
   // ── Users ──────────────────────────────────────────────────────────────────
   const loadUsers = async () => {
@@ -243,21 +260,155 @@ export default function AdminSection() {
     setTimeout(() => setArchisyncPasswordCopied(false), 2500);
   }
 
+  // ── Quiz management ────────────────────────────────────────────────────────
+  async function loadQuizInit() {
+    // Load vaults for selector
+    api("/api/vaults").then(d => setQuizVaults(d.vaults || [])).catch(() => {});
+    // Load current AD vault setting
+    api("/api/admin/quiz/settings").then(d => {
+      if (d.quiz_ad_vault_name) {
+        setQuizAdVault(d.quiz_ad_vault_name);
+        loadQuizDocs(d.quiz_ad_vault_name);
+      }
+    }).catch(() => {});
+    // Load CSCS count
+    api("/api/quiz/questions?type=cscs").then(d => setCscsCount(d.questions?.length ?? 0)).catch(() => {});
+    // Load stats
+    setQuizStatsLoading(true);
+    api("/api/admin/quiz/stats")
+      .then(d => setQuizStats(d.stats || []))
+      .catch(() => {})
+      .finally(() => setQuizStatsLoading(false));
+  }
+
+  async function loadQuizDocs(vaultName) {
+    if (!vaultName) return;
+    const token = ++quizDocsTokenRef.current;
+    setQuizDocs([]); // clear stale data immediately on vault change
+    setQuizDocsLoading(true);
+    try {
+      const [{ pdfs }, { questions }] = await Promise.all([
+        api(`/api/vaults/${encodeURIComponent(vaultName)}/pdfs`),
+        api(`/api/quiz/questions?type=approved_docs&vault_name=${encodeURIComponent(vaultName)}`),
+      ]);
+      if (token !== quizDocsTokenRef.current) return; // discard stale response
+      const counts = {};
+      (questions || []).forEach(q => { counts[q.document_name] = (counts[q.document_name] || 0) + 1; });
+      setQuizDocs((pdfs || []).map(p => ({ document_name: p.name, count: counts[p.name] || 0 })));
+    } catch (e) {
+      if (token !== quizDocsTokenRef.current) return;
+      showMsg(setQuizMsg, "err", "Failed to load documents: " + e.message);
+    } finally {
+      if (token === quizDocsTokenRef.current) setQuizDocsLoading(false);
+    }
+  }
+
+  async function saveQuizVault() {
+    if (!quizAdVault) return;
+    setQuizAdVaultSaving(true);
+    setQuizMsg(null);
+    try {
+      await api("/api/admin/quiz/settings", { method: "PUT", body: { quiz_ad_vault_name: quizAdVault } });
+      showMsg(setQuizMsg, "ok", "AD vault saved.");
+      loadQuizDocs(quizAdVault);
+    } catch (e) {
+      showMsg(setQuizMsg, "err", e.message);
+    } finally {
+      setQuizAdVaultSaving(false);
+    }
+  }
+
+  async function generateQuizQuestions(document_name) {
+    setGeneratingDoc(document_name);
+    setQuizMsg(null);
+    try {
+      const result = await api("/api/admin/quiz/generate", {
+        method: "POST",
+        body: { vault_name: quizAdVault, document_name },
+      });
+      showMsg(setQuizMsg, "ok", `Generated ${result.count} questions for ${document_name}`);
+      loadQuizDocs(quizAdVault);
+    } catch (e) {
+      showMsg(setQuizMsg, "err", e.message);
+    } finally {
+      setGeneratingDoc(null);
+    }
+  }
+
+  async function clearQuizQuestions(document_name) {
+    setClearingDoc(document_name);
+    setQuizMsg(null);
+    try {
+      await api("/api/admin/quiz/questions", {
+        method: "DELETE",
+        body: { type: "approved_docs", vault_name: quizAdVault, document_name },
+      });
+      showMsg(setQuizMsg, "ok", `Cleared questions for ${document_name}`);
+      loadQuizDocs(quizAdVault);
+    } catch (e) {
+      showMsg(setQuizMsg, "err", e.message);
+    } finally {
+      setClearingDoc(null);
+    }
+  }
+
+  async function uploadCscs(file) {
+    if (!file || file.type !== "application/pdf") {
+      showMsg(setQuizMsg, "err", "Please select a PDF file.");
+      return;
+    }
+    setCscsUploading(true);
+    setQuizMsg(null);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result.split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const result = await api("/api/admin/quiz/upload-cscs", { method: "POST", body: { base64 } });
+      setCscsCount(result.count);
+      showMsg(setQuizMsg, "ok", `Imported ${result.count} CSCS questions.`);
+    } catch (e) {
+      showMsg(setQuizMsg, "err", e.message);
+    } finally {
+      setCscsUploading(false);
+    }
+  }
+
+  async function clearCscsQuestions() {
+    setCscsClearing(true);
+    setQuizMsg(null);
+    try {
+      await api("/api/admin/quiz/questions", { method: "DELETE", body: { type: "cscs" } });
+      setCscsCount(0);
+      showMsg(setQuizMsg, "ok", "CSCS questions cleared.");
+    } catch (e) {
+      showMsg(setQuizMsg, "err", e.message);
+    } finally {
+      setCscsClearing(false);
+    }
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
   const sectionHeader = (title, subtitle) => (
     <div style={{ marginBottom: 20 }}>
-      <h2 style={{ fontSize: 16, fontWeight: 300, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif", marginBottom: 4 }}>{title}</h2>
+      <h2 style={{ fontSize: 16, fontWeight: 300, color: DESIGN_SHELL, fontFamily: "Inter, Arial, sans-serif", marginBottom: 4 }}>{title}</h2>
       {subtitle && <p style={{ fontSize: 12, color: "#9a9088" }}>{subtitle}</p>}
     </div>
   );
 
   return (
+    <>
+    <div style={{ background: DESIGN_SHELL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+      <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Admin</span>
+    </div>
     <div style={{ flex: 1, overflowY: "auto", background: "#faf8f5", padding: "32px 40px" }}>
 
       {/* ── User Management ──────────────────────────────────────────────── */}
       <div style={{ marginBottom: 8, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 4 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 300, color: DESIGN_SHELL, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 4 }}>
             User Management
           </h1>
           <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em", marginBottom: 28 }}>
@@ -266,9 +417,9 @@ export default function AdminSection() {
         </div>
         <button onClick={() => { setShowAddForm(v => !v); setAddError(""); }}
           style={{
-            background: showAddForm ? "transparent" : ARC_NAVY,
+            background: showAddForm ? "transparent" : DESIGN_SHELL,
             color: showAddForm ? "#9a9088" : "#fff",
-            border: `1px solid ${showAddForm ? "#ccc" : ARC_NAVY}`,
+            border: `1px solid ${showAddForm ? "#ccc" : DESIGN_SHELL}`,
             padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
             textTransform: "uppercase", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif",
           }}>
@@ -293,7 +444,7 @@ export default function AdminSection() {
           </select>
           {addError && <p style={{ color: ARC_TERRACOTTA, fontSize: 12, marginBottom: 12 }}>{addError}</p>}
           <button onClick={handleAddUser} disabled={adding}
-            style={{ marginTop: 8, background: ARC_NAVY, color: "#fff", border: "none", padding: "10px 24px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: adding ? "not-allowed" : "pointer", opacity: adding ? 0.6 : 1, display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter, Arial, sans-serif" }}>
+            style={{ marginTop: 8, background: DESIGN_SHELL, color: "#fff", border: "none", padding: "10px 24px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: adding ? "not-allowed" : "pointer", opacity: adding ? 0.6 : 1, display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter, Arial, sans-serif" }}>
             {adding ? <><Spinner size={12} /> Creating…</> : "Create User"}
           </button>
         </div>
@@ -306,7 +457,7 @@ export default function AdminSection() {
       )}
 
       <div style={{ background: "#fff", border: "1px solid #e0dbd4", marginBottom: 8 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px 80px", padding: "10px 20px", borderBottom: "1px solid #e8e0d5", background: ARC_STONE }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px 80px", padding: "10px 20px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
           {["Email", "Role", "Created", ""].map(h => (
             <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</span>
           ))}
@@ -317,7 +468,7 @@ export default function AdminSection() {
           <div style={{ padding: "24px 20px", fontSize: 13, color: "#9a9088" }}>No users found.</div>
         ) : users.map(u => (
           <div key={u.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px 80px", padding: "12px 20px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
-            <span style={{ fontSize: 13, color: ARC_NAVY, letterSpacing: "0.01em" }}>{u.email}</span>
+            <span style={{ fontSize: 13, color: DESIGN_SHELL, letterSpacing: "0.01em" }}>{u.email}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <select value={u.role} onChange={e => handleChangeRole(u.id, e.target.value)} disabled={updatingRole === u.id}
                 style={{ fontSize: 11, padding: "3px 6px", border: `1px solid ${u.role === "admin" ? ARC_TERRACOTTA : "#ccc"}`, color: u.role === "admin" ? ARC_TERRACOTTA : "#505a5f", background: "#fff", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif", fontWeight: u.role === "admin" ? 600 : 400, letterSpacing: "0.04em", textTransform: "uppercase" }}>
@@ -344,7 +495,7 @@ export default function AdminSection() {
       {/* ── Practice Logo ─────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 48 }}>
         {sectionHeader("Practice Logo", "Appears in the header of all drawing schedules. PNG, JPG, SVG or WebP, max 2 MB.")}
-        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${ARC_NAVY}`, padding: "24px 28px", maxWidth: 560 }}>
+        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${DESIGN_SHELL}`, padding: "24px 28px", maxWidth: 560 }}>
 
           {logoMsg && (
             <div style={{ padding: "10px 14px", marginBottom: 16, fontSize: 12, background: logoMsg.type === "ok" ? "#eef6ee" : "#fdf0f0", border: `1px solid ${logoMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`, color: logoMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA }}>
@@ -373,7 +524,7 @@ export default function AdminSection() {
             <p style={{ fontSize: 13, color: "#9a9088", fontStyle: "italic", marginBottom: 16 }}>No logo uploaded yet.</p>
           )}
 
-          <label style={{ background: ARC_NAVY, color: "#fff", border: "none", padding: "10px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: logoUploading ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: 8, fontFamily: "Inter, Arial, sans-serif", opacity: logoUploading ? 0.6 : 1 }}>
+          <label style={{ background: DESIGN_SHELL, color: "#fff", border: "none", padding: "10px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: logoUploading ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: 8, fontFamily: "Inter, Arial, sans-serif", opacity: logoUploading ? 0.6 : 1 }}>
             {logoUploading ? <><Spinner size={11} /> Uploading…</> : (logo?.base64 ? "↑ Replace Logo" : "↑ Upload Logo")}
             <input ref={logoInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" onChange={handleLogoUpload} disabled={logoUploading} style={{ display: "none" }} />
           </label>
@@ -383,7 +534,7 @@ export default function AdminSection() {
       {/* ── Drawing Schedule Colours ──────────────────────────────────────── */}
       <div style={{ marginBottom: 48 }}>
         {sectionHeader("Drawing Schedule Colours", "Customise the colour scheme used in all drawing schedules and exports.")}
-        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${ARC_NAVY}`, padding: "24px 28px", maxWidth: 560 }}>
+        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${DESIGN_SHELL}`, padding: "24px 28px", maxWidth: 560 }}>
 
           {coloursMsg && (
             <div style={{ padding: "10px 14px", marginBottom: 16, fontSize: 12, background: coloursMsg.type === "ok" ? "#eef6ee" : "#fdf0f0", border: `1px solid ${coloursMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`, color: coloursMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA }}>
@@ -410,7 +561,7 @@ export default function AdminSection() {
                         type="text"
                         value={coloursDraft[key] || ""}
                         onChange={e => setColoursDraft(prev => ({ ...prev, [key]: e.target.value }))}
-                        style={{ width: 80, border: "1px solid #ddd8d0", padding: "5px 8px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none" }}
+                        style={{ width: 80, border: "1px solid #ddd8d0", padding: "5px 8px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_SHELL, outline: "none" }}
                       />
                       <div style={{ width: 20, height: 20, background: coloursDraft[key], border: "1px solid #ddd8d0", flexShrink: 0 }} />
                     </div>
@@ -448,7 +599,7 @@ export default function AdminSection() {
 
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <button onClick={saveColours} disabled={savingColours}
-                  style={{ background: ARC_NAVY, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: savingColours ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter, Arial, sans-serif" }}>
+                  style={{ background: DESIGN_SHELL, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: savingColours ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter, Arial, sans-serif" }}>
                   {savingColours ? <><Spinner size={11} /> Saving…</> : "Save Colours"}
                 </button>
                 <button onClick={resetColours}
@@ -473,7 +624,7 @@ export default function AdminSection() {
                 ))}
               </div>
               <button onClick={() => { setColoursDraft({ ...colours }); setEditingColours(true); }}
-                style={{ background: ARC_NAVY, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
+                style={{ background: DESIGN_SHELL, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
                 Edit Colours
               </button>
             </div>
@@ -481,10 +632,144 @@ export default function AdminSection() {
         </div>
       </div>
 
+      {/* ── Quiz Management ──────────────────────────────────────────────── */}
+      <div style={{ marginBottom: 48 }}>
+        {sectionHeader("Quiz Management", "Generate practice questions for Approved Documents and upload the CSCS question bank.")}
+
+        {quizMsg && (
+          <div style={{ padding: "10px 14px", marginBottom: 16, fontSize: 12,
+            background: quizMsg.type === "ok" ? "#eef6ee" : "#fdf0f0",
+            border: `1px solid ${quizMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`,
+            color: quizMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA, maxWidth: 560 }}>
+            {quizMsg.text}
+          </div>
+        )}
+
+        {/* AD Vault selector */}
+        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${DESIGN_SHELL}`, padding: "20px 24px", maxWidth: 560, marginBottom: 20 }}>
+          <p style={{ fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Approved Documents Vault</p>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <select
+              value={quizAdVault}
+              onChange={e => { setQuizAdVault(e.target.value); loadQuizDocs(e.target.value); }}
+              style={{ flex: 1, fontSize: 12, padding: "7px 10px", border: "1px solid #d0ccc8", background: "#fff", color: DESIGN_SHELL, fontFamily: "Inter, Arial, sans-serif" }}
+            >
+              <option value="">— Select vault —</option>
+              {quizVaults.map(v => (
+                <option key={v.id || v.name} value={v.name}>{v.name}</option>
+              ))}
+            </select>
+            <button
+              onClick={saveQuizVault}
+              disabled={!quizAdVault || quizAdVaultSaving}
+              style={{ background: DESIGN_SHELL, color: "#fff", border: "none", padding: "8px 18px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: (!quizAdVault || quizAdVaultSaving) ? "not-allowed" : "pointer", opacity: !quizAdVault ? 0.5 : 1, display: "flex", alignItems: "center", gap: 6, fontFamily: "Inter, Arial, sans-serif" }}
+            >
+              {quizAdVaultSaving ? <><Spinner size={11} /> Saving…</> : "Save"}
+            </button>
+          </div>
+        </div>
+
+        {/* AD documents table */}
+        {quizAdVault && (
+          <div style={{ background: "#fff", border: "1px solid #e0dbd4", maxWidth: 560, marginBottom: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 180px", padding: "10px 16px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
+              {["Document", "Questions", ""].map(h => (
+                <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</span>
+              ))}
+            </div>
+            {quizDocsLoading ? (
+              <div style={{ padding: "16px", display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}><Spinner size={12} /> Loading…</div>
+            ) : quizDocs.length === 0 ? (
+              <div style={{ padding: "16px", fontSize: 12, color: "#9a9088" }}>No PDFs found in this vault.</div>
+            ) : quizDocs.map(({ document_name, count }) => (
+              <div key={document_name} style={{ display: "grid", gridTemplateColumns: "1fr 100px 180px", padding: "10px 16px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: DESIGN_SHELL }}>{document_name}</span>
+                <span style={{ fontSize: 12, color: count > 0 ? "#2e7d4f" : "#9a9088" }}>{count > 0 ? count : "None"}</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => generateQuizQuestions(document_name)}
+                    disabled={generatingDoc === document_name}
+                    style={{ fontSize: 10, padding: "4px 10px", background: DESIGN_SHELL, color: "#fff", border: "none", cursor: generatingDoc === document_name ? "not-allowed" : "pointer", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 4, fontFamily: "Inter, Arial, sans-serif" }}
+                  >
+                    {generatingDoc === document_name ? <><Spinner size={10} /> Generating…</> : "Generate"}
+                  </button>
+                  {count > 0 && (
+                    <button
+                      onClick={() => clearQuizQuestions(document_name)}
+                      disabled={clearingDoc === document_name}
+                      style={{ fontSize: 10, padding: "4px 10px", background: "none", color: "#c0b8b0", border: "1px solid #d0ccc8", cursor: clearingDoc === document_name ? "not-allowed" : "pointer", fontFamily: "Inter, Arial, sans-serif" }}
+                    >
+                      {clearingDoc === document_name ? <Spinner size={10} /> : "Clear"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* CSCS upload */}
+        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${DESIGN_SHELL}`, padding: "20px 24px", maxWidth: 560, marginBottom: 20 }}>
+          <p style={{ fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>
+            CSCS Question Bank
+            {cscsCount !== null && (
+              <span style={{ marginLeft: 8, color: cscsCount > 0 ? "#2e7d4f" : "#9a9088", fontWeight: 400, textTransform: "none" }}>
+                ({cscsCount} questions stored)
+              </span>
+            )}
+          </p>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input ref={cscsInputRef} type="file" accept="application/pdf" style={{ display: "none" }}
+              onChange={e => { if (e.target.files[0]) { uploadCscs(e.target.files[0]); e.target.value = ""; } }} />
+            <button
+              onClick={() => cscsInputRef.current?.click()}
+              disabled={cscsUploading}
+              style={{ background: DESIGN_SHELL, color: "#fff", border: "none", padding: "8px 18px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: cscsUploading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, fontFamily: "Inter, Arial, sans-serif" }}
+            >
+              {cscsUploading ? <><Spinner size={11} /> Uploading…</> : "Upload CSCS PDF"}
+            </button>
+            {cscsCount > 0 && (
+              <button
+                onClick={clearCscsQuestions}
+                disabled={cscsClearing}
+                style={{ fontSize: 10, padding: "8px 14px", background: "none", color: "#c0b8b0", border: "1px solid #d0ccc8", cursor: cscsClearing ? "not-allowed" : "pointer", fontFamily: "Inter, Arial, sans-serif", display: "flex", alignItems: "center", gap: 4 }}
+              >
+                {cscsClearing ? <Spinner size={10} /> : "Clear all"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* User stats table */}
+        <div style={{ marginTop: 8 }}>
+          {sectionHeader("Quiz Stats — All Users", "Correct and incorrect answer counts per user.")}
+          <div style={{ background: "#fff", border: "1px solid #e0dbd4", maxWidth: 680 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 110px 110px 110px", padding: "10px 16px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
+              {["User", "AD Correct", "AD Incorrect", "CSCS Correct", "CSCS Incorrect"].map(h => (
+                <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</span>
+              ))}
+            </div>
+            {quizStatsLoading ? (
+              <div style={{ padding: 16, display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}><Spinner size={12} /> Loading…</div>
+            ) : quizStats.length === 0 ? (
+              <div style={{ padding: 16, fontSize: 12, color: "#9a9088" }}>No quiz activity yet.</div>
+            ) : quizStats.map(s => (
+              <div key={s.user_id} style={{ display: "grid", gridTemplateColumns: "1fr 110px 110px 110px 110px", padding: "10px 16px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: DESIGN_SHELL }}>{s.email}</span>
+                <span style={{ fontSize: 12, color: "#2e7d4f" }}>{s.ad_correct}</span>
+                <span style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{s.ad_incorrect}</span>
+                <span style={{ fontSize: 12, color: "#2e7d4f" }}>{s.cscs_correct}</span>
+                <span style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{s.cscs_incorrect}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* ── ArchiSync Connection ──────────────────────────────────────────── */}
       <div style={{ marginBottom: 48 }}>
         {sectionHeader("ArchiSync Connection", "Generate an encrypted connection code to link the ArchiSync desktop tool to this Archimind deployment.")}
-        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${ARC_NAVY}`, padding: "24px 28px", maxWidth: 560 }}>
+        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${DESIGN_SHELL}`, padding: "24px 28px", maxWidth: 560 }}>
 
           <p style={{ fontSize: 13, color: "#6a6058", lineHeight: 1.7, marginBottom: 20 }}>
             Share this code with anyone who needs to connect ArchiSync to this Archimind instance.
@@ -524,7 +809,7 @@ export default function AdminSection() {
                 padding: "12px 16px",
                 fontFamily: "monospace",
                 fontSize: 11,
-                color: ARC_NAVY,
+                color: DESIGN_SHELL,
                 wordBreak: "break-all",
                 letterSpacing: "0.02em",
                 marginBottom: 10,
@@ -539,7 +824,7 @@ export default function AdminSection() {
                 <button
                   onClick={copyArchisyncCode}
                   style={{
-                    background: archisyncCopied ? AD_GREEN_FOREST : ARC_NAVY,
+                    background: archisyncCopied ? DESIGN_GOLD : DESIGN_SHELL,
                     color: "#fff", border: "none", padding: "9px 20px",
                     fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
                     textTransform: "uppercase", cursor: "pointer",
@@ -550,9 +835,9 @@ export default function AdminSection() {
                 <button
                   onClick={copyArchisyncPassword}
                   style={{
-                    background: archisyncPasswordCopied ? AD_GREEN_FOREST : "none",
-                    color: archisyncPasswordCopied ? "#fff" : ARC_NAVY,
-                    border: `1px solid ${archisyncPasswordCopied ? AD_GREEN_FOREST : ARC_NAVY}`,
+                    background: archisyncPasswordCopied ? DESIGN_GOLD : "none",
+                    color: archisyncPasswordCopied ? "#fff" : DESIGN_SHELL,
+                    border: `1px solid ${archisyncPasswordCopied ? DESIGN_GOLD : DESIGN_SHELL}`,
                     padding: "8px 16px", fontSize: 11, fontWeight: 600,
                     letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer",
                     fontFamily: "Inter, Arial, sans-serif", transition: "all 0.2s"
@@ -571,7 +856,7 @@ export default function AdminSection() {
               onClick={generateArchisyncCode}
               disabled={archisyncLoading || !archisyncPassword.trim()}
               style={{
-                background: ARC_NAVY, color: "#fff", border: "none",
+                background: DESIGN_SHELL, color: "#fff", border: "none",
                 padding: "10px 24px", fontSize: 11, fontWeight: 600,
                 letterSpacing: "0.06em", textTransform: "uppercase",
                 cursor: (archisyncLoading || !archisyncPassword.trim()) ? "not-allowed" : "pointer",
@@ -586,18 +871,19 @@ export default function AdminSection() {
       </div>
 
     </div>
+    </>
   );
 }
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
 const labelStyle = {
-  fontSize: 11, fontWeight: 600, color: ARC_NAVY, display: "block",
+  fontSize: 11, fontWeight: 600, color: DESIGN_SHELL, display: "block",
   marginBottom: 6, letterSpacing: "0.05em", textTransform: "uppercase",
 };
 
 const inputStyle = (hasError) => ({
   width: "100%", border: hasError ? `1px solid ${ARC_TERRACOTTA}` : "1px solid #ccc",
   padding: "10px 12px", fontSize: 13, marginBottom: 14, outline: "none",
-  fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, background: "#fff", boxSizing: "border-box",
+  fontFamily: "Inter, Arial, sans-serif", color: DESIGN_SHELL, background: "#fff", boxSizing: "border-box",
 });

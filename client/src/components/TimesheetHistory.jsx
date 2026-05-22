@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { api } from "../api/client";
-import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
+import { DESIGN_GROUND, DESIGN_TEXT, TIMESHEETS_FULL, COMPARE_FULL } from "../constants";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 
@@ -83,17 +83,21 @@ export default function TimesheetHistory({ onBack }) {
   }, []);
 
   const thStyle = { padding: "10px 14px", fontSize: 11, fontWeight: 700, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "left", borderBottom: "2px solid #dde4e8", whiteSpace: "nowrap" };
-  const tdStyle = { padding: "11px 14px", fontSize: 13, color: ARC_NAVY, borderBottom: "1px solid #eef2f4", verticalAlign: "middle" };
+  const tdStyle = { padding: "11px 14px", fontSize: 13, color: DESIGN_TEXT, borderBottom: "1px solid #eef2f4", verticalAlign: "middle" };
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f7f8" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
+      <div style={{ background: TIMESHEETS_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+        <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Timesheets</span>
+        <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— History</span>
+      </div>
       {/* Header */}
       <div style={{ background: "#fff", borderBottom: "1px solid #dde4e8", padding: "16px 32px", flexShrink: 0, display: "flex", alignItems: "center", gap: 20 }}>
         <button onClick={onBack}
-          style={{ background: "none", border: "none", color: AD_GREEN, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: 0, display: "flex", alignItems: "center", gap: 6 }}>
+          style={{ background: "none", border: "none", color: TIMESHEETS_FULL, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: 0, display: "flex", alignItems: "center", gap: 6 }}>
           ← Back
         </button>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.02em" }}>My Timesheet History</h2>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: DESIGN_TEXT, letterSpacing: "0.02em" }}>My Timesheet History</h2>
       </div>
 
       <div style={{ flex: 1, overflow: "auto", padding: "28px 32px" }}>
@@ -107,7 +111,7 @@ export default function TimesheetHistory({ onBack }) {
           <div style={{ background: "#fff", border: "1px solid #dde4e8" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ background: ARC_STONE }}>
+                <tr style={{ background: DESIGN_GROUND }}>
                   <th style={thStyle}>Week</th>
                   {DAYS.map(d => <th key={d} style={{ ...thStyle, textAlign: "center" }}>{d.slice(0, 3)}</th>)}
                   <th style={{ ...thStyle, textAlign: "center" }}>Total</th>
@@ -133,11 +137,11 @@ export default function TimesheetHistory({ onBack }) {
                         style={{ cursor: "pointer", background: isOpen ? "#f0f7f9" : "#fff", transition: "background 0.1s" }}>
                         <td style={{ ...tdStyle, fontWeight: 600 }}>{formatWeek(mondayStr)}</td>
                         {dayTotals.map((m, di) => (
-                          <td key={di} style={{ ...tdStyle, textAlign: "center", color: m ? ARC_NAVY : "#ccc" }}>
+                          <td key={di} style={{ ...tdStyle, textAlign: "center", color: m ? DESIGN_TEXT : "#ccc" }}>
                             {formatMins(m)}
                           </td>
                         ))}
-                        <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, color: total >= 37.5 * 60 ? AD_GREEN : ARC_TERRACOTTA }}>
+                        <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, color: total >= 37.5 * 60 ? TIMESHEETS_FULL : COMPARE_FULL }}>
                           {formatMins(total)}
                         </td>
                         <td style={{ ...tdStyle, textAlign: "center" }}>
@@ -165,8 +169,8 @@ export default function TimesheetHistory({ onBack }) {
                                   : (e.category ? e.category.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "—");
                                 return (
                                   <div key={e.id} style={{ display: "flex", alignItems: "center", gap: 16, padding: "4px 0", borderTop: i > 0 ? "1px solid #eef2f4" : "none" }}>
-                                    <span style={{ flex: 1, fontSize: 13, color: ARC_NAVY }}>{label}</span>
-                                    <span style={{ fontSize: 13, color: AD_GREEN, fontWeight: 600, minWidth: 56, textAlign: "right" }}>{formatMins(entryMins(e))}</span>
+                                    <span style={{ flex: 1, fontSize: 13, color: DESIGN_TEXT }}>{label}</span>
+                                    <span style={{ fontSize: 13, color: TIMESHEETS_FULL, fontWeight: 600, minWidth: 56, textAlign: "right" }}>{formatMins(entryMins(e))}</span>
                                     {e.notes && <span style={{ fontSize: 12, color: "#8a9aa8", fontStyle: "italic" }}>{e.notes}</span>}
                                   </div>
                                 );
@@ -182,8 +186,8 @@ export default function TimesheetHistory({ onBack }) {
 
               {/* Summary footer */}
               <tfoot>
-                <tr style={{ background: ARC_STONE }}>
-                  <td style={{ ...tdStyle, fontWeight: 700, color: ARC_NAVY }}>All time total</td>
+                <tr style={{ background: DESIGN_GROUND }}>
+                  <td style={{ ...tdStyle, fontWeight: 700, color: DESIGN_TEXT }}>All time total</td>
                   {DAYS.map((_, di) => {
                     const colTotal = weeks.reduce((sum, { mondayStr, entries }) => {
                       const date = dateForDay(mondayStr, di);
@@ -191,7 +195,7 @@ export default function TimesheetHistory({ onBack }) {
                     }, 0);
                     return <td key={di} style={{ ...tdStyle, textAlign: "center", fontWeight: 600, color: "#6a8a9a" }}>{formatMins(colTotal)}</td>;
                   })}
-                  <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, color: AD_GREEN }}>
+                  <td style={{ ...tdStyle, textAlign: "center", fontWeight: 700, color: TIMESHEETS_FULL }}>
                     {formatMins(weeks.reduce((s, w) => s + w.total, 0))}
                   </td>
                   <td colSpan={2} />

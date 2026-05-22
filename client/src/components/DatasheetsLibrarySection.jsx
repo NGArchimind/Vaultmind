@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { api, callClaude, fileToBase64 } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, LIBRARY_BLUE, LIBRARY_BLUE_LIGHT, AD_GREEN_FOREST, isBoilerplate } from "../constants";
+import { DESIGN_GROUND, DESIGN_TEXT, LIBRARY_FULL, COMPARE_FULL, isBoilerplate } from "../constants";
 
 export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [products, setProducts] = useState([]);
@@ -706,21 +706,25 @@ Use only the provided document pages. Do not speculate beyond what the documents
   const selectedProduct = selected ? products.find(p => p.id === selected) : null;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f9f7f5" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
+      <div style={{ background: LIBRARY_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+        <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Product Library</span>
+        <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— Document Intelligence</span>
+      </div>
 
       {/* Confirm new type dialog */}
       {pendingNewType && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: "#ffffff", padding: "28px 32px", maxWidth: 400, width: "90%", fontFamily: "Inter, Arial, sans-serif" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 10 }}>Add new product type?</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 10 }}>Add new product type?</div>
             <div style={{ fontSize: 13, color: "#5a5048", marginBottom: 20, lineHeight: 1.6 }}>
               "<strong>{pendingNewType.type}</strong>" is not in the standard list. Adding it will make it available as a filter option for all products. Are you sure?
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button className="btn" onClick={() => { setPendingNewType(null); cancelTypeEdit(); }}
-                style={{ fontSize: 12, padding: "7px 16px", background: "none", border: "1px solid #ddd8d0", color: "#5a5048" }}>Cancel</button>
+                style={{ fontSize: 12, padding: "7px 16px", background: "none", border: "1px solid #e4e4e8", color: "#5a5048" }}>Cancel</button>
               <button className="btn" onClick={() => commitTypeUpdate(pendingNewType.product, pendingNewType.type)}
-                style={{ fontSize: 12, padding: "7px 16px", background: ARC_NAVY, color: "#ffffff", fontWeight: 600 }}>Add type</button>
+                style={{ fontSize: 12, padding: "7px 16px", background: DESIGN_TEXT, color: "#ffffff", fontWeight: 600 }}>Add type</button>
             </div>
           </div>
         </div>
@@ -730,7 +734,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
       {showTypeManager && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: "#ffffff", padding: "28px 32px", maxWidth: 480, width: "90%", fontFamily: "Inter, Arial, sans-serif", maxHeight: "80vh", display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 6 }}>Manage Product Types</div>
+            <div style={{ fontSize: 15, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 6 }}>Manage Product Types</div>
             <div style={{ fontSize: 12, color: "#9a9088", marginBottom: 20, lineHeight: 1.5 }}>
               Rename or delete types. Changes apply to all products with that type. Deleting a type sets affected products to unset.
             </div>
@@ -740,17 +744,17 @@ Use only the provided document pages. Do not speculate beyond what the documents
                 const currentVal = typeManagerEdits[oldType];
                 const isDeleted = currentVal === "";
                 return (
-                  <div key={oldType} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "8px 12px", background: isDeleted ? "#fff5f5" : "#f9f7f5", border: `1px solid ${isDeleted ? "#f5c0b8" : "#e8e0d5"}` }}>
+                  <div key={oldType} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, padding: "8px 12px", background: isDeleted ? "#fff5f5" : "#f8f8fa", border: `1px solid ${isDeleted ? "#f5c0b8" : "#e4e4e8"}` }}>
                     <input value={isDeleted ? "" : currentVal} onChange={e => handleTypeManagerChange(oldType, e.target.value)} disabled={isDeleted}
-                      style={{ flex: 1, fontSize: 12, padding: "5px 8px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", background: isDeleted ? "#f9f0ef" : "#ffffff", color: isDeleted ? "#b0a898" : ARC_NAVY, textDecoration: isDeleted ? "line-through" : "none" }} />
+                      style={{ flex: 1, fontSize: 12, padding: "5px 8px", border: "1px solid #e4e4e8", fontFamily: "Inter, Arial, sans-serif", background: isDeleted ? "#f9f0ef" : "#ffffff", color: isDeleted ? "#b0a898" : DESIGN_TEXT, textDecoration: isDeleted ? "line-through" : "none" }} />
                     <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0, minWidth: 60, textAlign: "right" }}>{affectedCount} product{affectedCount !== 1 ? "s" : ""}</span>
                     {!isDeleted && currentVal !== oldType && (
                       <button className="btn" onClick={() => submitTypeChange(oldType)}
-                        style={{ fontSize: 11, padding: "4px 10px", background: ARC_NAVY, color: "#ffffff", flexShrink: 0 }}>Save</button>
+                        style={{ fontSize: 11, padding: "4px 10px", background: DESIGN_TEXT, color: "#ffffff", flexShrink: 0 }}>Save</button>
                     )}
                     {isDeleted ? (
                       <button className="btn" onClick={() => handleTypeManagerChange(oldType, oldType)}
-                        style={{ fontSize: 11, padding: "4px 10px", background: "none", border: "1px solid #ddd8d0", color: "#9a9088", flexShrink: 0 }}>Undo</button>
+                        style={{ fontSize: 11, padding: "4px 10px", background: "none", border: "1px solid #e4e4e8", color: "#9a9088", flexShrink: 0 }}>Undo</button>
                     ) : (
                       <button className="btn" onClick={() => {
                         if (currentVal !== oldType) {
@@ -758,7 +762,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
                         } else {
                           setPendingTypeChange({ oldType, newType: null, affectedCount });
                         }
-                      }} style={{ fontSize: 11, padding: "4px 10px", background: "none", border: `1px solid ${ARC_TERRACOTTA}`, color: ARC_TERRACOTTA, flexShrink: 0 }}>Delete</button>
+                      }} style={{ fontSize: 11, padding: "4px 10px", background: "none", border: `1px solid ${COMPARE_FULL}`, color: COMPARE_FULL, flexShrink: 0 }}>Delete</button>
                     )}
                   </div>
                 );
@@ -766,7 +770,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end" }}>
               <button className="btn" onClick={() => setShowTypeManager(false)}
-                style={{ fontSize: 12, padding: "7px 20px", background: ARC_NAVY, color: "#ffffff", fontWeight: 600 }}>Done</button>
+                style={{ fontSize: 12, padding: "7px 20px", background: DESIGN_TEXT, color: "#ffffff", fontWeight: 600 }}>Done</button>
             </div>
           </div>
         </div>
@@ -776,7 +780,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
       {pendingTypeChange && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ background: "#ffffff", padding: "28px 32px", maxWidth: 420, width: "90%", fontFamily: "Inter, Arial, sans-serif" }}>
-            <div style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 10 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 10 }}>
               {pendingTypeChange.newType ? "Rename type?" : "Delete type?"}
             </div>
             <div style={{ fontSize: 13, color: "#5a5048", marginBottom: 20, lineHeight: 1.6 }}>
@@ -787,9 +791,9 @@ Use only the provided document pages. Do not speculate beyond what the documents
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button className="btn" onClick={() => { setPendingTypeChange(null); handleTypeManagerChange(pendingTypeChange.oldType, pendingTypeChange.oldType); }}
-                style={{ fontSize: 12, padding: "7px 16px", background: "none", border: "1px solid #ddd8d0", color: "#5a5048" }}>Cancel</button>
+                style={{ fontSize: 12, padding: "7px 16px", background: "none", border: "1px solid #e4e4e8", color: "#5a5048" }}>Cancel</button>
               <button className="btn" onClick={commitTypeChange}
-                style={{ fontSize: 12, padding: "7px 16px", background: pendingTypeChange.newType ? ARC_NAVY : ARC_TERRACOTTA, color: "#ffffff", fontWeight: 600 }}>
+                style={{ fontSize: 12, padding: "7px 16px", background: pendingTypeChange.newType ? DESIGN_TEXT : COMPARE_FULL, color: "#ffffff", fontWeight: 600 }}>
                 {pendingTypeChange.newType ? "Rename" : "Delete"}
               </button>
             </div>
@@ -801,50 +805,50 @@ Use only the provided document pages. Do not speculate beyond what the documents
       <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "16px 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, gap: 16, flexWrap: "wrap" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 24, flex: 1, flexWrap: "wrap" }}>
           <div>
-            <h2 style={{ fontSize: 18, fontWeight: 300, color: ARC_NAVY, margin: 0, fontFamily: "Inter, Arial, sans-serif" }}>Datasheet Library</h2>
+            <h2 style={{ fontSize: 18, fontWeight: 300, color: DESIGN_TEXT, margin: 0, fontFamily: "Inter, Arial, sans-serif" }}>Datasheet Library</h2>
             <p style={{ fontSize: 11, color: "#9a9088", margin: "2px 0 0", fontFamily: "Inter, Arial, sans-serif" }}>{products.length} product{products.length !== 1 ? "s" : ""}</p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <select value={filterManufacturer} onChange={e => setFilterManufacturer(e.target.value)}
-              style={{ fontSize: 12, padding: "5px 10px", border: "1px solid #ddd8d0", background: "#ffffff", color: filterManufacturer ? ARC_NAVY : "#9a9088", fontFamily: "Inter, Arial, sans-serif", cursor: "pointer" }}>
+              style={{ fontSize: 12, padding: "5px 10px", border: "1px solid #e4e4e8", background: "#ffffff", color: filterManufacturer ? DESIGN_TEXT : "#9a9088", fontFamily: "Inter, Arial, sans-serif", cursor: "pointer" }}>
               <option value="">All manufacturers</option>
               {manufacturers.map(m => <option key={m} value={m}>{m}</option>)}
             </select>
             <select value={filterType} onChange={e => setFilterType(e.target.value)}
-              style={{ fontSize: 12, padding: "5px 10px", border: "1px solid #ddd8d0", background: "#ffffff", color: filterType ? ARC_NAVY : "#9a9088", fontFamily: "Inter, Arial, sans-serif", cursor: "pointer" }}>
+              style={{ fontSize: 12, padding: "5px 10px", border: "1px solid #e4e4e8", background: "#ffffff", color: filterType ? DESIGN_TEXT : "#9a9088", fontFamily: "Inter, Arial, sans-serif", cursor: "pointer" }}>
               <option value="">All types</option>
               {types.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
             {(filterManufacturer || filterType) && (
               <button className="btn" onClick={() => { setFilterManufacturer(""); setFilterType(""); }}
-                style={{ fontSize: 11, color: ARC_TERRACOTTA, background: "none", border: "none", padding: "4px 6px", cursor: "pointer" }}>Clear</button>
+                style={{ fontSize: 11, color: COMPARE_FULL, background: "none", border: "none", padding: "4px 6px", cursor: "pointer" }}>Clear</button>
             )}
             {isAdmin && (
               <button className="btn" onClick={openTypeManager}
-                style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}>Manage types</button>
+                style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #e4e4e8", padding: "4px 10px", cursor: "pointer", marginLeft: 4 }}>Manage types</button>
             )}
           </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {uploadStatus && (
-            <span style={{ fontSize: 11, color: uploadStatus.includes("failed") || uploadStatus.includes("Failed") || uploadStatus.includes("Could not") ? ARC_TERRACOTTA : "#5a7a6a", fontFamily: "Inter, Arial, sans-serif", maxWidth: 280 }}>
+            <span style={{ fontSize: 11, color: uploadStatus.includes("failed") || uploadStatus.includes("Failed") || uploadStatus.includes("Could not") ? COMPARE_FULL : "#5a7a6a", fontFamily: "Inter, Arial, sans-serif", maxWidth: 280 }}>
               {uploadStatus}
             </span>
           )}
           {selectedIds.size > 1 && (
             <button className="btn" onClick={openBulkAssignModal}
-              style={{ background: AD_GREEN_FOREST, color: "#fff", border: "none", padding: "6px 14px", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
+              style={{ background: LIBRARY_FULL, color: "#fff", border: "none", padding: "6px 14px", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", whiteSpace: "nowrap" }}>
               + Assign {selectedIds.size} to Project
             </button>
           )}
           {selected && (
             <button className="btn" onClick={handleDownload} disabled={downloading}
-              style={{ background: "none", color: LIBRARY_BLUE, border: `1px solid ${LIBRARY_BLUE}`, padding: "6px 14px", fontSize: 12, fontWeight: 500, opacity: downloading ? 0.6 : 1 }}>
+              style={{ background: "none", color: LIBRARY_FULL, border: `1px solid ${LIBRARY_FULL}`, padding: "6px 14px", fontSize: 12, fontWeight: 500, opacity: downloading ? 0.6 : 1 }}>
               {downloading ? "Downloading…" : "⬇ Download"}
             </button>
           )}
           <button className="btn" onClick={() => inputRef.current?.click()} disabled={uploading}
-            style={{ background: LIBRARY_BLUE, color: "#ffffff", padding: "6px 18px", fontSize: 12, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", opacity: uploading ? 0.6 : 1 }}>
+            style={{ background: LIBRARY_FULL, color: "#ffffff", padding: "6px 18px", fontSize: 12, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", opacity: uploading ? 0.6 : 1 }}>
             {uploading ? "Processing…" : "+ Upload"}
           </button>
           <input ref={inputRef} type="file" accept=".pdf" multiple style={{ display: "none" }} onChange={async e => {
@@ -864,7 +868,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
           ) : filteredProducts.length === 0 ? (
             <div style={{ textAlign: "center", padding: "80px 40px" }}>
               <div style={{ fontSize: 48, marginBottom: 16 }}>📋</div>
-              <p style={{ fontSize: 15, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
+              <p style={{ fontSize: 15, color: DESIGN_TEXT, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>
                 {products.length === 0 ? "No datasheets yet" : "No products match the current filters"}
               </p>
               <p style={{ fontSize: 12, color: "#9a9088", fontFamily: "Inter, Arial, sans-serif" }}>
@@ -877,7 +881,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
                 const isSelected = selectedIds.has(product.id);
                 const isExpanded = expanded === product.id;
                 return (
-                  <div key={product.id} style={{ background: "#ffffff", border: `1px solid ${isSelected ? LIBRARY_BLUE : isExpanded ? "#c0ccd4" : "#e8e0d5"}`, transition: "border-color 0.15s" }}>
+                  <div key={product.id} style={{ background: "#ffffff", border: `1px solid ${isSelected ? LIBRARY_FULL : isExpanded ? "#c0ccd4" : "#e4e4e8"}`, transition: "border-color 0.15s" }}>
                     <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", gap: 12 }}>
                       <input type="checkbox" checked={isSelected} onChange={() => {
                           const next = new Set(selectedIds);
@@ -888,9 +892,9 @@ Use only the provided document pages. Do not speculate beyond what the documents
                           setComplianceAnswer(null);
                           setComplianceStatus("");
                         }}
-                        style={{ width: 15, height: 15, cursor: "pointer", accentColor: LIBRARY_BLUE, flexShrink: 0 }} />
+                        style={{ width: 15, height: 15, cursor: "pointer", accentColor: LIBRARY_FULL, flexShrink: 0 }} />
                       <div style={{ flex: 1, cursor: "pointer" }} onClick={() => handleExpand(product.id)}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>{product.name}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" }}>{product.name}</div>
                         <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2, fontFamily: "Inter, Arial, sans-serif" }}>{product.manufacturer || "—"}</div>
                       </div>
                       <div style={{ flexShrink: 0 }}>
@@ -902,7 +906,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
                                   if (e.target.value === "__custom__") { setShowCustomInput(true); }
                                   else { handleTypeUpdate(product, e.target.value || null); }
                                 }}
-                                style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_BLUE}`, fontFamily: "Inter, Arial, sans-serif" }}>
+                                style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_FULL}`, fontFamily: "Inter, Arial, sans-serif" }}>
                                 <option value="">— unset —</option>
                                 {[...PRODUCT_TYPES, ...types.filter(t => !PRODUCT_TYPES.includes(t))].map(t => (
                                   <option key={t} value={t}>{t}</option>
@@ -912,18 +916,18 @@ Use only the provided document pages. Do not speculate beyond what the documents
                             ) : (
                               <input ref={customTypeRef} autoFocus defaultValue="" placeholder="New type name…"
                                 onKeyDown={e => { if (e.key === "Enter") submitCustomType(product); if (e.key === "Escape") cancelTypeEdit(); }}
-                                style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_BLUE}`, fontFamily: "Inter, Arial, sans-serif", width: 130 }} />
+                                style={{ fontSize: 11, padding: "3px 8px", border: `1px solid ${LIBRARY_FULL}`, fontFamily: "Inter, Arial, sans-serif", width: 130 }} />
                             )}
                             {showCustomInput && (
                               <button className="btn" onClick={() => submitCustomType(product)}
-                                style={{ fontSize: 11, padding: "3px 8px", background: ARC_NAVY, color: "#ffffff" }}>✓</button>
+                                style={{ fontSize: 11, padding: "3px 8px", background: DESIGN_TEXT, color: "#ffffff" }}>✓</button>
                             )}
                             <button className="btn" onClick={cancelTypeEdit}
-                              style={{ fontSize: 11, padding: "3px 8px", background: "none", border: "1px solid #ddd8d0", color: "#9a9088" }}>✕</button>
+                              style={{ fontSize: 11, padding: "3px 8px", background: "none", border: "1px solid #e4e4e8", color: "#9a9088" }}>✕</button>
                           </div>
                         ) : (
                           <span onClick={() => { setEditingType(product.id); setShowCustomInput(false); }} title="Click to edit type"
-                            style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: product.product_type ? LIBRARY_BLUE : "#b0a898", background: product.product_type ? LIBRARY_BLUE_LIGHT : "#f0ede8", padding: "3px 8px", cursor: "pointer", userSelect: "none" }}>
+                            style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: product.product_type ? LIBRARY_FULL : "#b0a898", background: product.product_type ? DESIGN_GROUND : "#f8f8fa", padding: "3px 8px", cursor: "pointer", userSelect: "none" }}>
                             {product.product_type || "Set type"}
                           </span>
                         )}
@@ -934,17 +938,17 @@ Use only the provided document pages. Do not speculate beyond what the documents
                       {/* Assignment badge */}
                       {assignmentMap[product.id]?.length > 0 && (
                         <span title={assignmentMap[product.id].join(", ")}
-                          style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", color: AD_GREEN_FOREST, background: "#e6f4ec", padding: "2px 8px", flexShrink: 0, cursor: "default", whiteSpace: "nowrap" }}>
+                          style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", color: LIBRARY_FULL, background: "#e6f4ec", padding: "2px 8px", flexShrink: 0, cursor: "default", whiteSpace: "nowrap" }}>
                           {assignmentMap[product.id].length} project{assignmentMap[product.id].length !== 1 ? "s" : ""}
                         </span>
                       )}
                       {/* Assign to project button */}
                       <button className="btn" onClick={() => openAssignModal(product)}
-                        style={{ fontSize: 11, color: AD_GREEN_FOREST, background: "none", border: `1px solid ${AD_GREEN_FOREST}`, padding: "2px 10px", flexShrink: 0, fontWeight: 500, whiteSpace: "nowrap" }}>
+                        style={{ fontSize: 11, color: LIBRARY_FULL, background: "none", border: `1px solid ${LIBRARY_FULL}`, padding: "2px 10px", flexShrink: 0, fontWeight: 500, whiteSpace: "nowrap" }}>
                         + Assign
                       </button>
                       <button className="btn" onClick={() => handleExpand(product.id)}
-                        style={{ fontSize: 11, color: LIBRARY_BLUE, background: "none", border: "none", padding: "2px 6px", flexShrink: 0, fontWeight: 500 }}>
+                        style={{ fontSize: 11, color: LIBRARY_FULL, background: "none", border: "none", padding: "2px 6px", flexShrink: 0, fontWeight: 500 }}>
                         {isExpanded ? "▲" : "▼"}
                       </button>
                     </div>
@@ -958,16 +962,16 @@ Use only the provided document pages. Do not speculate beyond what the documents
                           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "Inter, Arial, sans-serif" }}>
                             <thead>
                               <tr>
-                                <th style={{ background: ARC_NAVY, color: "#ffffff", padding: "6px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "35%" }}>Attribute</th>
-                                <th style={{ background: ARC_NAVY, color: "#ffffff", padding: "6px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase" }}>Value</th>
-                                <th style={{ background: ARC_NAVY, color: "#ffffff", padding: "6px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "15%" }}>Unit</th>
+                                <th style={{ background: DESIGN_TEXT, color: "#ffffff", padding: "6px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "35%" }}>Attribute</th>
+                                <th style={{ background: DESIGN_TEXT, color: "#ffffff", padding: "6px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase" }}>Value</th>
+                                <th style={{ background: DESIGN_TEXT, color: "#ffffff", padding: "6px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "15%" }}>Unit</th>
                               </tr>
                             </thead>
                             <tbody>
                               {expandedAttrs[product.id].map((attr, i) => (
-                                <tr key={i} style={{ background: i % 2 === 0 ? "#f9f7f5" : "#ffffff" }}>
+                                <tr key={i} style={{ background: i % 2 === 0 ? "#f8f8fa" : "#ffffff" }}>
                                   <td style={{ padding: "7px 12px", borderBottom: "1px solid #e8e0d5", color: "#5a5048", fontWeight: 500 }}>{attr.attribute}</td>
-                                  <td style={{ padding: "7px 12px", borderBottom: "1px solid #e8e0d5", color: ARC_NAVY }}>{attr.value}</td>
+                                  <td style={{ padding: "7px 12px", borderBottom: "1px solid #e8e0d5", color: DESIGN_TEXT }}>{attr.value}</td>
                                   <td style={{ padding: "7px 12px", borderBottom: "1px solid #e8e0d5", color: "#9a9088" }}>{attr.unit || "—"}</td>
                                 </tr>
                               ))}
@@ -976,7 +980,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
                         )}
                         <div style={{ marginTop: 10, display: "flex", justifyContent: "flex-end" }}>
                           <button className="btn" onClick={() => handleDelete(product)} disabled={deleting === product.id}
-                            style={{ fontSize: 11, color: ARC_TERRACOTTA, background: "none", border: `1px solid ${ARC_TERRACOTTA}`, padding: "3px 10px", opacity: deleting === product.id ? 0.5 : 1 }}>
+                            style={{ fontSize: 11, color: COMPARE_FULL, background: "none", border: `1px solid ${COMPARE_FULL}`, padding: "3px 10px", opacity: deleting === product.id ? 0.5 : 1 }}>
                             {deleting === product.id ? "Deleting…" : "Remove"}
                           </button>
                         </div>
@@ -994,7 +998,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
           <div style={{ width: 360, borderLeft: "1px solid #e8e0d5", background: "#ffffff", display: "flex", flexDirection: "column", flexShrink: 0, overflowY: "auto" }}>
             <div style={{ padding: "16px 20px", borderBottom: "1px solid #e8e0d5" }}>
               <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#9a9088", marginBottom: 4 }}>Selected</div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>{selectedProduct.name}</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" }}>{selectedProduct.name}</div>
               {selectedProduct.manufacturer && <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>{selectedProduct.manufacturer}</div>}
             </div>
             <div style={{ padding: "16px 20px", borderBottom: "1px solid #e8e0d5" }}>
@@ -1002,7 +1006,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
               <div style={{ marginBottom: 10 }}>
                 <label style={{ fontSize: 11, color: "#9a9088", fontFamily: "Inter, Arial, sans-serif", display: "block", marginBottom: 4 }}>Vault</label>
                 <select value={complianceVaultId} onChange={e => setComplianceVaultId(e.target.value)}
-                  style={{ width: "100%", fontSize: 12, padding: "6px 10px", border: "1px solid #ddd8d0", background: "#ffffff", fontFamily: "Inter, Arial, sans-serif" }}>
+                  style={{ width: "100%", fontSize: 12, padding: "6px 10px", border: "1px solid #e4e4e8", background: "#ffffff", fontFamily: "Inter, Arial, sans-serif" }}>
                   <option value="">Select vault…</option>
                   {vaultOptions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
                 </select>
@@ -1012,14 +1016,14 @@ Use only the provided document pages. Do not speculate beyond what the documents
                 <textarea value={complianceQuestion} onChange={e => setComplianceQuestion(e.target.value)}
                   placeholder={`Is ${selectedProduct.name} compliant with the relevant requirements?`}
                   rows={3}
-                  style={{ width: "100%", fontSize: 12, padding: "7px 10px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", resize: "vertical", boxSizing: "border-box" }} />
+                  style={{ width: "100%", fontSize: 12, padding: "7px 10px", border: "1px solid #e4e4e8", fontFamily: "Inter, Arial, sans-serif", resize: "vertical", boxSizing: "border-box" }} />
               </div>
               <button className="btn" onClick={runComplianceCheck} disabled={!complianceVaultId || complianceRunning}
-                style={{ width: "100%", background: complianceVaultId && !complianceRunning ? ARC_NAVY : "#c0c0c0", color: "#ffffff", padding: "8px", fontSize: 12, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+                style={{ width: "100%", background: complianceVaultId && !complianceRunning ? DESIGN_TEXT : "#c0c0c0", color: "#ffffff", padding: "8px", fontSize: 12, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
                 {complianceRunning ? "Running…" : "Run Compliance Check"}
               </button>
               {complianceStatus && (
-                <p style={{ fontSize: 11, color: complianceStatus.includes("Error") ? ARC_TERRACOTTA : "#5a7a6a", marginTop: 8, fontFamily: "Inter, Arial, sans-serif" }}>{complianceStatus}</p>
+                <p style={{ fontSize: 11, color: complianceStatus.includes("Error") ? COMPARE_FULL : "#5a7a6a", marginTop: 8, fontFamily: "Inter, Arial, sans-serif" }}>{complianceStatus}</p>
               )}
               {complianceRunning && (
                 <div style={{ marginTop: 10 }}>
@@ -1028,8 +1032,8 @@ Use only the provided document pages. Do not speculate beyond what the documents
                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#9a9088", marginBottom: 3 }}>
                         <span>{label}</span><span>{pct}%</span>
                       </div>
-                      <div style={{ height: 3, background: "#e8e0d5" }}>
-                        <div style={{ height: 3, background: ARC_NAVY, width: `${pct}%`, transition: "width 0.5s" }} />
+                      <div style={{ height: 3, background: "#e4e4e8" }}>
+                        <div style={{ height: 3, background: DESIGN_TEXT, width: `${pct}%`, transition: "width 0.5s" }} />
                       </div>
                     </div>
                   ))}
@@ -1039,7 +1043,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
             {complianceAnswer && (
               <div style={{ padding: "16px 20px", flex: 1 }}>
                 <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#9a9088", marginBottom: 10 }}>Result</div>
-                <AnswerRenderer text={complianceAnswer} />
+                <AnswerRenderer text={complianceAnswer} accentColor={LIBRARY_FULL} />
               </div>
             )}
           </div>
@@ -1049,17 +1053,17 @@ Use only the provided document pages. Do not speculate beyond what the documents
       {/* ── Assign to project modal ─────────────────────────────────────────── */}
       {(assigningProduct || assigningBulk) && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1200, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", width: 460, borderTop: `3px solid ${AD_GREEN_FOREST}`, fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column" }}>
+          <div style={{ background: "#fff", width: 460, borderTop: `3px solid ${LIBRARY_FULL}`, fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column" }}>
             {/* Modal header */}
             <div style={{ padding: "20px 24px 16px", borderBottom: "1px solid #e8e0d5" }}>
               <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#9a9088", marginBottom: 4 }}>Assign to Project</div>
               {assigningBulk ? (
-                <div style={{ fontSize: 14, fontWeight: 600, color: ARC_NAVY }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: DESIGN_TEXT }}>
                   {selectedIds.size} product{selectedIds.size !== 1 ? "s" : ""} selected
                 </div>
               ) : (
                 <>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: ARC_NAVY }}>{assigningProduct?.name}</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: DESIGN_TEXT }}>{assigningProduct?.name}</div>
                   {assigningProduct?.manufacturer && <div style={{ fontSize: 12, color: "#9a9088", marginTop: 2 }}>{assigningProduct.manufacturer}</div>}
                 </>
               )}
@@ -1071,7 +1075,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
                 <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 6 }}>Project</label>
                 <select value={assignProjectId}
                   onChange={e => handleAssignProjectSelect(e.target.value)}
-                  style={{ width: "100%", fontSize: 13, padding: "8px 10px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", color: assignProjectId ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff" }}>
+                  style={{ width: "100%", fontSize: 13, padding: "8px 10px", border: "1px solid #e4e4e8", fontFamily: "Inter, Arial, sans-serif", color: assignProjectId ? DESIGN_TEXT : "#9a9088", outline: "none", background: "#fff" }}>
                   <option value="">Select a project…</option>
                   {allProjects.map(p => (
                     <option key={p.id} value={p.id}>
@@ -1094,7 +1098,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
                           if (e.target.value === "__new__") { setAssignAddingCat(true); setAssignCategoryId(""); }
                           else { setAssignCategoryId(e.target.value); setAssignAddingCat(false); }
                         }}
-                        style={{ width: "100%", fontSize: 13, padding: "8px 10px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", color: assignCategoryId ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff", marginBottom: assignAddingCat ? 8 : 0 }}>
+                        style={{ width: "100%", fontSize: 13, padding: "8px 10px", border: "1px solid #e4e4e8", fontFamily: "Inter, Arial, sans-serif", color: assignCategoryId ? DESIGN_TEXT : "#9a9088", outline: "none", background: "#fff", marginBottom: assignAddingCat ? 8 : 0 }}>
                         <option value="">Select a category…</option>
                         {assignCategories.map(c => (
                           <option key={c.id} value={c.id}>{c.name}</option>
@@ -1109,14 +1113,14 @@ Use only the provided document pages. Do not speculate beyond what the documents
                             onChange={e => setAssignNewCatName(e.target.value)}
                             onKeyDown={e => { if (e.key === "Enter") createAssignCategory(); if (e.key === "Escape") { setAssignAddingCat(false); setAssignNewCatName(""); } }}
                             placeholder="New category name…"
-                            style={{ flex: 1, border: `1px solid ${AD_GREEN_FOREST}`, padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none" }} />
+                            style={{ flex: 1, border: `1px solid ${LIBRARY_FULL}`, padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none" }} />
                           <button className="btn" onClick={createAssignCategory}
                             disabled={!assignNewCatName.trim() || assignSavingCat}
-                            style={{ background: AD_GREEN_FOREST, color: "#fff", padding: "7px 14px", fontSize: 11, fontWeight: 600, flexShrink: 0, opacity: !assignNewCatName.trim() || assignSavingCat ? 0.5 : 1 }}>
+                            style={{ background: LIBRARY_FULL, color: "#fff", padding: "7px 14px", fontSize: 11, fontWeight: 600, flexShrink: 0, opacity: !assignNewCatName.trim() || assignSavingCat ? 0.5 : 1 }}>
                             {assignSavingCat ? <Spinner size={11} /> : "Add"}
                           </button>
                           <button className="btn" onClick={() => { setAssignAddingCat(false); setAssignNewCatName(""); }}
-                            style={{ background: "none", color: "#9a9088", padding: "7px 10px", fontSize: 11, border: "1px solid #ddd8d0", flexShrink: 0 }}>✕</button>
+                            style={{ background: "none", color: "#9a9088", padding: "7px 10px", fontSize: 11, border: "1px solid #e4e4e8", flexShrink: 0 }}>✕</button>
                         </div>
                       )}
                     </>
@@ -1125,15 +1129,15 @@ Use only the provided document pages. Do not speculate beyond what the documents
               )}
 
               {assignError && (
-                <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 12 }}>{assignError}</p>
+                <p style={{ fontSize: 12, color: COMPARE_FULL, marginBottom: 12 }}>{assignError}</p>
               )}
 
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button className="btn" onClick={closeAssignModal}
-                  style={{ background: "none", color: "#9a9088", padding: "8px 16px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+                  style={{ background: "none", color: "#9a9088", padding: "8px 16px", fontSize: 11, border: "1px solid #e4e4e8" }}>Cancel</button>
                 <button className="btn" onClick={confirmAssign}
                   disabled={!assignProjectId || !assignCategoryId || assigning}
-                  style={{ background: assignProjectId && assignCategoryId && !assigning ? AD_GREEN_FOREST : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  style={{ background: assignProjectId && assignCategoryId && !assigning ? LIBRARY_FULL : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                   {assigning ? <Spinner size={11} /> : "Assign"}
                 </button>
               </div>
