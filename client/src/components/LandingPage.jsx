@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   DESIGN_GROUND, DESIGN_MUTED,
+  DESIGN_PLACEHOLDER_BORDER, DESIGN_PLACEHOLDER_TEXT,
   VAULT_FULL, VAULT_WASH,
   COMPARE_FULL, COMPARE_WASH,
   LIBRARY_FULL, LIBRARY_WASH,
@@ -148,7 +149,7 @@ export default function LandingPage({ onSelect }) {
             style={{
               flex: 1,
               background: DESIGN_GROUND,
-              border: "1px dashed #c8c8cc",
+              border: `1px dashed ${DESIGN_PLACEHOLDER_BORDER}`,
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -159,7 +160,7 @@ export default function LandingPage({ onSelect }) {
               style={{
                 fontSize: 8,
                 fontWeight: 500,
-                color: "#c0c0c6",
+                color: DESIGN_PLACEHOLDER_TEXT,
                 letterSpacing: ".18em",
                 textTransform: "uppercase",
               }}

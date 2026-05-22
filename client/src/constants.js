@@ -5,7 +5,9 @@ export const DESIGN_SHELL  = "#262830";
 export const DESIGN_GROUND = "#f1f2f4";
 export const DESIGN_GOLD   = "#c8a84a";
 export const DESIGN_TEXT   = "#262830";
-export const DESIGN_MUTED  = "#9a9aa0";
+export const DESIGN_MUTED           = "#9a9aa0";
+export const DESIGN_PLACEHOLDER_BORDER = "#c8c8cc";
+export const DESIGN_PLACEHOLDER_TEXT   = "#c0c0c6";
 
 // ── Per-module full colours (section interiors + tile hover) ──────────────────
 export const VAULT_FULL      = "#2e9088";
