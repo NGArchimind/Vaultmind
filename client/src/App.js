@@ -1710,7 +1710,7 @@ export default function App() {
           </div>
 
           </div>{/* end inner flex row */}
-        </div>{/* end vault column wrapper */}
+        </div>}{/* end vault section */}
 
       </div>
 
