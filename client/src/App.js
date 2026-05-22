@@ -9,7 +9,7 @@ import ProjectsSection from "./components/ProjectsSection";
 import DatasheetsLibrarySection from "./components/DatasheetsLibrarySection";
 import AdminSection from "./components/AdminSection";
 import TimesheetsSection from "./components/TimesheetsSection";
-import { AD_GREEN, AD_GREEN_MID, AD_GREEN_GRASS, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, BOILERPLATE_HEADINGS, isBoilerplate } from "./constants";
+import { AD_GREEN, AD_GREEN_MID, AD_GREEN_GRASS, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, BOILERPLATE_HEADINGS, isBoilerplate, DESIGN_SHELL, DESIGN_GROUND, DESIGN_GOLD, DESIGN_TEXT, DESIGN_MUTED, VAULT_FULL, COMPARE_FULL } from "./constants";
 
 // ── Vault PDF Viewer Modal ────────────────────────────────────────────────────
 function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
@@ -1174,16 +1174,16 @@ export default function App() {
   // ── Login screen ──────────────────────────────────────────────────────────────
   if (!session) {
     return (
-      <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+      <div style={{ fontFamily: "Arial, sans-serif", background: DESIGN_SHELL, minHeight: "100vh", display: "flex", flexDirection: "column" }}>
         <style>{globalStyles}</style>
-        <div style={{ background: ARC_NAVY, padding: "20px 40px", display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
-          <span style={{ color: "#ffffff", fontSize: 22, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif" }}>Archimind</span>
-          <span style={{ color: "#7a9aaa", fontSize: 12, letterSpacing: "0.08em", textTransform: "uppercase" }}>Document Intelligence</span>
+        <div style={{ background: DESIGN_SHELL, padding: "20px 40px", display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
+          <span style={{ color: "#fff", fontSize: 14, fontWeight: 500, letterSpacing: ".22em", textTransform: "uppercase", fontFamily: "Inter, Arial, sans-serif" }}>Archimind</span>
+          <span style={{ color: DESIGN_MUTED, fontSize: 9, letterSpacing: ".16em", textTransform: "uppercase" }}>Document Intelligence</span>
         </div>
-        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: ARC_STONE }}>
-          <div style={{ background: "#ffffff", padding: "48px 48px", width: 400, borderTop: `3px solid ${ARC_TERRACOTTA}` }}>
-            <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 32, letterSpacing: "0.1em", textTransform: "uppercase" }}>Secure Access</p>
-            <label style={{ fontSize: 12, fontWeight: 500, color: ARC_NAVY, display: "block", marginBottom: 8, letterSpacing: "0.05em", textTransform: "uppercase" }}>Email</label>
+        <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", background: DESIGN_GROUND }}>
+          <div style={{ background: "#ffffff", padding: "48px 48px", width: 400, borderTop: `3px solid ${COMPARE_FULL}` }}>
+            <p style={{ fontSize: 11, color: DESIGN_MUTED, marginBottom: 32, letterSpacing: "0.1em", textTransform: "uppercase" }}>Secure Access</p>
+            <label style={{ fontSize: 9, fontWeight: 500, color: DESIGN_MUTED, display: "block", marginBottom: 8, letterSpacing: ".16em", textTransform: "uppercase" }}>Email</label>
             <input
               type="email"
               value={email}
@@ -1191,20 +1191,20 @@ export default function App() {
               onKeyDown={e => e.key === "Enter" && handleLogin()}
               autoFocus
               className="arc-input"
-              style={{ width: "100%", border: loginError ? `1px solid ${ARC_TERRACOTTA}` : `1px solid #ccc`, padding: "12px 14px", fontSize: 14, marginBottom: 14, outline: "none", fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY }}
+              style={{ width: "100%", border: loginError ? `1px solid ${COMPARE_FULL}` : `1px solid #e4e4e8`, padding: "12px 14px", fontSize: 14, marginBottom: 14, outline: "none", fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, background: "#f8f8fa" }}
             />
-            <label style={{ fontSize: 12, fontWeight: 500, color: ARC_NAVY, display: "block", marginBottom: 8, letterSpacing: "0.05em", textTransform: "uppercase" }}>Password</label>
+            <label style={{ fontSize: 9, fontWeight: 500, color: DESIGN_MUTED, display: "block", marginBottom: 8, letterSpacing: ".16em", textTransform: "uppercase" }}>Password</label>
             <input
               type="password"
               value={password}
               onChange={e => { setPassword(e.target.value); setLoginError(""); }}
               onKeyDown={e => e.key === "Enter" && handleLogin()}
               className="arc-input"
-              style={{ width: "100%", border: loginError ? `1px solid ${ARC_TERRACOTTA}` : `1px solid #ccc`, padding: "12px 14px", fontSize: 14, marginBottom: 6, outline: "none", fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY }}
+              style={{ width: "100%", border: loginError ? `1px solid ${COMPARE_FULL}` : `1px solid #e4e4e8`, padding: "12px 14px", fontSize: 14, marginBottom: 6, outline: "none", fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, background: "#f8f8fa" }}
             />
-            {loginError && <p style={{ color: ARC_TERRACOTTA, fontSize: 12, marginBottom: 16, letterSpacing: "0.02em" }}>{loginError}</p>}
+            {loginError && <p style={{ color: COMPARE_FULL, fontSize: 12, marginBottom: 16, letterSpacing: "0.02em" }}>{loginError}</p>}
             <button className="btn" onClick={handleLogin} disabled={loggingIn}
-              style={{ marginTop: 20, width: "100%", background: ARC_NAVY, color: "#ffffff", padding: "12px 0", fontSize: 13, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+              style={{ marginTop: 20, width: "100%", background: DESIGN_SHELL, color: "#fff", padding: "12px 0", fontSize: 13, fontWeight: 500, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
               {loggingIn ? <><Spinner size={13} /> Signing in…</> : "Sign In"}
             </button>
           </div>
@@ -1223,7 +1223,7 @@ export default function App() {
   };
 
   return (
-    <div style={{ fontFamily: "Arial, sans-serif", background: "#f3f2f1", minHeight: "100vh", color: "#0b0c0c", display: "flex", flexDirection: "column" }}>
+    <div style={{ fontFamily: "Arial, sans-serif", background: DESIGN_GROUND, minHeight: "100vh", color: "#0b0c0c", display: "flex", flexDirection: "column" }}>
       <style>{globalStyles}</style>
 
       {showManageModal && (
@@ -1236,32 +1236,39 @@ export default function App() {
       )}
 
       {/* Top nav */}
-      <div style={{ background: ARC_NAVY, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, height: 56 }}>
-        <button className="btn" onClick={() => navigate("home")}
-          style={{ background: "none", color: "#ffffff", fontSize: 20, fontWeight: 300, letterSpacing: "0.02em", fontFamily: "Inter, Arial, sans-serif", padding: 0 }}>
-          Archimind
-        </button>
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-          {["vault", "compare", "library", "projects", "timesheets"].map(section => (
-            <button key={section} className="btn" onClick={() => navigate(section)}
-              style={{ background: appSection === section ? "rgba(255,255,255,0.12)" : "none", color: appSection === section ? "#ffffff" : "#7a9aaa", padding: "6px 14px", fontSize: 12, fontWeight: appSection === section ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
-              {NAV_LABELS[section] ?? section}
-            </button>
-          ))}
-          {isAdmin && (
-            <button className="btn" onClick={() => navigate("admin")}
-              style={{ background: appSection === "admin" ? "rgba(255,255,255,0.12)" : "none", color: appSection === "admin" ? "#ffffff" : ARC_TERRACOTTA, padding: "6px 14px", fontSize: 12, fontWeight: appSection === "admin" ? 600 : 400, letterSpacing: "0.06em", textTransform: "uppercase", border: "none", opacity: 0.85 }}>
-              Admin
-            </button>
-          )}
-        </div>
+      <div style={{ background: DESIGN_SHELL, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, height: 56, borderBottom: "1px solid #1e2028" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <span style={{ color: "#7a9aaa", fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase" }}>Document Intelligence</span>
-          <span style={{ fontSize: 10, color: isAdmin ? ARC_TERRACOTTA : "#7a9aaa", letterSpacing: "0.1em", textTransform: "uppercase", border: `1px solid ${isAdmin ? ARC_TERRACOTTA : "#3a5a6a"}`, padding: "2px 8px" }}>
-            {isAdmin ? "Admin" : "User"}
-          </span>
+          <button className="btn" onClick={() => navigate("home")}
+            style={{ background: "none", color: "#fff", fontSize: 14, fontWeight: 500, letterSpacing: ".22em", textTransform: "uppercase", padding: 0 }}>
+            Archimind
+          </button>
+          <div style={{ width: 1, height: 20, background: "#3a3c40" }} />
+          <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+            {["vault", "compare", "library", "projects", "timesheets"].map(section => (
+              <button key={section} className="btn" onClick={() => navigate(section)}
+                style={appSection === section
+                  ? { color: "#fff", fontSize: 9, fontWeight: 500, letterSpacing: ".18em", textTransform: "uppercase", background: "transparent", border: "none", padding: "0", cursor: "pointer", borderBottom: "1px solid " + DESIGN_GOLD, paddingBottom: 3 }
+                  : { color: "#9a9aa0", fontSize: 9, fontWeight: 500, letterSpacing: ".18em", textTransform: "uppercase", background: "transparent", border: "none", padding: "0", cursor: "pointer" }}>
+                {NAV_LABELS[section] ?? section}
+              </button>
+            ))}
+            {isAdmin && (
+              <button className="btn" onClick={() => navigate("admin")}
+                style={appSection === "admin"
+                  ? { color: "#fff", fontSize: 9, fontWeight: 500, letterSpacing: ".18em", textTransform: "uppercase", background: "transparent", border: "none", padding: "0", cursor: "pointer", borderBottom: "1px solid " + DESIGN_GOLD, paddingBottom: 3 }
+                  : { color: "#9a9aa0", fontSize: 9, fontWeight: 500, letterSpacing: ".18em", textTransform: "uppercase", background: "transparent", border: "none", padding: "0", cursor: "pointer" }}>
+                Admin
+              </button>
+            )}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span style={{ fontSize: 9, color: "#666", letterSpacing: ".1em", textTransform: "uppercase" }}>{session?.user?.email}</span>
+          <div style={{ width: 28, height: 28, borderRadius: "50%", background: DESIGN_GOLD, color: DESIGN_SHELL, fontSize: 9, fontWeight: 500, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            {(session?.user?.email || "").slice(0, 2).toUpperCase()}
+          </div>
           <button className="btn" onClick={handleSignOut}
-            style={{ background: "none", color: "#7a9aaa", fontSize: 11, border: "1px solid #3a5a6a", padding: "3px 10px", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+            style={{ fontSize: 8, color: "#888", letterSpacing: ".1em", textTransform: "uppercase", background: "transparent", border: "none", cursor: "pointer" }}>
             Sign Out
           </button>
         </div>
@@ -1277,11 +1284,19 @@ export default function App() {
         {appSection === "admin" && isAdmin && <AdminSection key={sectionKey} />}
 
         {/* ── VAULT ─────────────────────────────────────────────────────── */}
-        {appSection === "vault" && <>
+        {appSection === "vault" && <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+
+          {/* ── Vault section header strip ── */}
+          <div style={{ background: VAULT_FULL, padding: "12px 40px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+            <span style={{ fontSize: 11, fontWeight: 500, color: "#fff", letterSpacing: ".16em", textTransform: "uppercase" }}>Vault</span>
+            <span style={{ fontSize: 9, fontWeight: 500, color: "rgba(255,255,255,0.45)", letterSpacing: ".14em", textTransform: "uppercase" }}>— Document Intelligence</span>
+          </div>
+
+          <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
           {/* Sidebar */}
-          <div style={{ width: 260, borderRight: "1px solid #e8e0d5", background: ARC_STONE, display: "flex", flexDirection: "column", flexShrink: 0 }}>
-            <div style={{ padding: "20px 24px 8px", fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: "1px solid #ddd8d0" }}>Vaults</div>
+          <div style={{ width: 260, borderRight: "1px solid #e8e8ea", background: "#fff", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+            <div style={{ padding: "20px 24px 8px", fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", borderBottom: "1px solid #e4e4e8" }}>Vaults</div>
 
             <div style={{ flex: 1, overflowY: "auto" }}>
               {loadingVaults ? (
@@ -1294,14 +1309,14 @@ export default function App() {
                       <div className="master-item" onClick={() => toggleMaster(v.id)}
                         style={{ padding: "10px 24px", display: "flex", alignItems: "center", gap: 8, borderLeft: "3px solid transparent" }}>
                         <span style={{ fontSize: 10, color: "#9a9088", transition: "transform 0.15s", transform: isExpanded ? "rotate(90deg)" : "rotate(0deg)", display: "inline-block" }}>▶</span>
-                        <span style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500, letterSpacing: "0.01em", flex: 1 }}>{v.name}</span>
+                        <span style={{ fontSize: 13, color: DESIGN_TEXT, fontWeight: 500, letterSpacing: "0.01em", flex: 1 }}>{v.name}</span>
                         <span style={{ fontSize: 10, color: "#b0a8a0" }}>{(v.subVaults || []).length}</span>
                       </div>
                       {isExpanded && (v.subVaults || []).map(sv => (
                         <div key={sv.id} className="vault-item" onClick={() => selectVault(sv.id)}
-                          style={{ padding: "9px 24px 9px 44px", background: selectedVault === sv.id ? "#ffffff" : "transparent", borderLeft: selectedVault === sv.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent", display: "flex", alignItems: "center", gap: 6 }}>
+                          style={{ padding: "9px 24px 9px 44px", background: selectedVault === sv.id ? DESIGN_GROUND : "transparent", borderLeft: selectedVault === sv.id ? `3px solid ${VAULT_FULL}` : "3px solid transparent", display: "flex", alignItems: "center", gap: 6 }}>
                           <span style={{ fontSize: 10, color: "#b0a8a0" }}>📄</span>
-                          <span style={{ fontSize: 12, color: ARC_NAVY, fontWeight: selectedVault === sv.id ? 600 : 400, letterSpacing: "0.01em" }}>{sv.name}</span>
+                          <span style={{ fontSize: 12, color: DESIGN_TEXT, fontWeight: selectedVault === sv.id ? 600 : 400, letterSpacing: "0.01em" }}>{sv.name}</span>
                         </div>
                       ))}
                       {isExpanded && (v.subVaults || []).length === 0 && (
@@ -1312,8 +1327,8 @@ export default function App() {
                 } else {
                   return (
                     <div key={v.id} className="vault-item" onClick={() => selectVault(v.id)}
-                      style={{ padding: "12px 24px", background: selectedVault === v.id ? "#ffffff" : "transparent", borderLeft: selectedVault === v.id ? `3px solid ${ARC_TERRACOTTA}` : "3px solid transparent" }}>
-                      <div style={{ fontSize: 13, color: ARC_NAVY, fontWeight: selectedVault === v.id ? 600 : 400, letterSpacing: "0.01em" }}>{v.name}</div>
+                      style={{ padding: "12px 24px", background: selectedVault === v.id ? DESIGN_GROUND : "transparent", borderLeft: selectedVault === v.id ? `3px solid ${VAULT_FULL}` : "3px solid transparent" }}>
+                      <div style={{ fontSize: 13, color: DESIGN_TEXT, fontWeight: selectedVault === v.id ? 600 : 400, letterSpacing: "0.01em" }}>{v.name}</div>
                     </div>
                   );
                 }
@@ -1321,7 +1336,7 @@ export default function App() {
             </div>
 
             {/* Temp doc upload */}
-            <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px" }}>
+            <div style={{ borderTop: "1px solid #e4e4e8", padding: "12px 24px" }}>
               {tempDoc ? (
                 <div style={{ padding: "10px 0" }}>
                   <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
@@ -1335,11 +1350,11 @@ export default function App() {
                     <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
                       <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 2 }}>Query mode</div>
                       <button className="btn" onClick={() => setTempDocMode("query-vault-with-temp")}
-                        style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, background: tempDocMode === "query-vault-with-temp" ? ARC_NAVY : "transparent", color: tempDocMode === "query-vault-with-temp" ? "#fff" : "#505a5f", border: `1px solid ${tempDocMode === "query-vault-with-temp" ? ARC_NAVY : "#ccc"}`, letterSpacing: "0.02em" }}>
+                        style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, background: tempDocMode === "query-vault-with-temp" ? DESIGN_SHELL : "transparent", color: tempDocMode === "query-vault-with-temp" ? "#fff" : "#505a5f", border: `1px solid ${tempDocMode === "query-vault-with-temp" ? DESIGN_SHELL : "#e4e4e8"}`, letterSpacing: "0.02em" }}>
                         Ask vault, using temp doc as context
                       </button>
                       <button className="btn" onClick={() => setTempDocMode("query-temp")}
-                        style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, background: tempDocMode === "query-temp" ? ARC_NAVY : "transparent", color: tempDocMode === "query-temp" ? "#fff" : "#505a5f", border: `1px solid ${tempDocMode === "query-temp" ? ARC_NAVY : "#ccc"}`, letterSpacing: "0.02em" }}>
+                        style={{ textAlign: "left", padding: "6px 8px", fontSize: 10, background: tempDocMode === "query-temp" ? DESIGN_SHELL : "transparent", color: tempDocMode === "query-temp" ? "#fff" : "#505a5f", border: `1px solid ${tempDocMode === "query-temp" ? DESIGN_SHELL : "#e4e4e8"}`, letterSpacing: "0.02em" }}>
                         Ask temp doc directly
                       </button>
                     </div>
@@ -1353,9 +1368,9 @@ export default function App() {
                   onClick={() => tempDocInputRef.current.click()}
                   style={{ padding: "10px 0", cursor: "pointer" }}>
                   <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
-                  <div style={{ border: `1px dashed ${tempDocDragOver ? AD_GREEN : "#ccc"}`, padding: "10px 12px", background: tempDocDragOver ? "#f0f5f6" : "transparent", display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ border: `1px dashed ${tempDocDragOver ? VAULT_FULL : "#e4e4e8"}`, padding: "10px 12px", background: tempDocDragOver ? "#f0f5f6" : "transparent", display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 12, opacity: 0.4 }}>📎</span>
-                    <span style={{ fontSize: 11, color: ARC_NAVY, letterSpacing: "0.01em" }}>Upload a PDF</span>
+                    <span style={{ fontSize: 11, color: DESIGN_TEXT, letterSpacing: "0.01em" }}>Upload a PDF</span>
                   </div>
                   <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Upload a temporary PDF here to include it in your questions. It will not be saved to the vault.</p>
                   <input ref={tempDocInputRef} type="file" accept="application/pdf" style={{ display: "none" }} onChange={e => { if (e.target.files[0]) loadTempDoc(e.target.files[0]); }} />
@@ -1365,27 +1380,27 @@ export default function App() {
 
             {/* Admin controls */}
             {isAdmin && (
-              <div style={{ borderTop: "1px solid #ddd8d0", padding: "12px 24px", display: "flex", flexDirection: "column", gap: 8 }}>
+              <div style={{ borderTop: "1px solid #e4e4e8", padding: "12px 24px", display: "flex", flexDirection: "column", gap: 8 }}>
                 {creating ? (
-                  <div style={{ background: "#f5f3f0", padding: "12px" }}>
+                  <div style={{ background: DESIGN_GROUND, padding: "12px" }}>
                     <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", display: "block", marginBottom: 6, letterSpacing: "0.08em", textTransform: "uppercase" }}>New Vault Name</label>
                     <input value={newVaultName} onChange={e => setNewVaultName(e.target.value)}
                       onKeyDown={e => e.key === "Enter" && createVault()}
                       placeholder="Name" autoFocus className="arc-input"
-                      style={{ width: "100%", border: `1px solid #ccc`, padding: "7px 10px", fontSize: 13, color: ARC_NAVY, marginBottom: 8, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }} />
+                      style={{ width: "100%", border: `1px solid #e4e4e8`, padding: "7px 10px", fontSize: 13, color: DESIGN_TEXT, marginBottom: 8, outline: "none", background: "#f8f8fa", fontFamily: "Inter, Arial, sans-serif" }} />
                     <div style={{ display: "flex", gap: 6 }}>
-                      <button className="btn" onClick={createVault} style={{ background: ARC_NAVY, color: "#fff", padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Create</button>
-                      <button className="btn" onClick={() => setCreating(false)} style={{ background: "transparent", color: "#9a9088", padding: "6px 10px", fontSize: 11, border: "1px solid #ccc" }}>Cancel</button>
+                      <button className="btn" onClick={createVault} style={{ background: VAULT_FULL, color: "#fff", padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Create</button>
+                      <button className="btn" onClick={() => setCreating(false)} style={{ background: "transparent", color: "#9a9088", padding: "6px 10px", fontSize: 11, border: "1px solid #e4e4e8" }}>Cancel</button>
                     </div>
                   </div>
                 ) : (
                   <button className="btn" onClick={() => setCreating(true)}
-                    style={{ width: "100%", background: "transparent", color: ARC_NAVY, padding: "8px 0", fontSize: 11, fontWeight: 600, textAlign: "center", border: `1px solid ${ARC_NAVY}`, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    style={{ width: "100%", background: "transparent", color: VAULT_FULL, padding: "8px 0", fontSize: 11, fontWeight: 600, textAlign: "center", border: `1px solid ${VAULT_FULL}`, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                     + New Vault
                   </button>
                 )}
                 <button className="btn" onClick={() => setShowManageModal(true)}
-                  style={{ width: "100%", background: "transparent", color: "#9a9088", padding: "7px 0", fontSize: 11, fontWeight: 500, textAlign: "center", border: "1px solid #ccc", letterSpacing: "0.04em" }}>
+                  style={{ width: "100%", background: "transparent", color: "#9a9088", padding: "7px 0", fontSize: 11, fontWeight: 500, textAlign: "center", border: "1px solid #e4e4e8", letterSpacing: "0.04em" }}>
                   Manage Vaults
                 </button>
               </div>
@@ -1393,7 +1408,7 @@ export default function App() {
           </div>
 
           {/* Main panel */}
-          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
             {!vault ? (
               tempDoc ? (
                 // Temp doc loaded with no vault — show question bar directly
@@ -1409,33 +1424,33 @@ export default function App() {
                       </div>
                     ) : statusMsg && statusMsg !== "Answer ready" ? (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
-                        <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>📄 {tempDoc.name}</p>
+                        <p style={{ fontSize: 20, color: DESIGN_TEXT, fontWeight: 300, letterSpacing: "0.02em" }}>📄 {tempDoc.name}</p>
                         <p style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{statusMsg}</p>
                       </div>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
-                        <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>📄 {tempDoc.name}</p>
+                        <p style={{ fontSize: 20, color: DESIGN_TEXT, fontWeight: 300, letterSpacing: "0.02em" }}>📄 {tempDoc.name}</p>
                         {tempDocIndexing ? (
                           <p style={{ fontSize: 12, color: "#9a9088", display: "flex", alignItems: "center", gap: 6 }}>
                             <Spinner size={11} /> Indexing document — you can ask a question while this runs…
                           </p>
                         ) : tempDocIndex ? (
-                          <p style={{ fontSize: 12, color: AD_GREEN }}>✓ Indexed — ready to query</p>
+                          <p style={{ fontSize: 12, color: VAULT_FULL }}>✓ Indexed — ready to query</p>
                         ) : (
                           <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Ask a question about this document</p>
                         )}
                       </div>
                     )}
                   </div>
-                  <div style={{ padding: "16px 32px 20px", borderTop: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0 }}>
+                  <div style={{ padding: "16px 32px 20px", borderTop: "1px solid #e4e4e8", background: "#ffffff", flexShrink: 0 }}>
                     <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
                       <textarea ref={tempDocTextareaRef} value={question} onChange={e => setQuestion(e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
                         placeholder="Ask a question about this document…"
                         disabled={isRunning} rows={2} className="arc-input"
-                        style={{ flex: 1, border: "1px solid #ddd8d0", borderRight: "none", padding: "12px 16px", color: ARC_NAVY, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#faf8f5" : "#ffffff", letterSpacing: "0.01em" }} />
+                        style={{ flex: 1, border: "1px solid #e4e4e8", borderRight: "none", padding: "12px 16px", color: DESIGN_TEXT, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#f8f8fa" : "#ffffff", letterSpacing: "0.01em" }} />
                       <button className="btn" onClick={() => askQuestion()} disabled={isRunning || !question.trim()}
-                        style={{ background: isRunning || !question.trim() ? "#f0ede8" : ARC_NAVY, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                        style={{ background: isRunning || !question.trim() ? DESIGN_GROUND : VAULT_FULL, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#e4e4e8" : VAULT_FULL}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                         {isRunning ? <Spinner size={14} /> : "Search"}
                       </button>
                     </div>
@@ -1443,14 +1458,14 @@ export default function App() {
                 </div>
               ) : (
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                  <p style={{ fontSize: 20, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Select a vault</p>
+                  <p style={{ fontSize: 20, color: DESIGN_TEXT, fontWeight: 300, letterSpacing: "0.02em" }}>Select a vault</p>
                   <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em" }}>Upload documents and query building regulations</p>
                 </div>
               )
             ) : (
               <>
                 {/* Vault header */}
-                <div style={{ borderBottom: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
+                <div style={{ borderBottom: `1px solid #e4e4e8`, background: "#ffffff", flexShrink: 0 }}>
                   <div style={{ padding: "20px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div>
                       {parentMaster && (
@@ -1458,30 +1473,30 @@ export default function App() {
                           📁 {parentMaster.name}
                         </div>
                       )}
-                      <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>{vault.name}</h1>
+                      <h1 style={{ fontSize: 22, fontWeight: 300, color: DESIGN_TEXT, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>{vault.name}</h1>
                       <p style={{ fontSize: 11, color: "#9a9088", marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
                         {pdfs.length} document{pdfs.length !== 1 ? "s" : ""} &nbsp;·&nbsp;
                         {vaultIndex
-                          ? <span style={{ color: AD_GREEN, fontWeight: 600 }}>Indexed</span>
+                          ? <span style={{ color: VAULT_FULL, fontWeight: 600 }}>Indexed</span>
                           : <span style={{ color: ARC_TERRACOTTA }}>Not indexed</span>}
                       </p>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                       {parentMaster && (
-                        <div style={{ display: "flex", border: `1px solid ${ARC_STONE}`, overflow: "hidden" }}>
+                        <div style={{ display: "flex", border: `1px solid #e4e4e8`, overflow: "hidden" }}>
                           <button className="btn" onClick={() => setQueryScope("single")}
-                            style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "single" ? ARC_NAVY : "transparent", color: queryScope === "single" ? "#fff" : "#9a9088", border: "none" }}>
+                            style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "single" ? DESIGN_SHELL : "transparent", color: queryScope === "single" ? "#fff" : "#9a9088", border: "none" }}>
                             This vault
                           </button>
                           <button className="btn" onClick={() => setQueryScope("all")}
-                            style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "all" ? ARC_NAVY : "transparent", color: queryScope === "all" ? "#fff" : "#9a9088", border: "none", borderLeft: `1px solid ${ARC_STONE}` }}>
+                            style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: queryScope === "all" ? DESIGN_SHELL : "transparent", color: queryScope === "all" ? "#fff" : "#9a9088", border: "none", borderLeft: `1px solid #e4e4e8` }}>
                             All in {parentMaster.name}
                           </button>
                         </div>
                       )}
                       {pdfs.length > 0 && isAdmin && (
                         <button className="btn" onClick={indexVault} disabled={isRunning}
-                          style={{ background: vaultIndex ? "transparent" : ARC_NAVY, color: vaultIndex ? ARC_NAVY : "#ffffff", border: `1px solid ${ARC_NAVY}`, padding: "8px 20px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                          style={{ background: vaultIndex ? "transparent" : VAULT_FULL, color: vaultIndex ? VAULT_FULL : "#ffffff", border: `1px solid ${VAULT_FULL}`, padding: "8px 20px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 8, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                           {stage === "indexing" ? <><Spinner size={12} /> Indexing…</> : vaultIndex ? "Re-index" : "Index Vault"}
                         </button>
                       )}
@@ -1492,13 +1507,13 @@ export default function App() {
                 <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
                   {/* PDF panel */}
-                  <div style={{ width: 220, borderRight: "1px solid #e8e0d5", background: "#faf8f5", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+                  <div style={{ width: 220, borderRight: "1px solid #e4e4e8", background: DESIGN_GROUND, display: "flex", flexDirection: "column", flexShrink: 0 }}>
                     {isAdmin && (
                       <div onDragOver={e => { e.preventDefault(); setDragOver(true); }} onDragLeave={() => setDragOver(false)} onDrop={onDrop}
                         onClick={() => fileInputRef.current.click()}
-                        style={{ margin: 12, border: `1px dashed ${dragOver ? AD_GREEN : "#ccc"}`, padding: "14px 10px", textAlign: "center", cursor: "pointer", background: dragOver ? "#f0f5f6" : "transparent" }}>
+                        style={{ margin: 12, border: `1px dashed ${dragOver ? VAULT_FULL : "#e4e4e8"}`, padding: "14px 10px", textAlign: "center", cursor: "pointer", background: dragOver ? "#f0f5f6" : "transparent" }}>
                         {uploadingPdf ? (
-                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: AD_GREEN, fontSize: 12 }}><Spinner size={12} /> Uploading…</div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, color: VAULT_FULL, fontSize: 12 }}><Spinner size={12} /> Uploading…</div>
                         ) : (
                           <>
                             <div style={{ fontSize: 18, marginBottom: 4, opacity: 0.4 }}>📄</div>
@@ -1511,24 +1526,24 @@ export default function App() {
 
                     <div style={{ flex: 1, overflowY: "auto" }}>
                       {pdfs.length > 0 && (
-                        <div style={{ padding: "4px 12px 4px", fontSize: 9, color: "#b0a8a0", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", gap: 12, borderBottom: "1px solid #eae5df" }}>
-                          <span style={{ color: AD_GREEN }}>● indexed</span>
+                        <div style={{ padding: "4px 12px 4px", fontSize: 9, color: "#b0a8a0", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", display: "flex", gap: 12, borderBottom: "1px solid #e4e4e8" }}>
+                          <span style={{ color: VAULT_FULL }}>● indexed</span>
                           <span style={{ color: "#c0b8b0" }}>○ pending</span>
                         </div>
                       )}
                       {pdfs.map(pdf => {
                         const isIndexed = vaultIndex?.documents?.some(d => d.name === pdf.name);
                         return (
-                          <div key={pdf.id} style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid #eae5df" }}>
-                            <span style={{ fontSize: 8, color: isIndexed ? AD_GREEN : "#c0b8b0", flexShrink: 0 }}>{isIndexed ? "●" : "○"}</span>
+                          <div key={pdf.id} style={{ padding: "8px 12px", display: "flex", alignItems: "center", gap: 6, borderBottom: "1px solid #e4e4e8" }}>
+                            <span style={{ fontSize: 8, color: isIndexed ? VAULT_FULL : "#c0b8b0", flexShrink: 0 }}>{isIndexed ? "●" : "○"}</span>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 11, color: ARC_NAVY, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.01em" }}>{pdf.name}</div>
+                              <div style={{ fontSize: 11, color: DESIGN_TEXT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", letterSpacing: "0.01em" }}>{pdf.name}</div>
                               <div style={{ fontSize: 9, color: "#b0a8a0", marginTop: 1 }}>{(pdf.size / 1024).toFixed(0)} KB</div>
                             </div>
                             {isAdmin && <>
                               <button className="btn" onClick={() => indexSinglePdf(pdf)} disabled={isRunning} title="Re-index"
                                 style={{ background: "none", color: "#b0a8a0", fontSize: 11, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
-                                onMouseEnter={e => e.target.style.color = AD_GREEN}
+                                onMouseEnter={e => e.target.style.color = VAULT_FULL}
                                 onMouseLeave={e => e.target.style.color = "#b0a8a0"}>↻</button>
                               <button className="btn" onClick={() => deletePdf(pdf)} disabled={isRunning} title="Remove"
                                 style={{ background: "none", color: "#b0a8a0", fontSize: 14, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
@@ -1543,19 +1558,19 @@ export default function App() {
                   </div>
 
                   {/* Q&A panel */}
-                  <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
 
                     {isRunning && (
-                      <div style={{ padding: "14px 32px", borderBottom: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0, animation: "fadeIn 0.3s ease" }}>
-                        <div style={{ fontSize: 12, color: ARC_NAVY, marginBottom: 10, display: "flex", alignItems: "center", gap: 8, fontWeight: 500, letterSpacing: "0.02em" }}><Spinner size={12} /> {statusMsg}</div>
-                        <ProgressBar label="Pass 1 · Index scoring" pct={progress.select} color={AD_GREEN} />
+                      <div style={{ padding: "14px 32px", borderBottom: "1px solid #e4e4e8", background: "#ffffff", flexShrink: 0, animation: "fadeIn 0.3s ease" }}>
+                        <div style={{ fontSize: 12, color: DESIGN_TEXT, marginBottom: 10, display: "flex", alignItems: "center", gap: 8, fontWeight: 500, letterSpacing: "0.02em" }}><Spinner size={12} /> {statusMsg}</div>
+                        <ProgressBar label="Pass 1 · Index scoring" pct={progress.select} color={VAULT_FULL} />
                         <ProgressBar label="Pass 2 · Page extraction" pct={progress.read} color={ARC_TERRACOTTA} />
-                        <ProgressBar label="Pass 3 · Answer synthesis" pct={progress.answer} color={ARC_NAVY} />
+                        <ProgressBar label="Pass 3 · Answer synthesis" pct={progress.answer} color={DESIGN_SHELL} />
                       </div>
                     )}
 
                     {!isRunning && statusMsg && (
-                      <div style={{ padding: "8px 24px", borderBottom: "1px solid #e8e0d5", background: "#ffffff", fontSize: 12, color: "#505a5f", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, gap: 12 }}>
+                      <div style={{ padding: "8px 24px", borderBottom: "1px solid #e4e4e8", background: "#ffffff", fontSize: 12, color: "#505a5f", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, gap: 12 }}>
                         <span style={{ color: timedOut ? ARC_TERRACOTTA : "#505a5f" }}>{statusMsg}</span>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                           {timedOut && lastQuestion && (
@@ -1574,7 +1589,7 @@ export default function App() {
                     )}
 
                     {queryScope === "all" && parentMaster && (
-                      <div style={{ padding: "8px 28px", background: "#f0f5f6", borderBottom: `1px solid ${AD_GREEN_MID}`, fontSize: 11, color: AD_GREEN, display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ padding: "8px 28px", background: DESIGN_GROUND, borderBottom: `1px solid #e4e4e8`, fontSize: 11, color: VAULT_FULL, display: "flex", alignItems: "center", gap: 8 }}>
                         <span>🔍</span>
                         <span>Searching across all {(parentMaster.subVaults || []).length} vaults in <strong>{parentMaster.name}</strong></span>
                       </div>
@@ -1586,8 +1601,8 @@ export default function App() {
                         <div style={{ marginBottom: 20 }}>
                           {vaultHistory.map((h, i) => (
                             <div key={i} style={{ marginBottom: 8 }}>
-                              <div style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                                <span style={{ color: "${AD_GREEN_GRASS}", fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                              <div style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #e4e4e8", padding: "8px 14px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                                <span style={{ color: VAULT_FULL, fontWeight: 700, flexShrink: 0 }}>Q:</span>
                                 <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{h.question}</span>
                                 <span style={{ fontSize: 11, color: "#6f777b", flexShrink: 0 }}>{new Date(h.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
                               </div>
@@ -1598,8 +1613,8 @@ export default function App() {
 
                       {isRunning && lastQuestion && (
                         <div style={{ marginBottom: 16 }}>
-                          <div style={{ fontSize: 13, color: "#505a5f", background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, padding: "8px 14px", display: "flex", alignItems: "center", gap: 12 }}>
-                            <span style={{ color: AD_GREEN, fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                          <div style={{ fontSize: 13, color: "#505a5f", background: DESIGN_GROUND, border: `1px solid #e4e4e8`, padding: "8px 14px", display: "flex", alignItems: "center", gap: 12 }}>
+                            <span style={{ color: VAULT_FULL, fontWeight: 700, flexShrink: 0 }}>Q:</span>
                             <span style={{ flex: 1 }}>{lastQuestion}</span>
                             <Spinner size={11} />
                           </div>
@@ -1608,7 +1623,7 @@ export default function App() {
 
                       {answer && (
                         <div style={{ animation: "fadeIn 0.4s ease" }}>
-                          <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: "4px solid ${AD_GREEN_GRASS}", padding: "24px 28px" }}>
+                          <div style={{ background: "#ffffff", border: "1px solid #e4e4e8", borderTop: `4px solid ${VAULT_FULL}`, padding: "24px 28px" }}>
                             <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                               Response — {answerVaultName || (queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name)}
                             </p>
@@ -1617,14 +1632,14 @@ export default function App() {
 
                           {/* ── Follow-up: ask another vault ── */}
                           {!isRunning && allQueryableVaults.length > 1 && (
-                            <div style={{ marginTop: 12, background: "#f5f3f0", border: "1px solid #ddd8d0", padding: "12px 16px" }}>
+                            <div style={{ marginTop: 12, background: DESIGN_GROUND, border: "1px solid #e4e4e8", padding: "12px 16px" }}>
                               <p style={{ fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>Ask another vault</p>
                               <div style={{ display: "flex", gap: 8, alignItems: "stretch", flexWrap: "wrap" }}>
                                 <select
                                   value={followUpVaultId}
                                   onChange={e => setFollowUpVaultId(e.target.value)}
                                   className="arc-input"
-                                  style={{ border: "1px solid #ddd8d0", padding: "8px 10px", fontSize: 12, color: ARC_NAVY, background: "#ffffff", fontFamily: "Inter, Arial, sans-serif", minWidth: 180, flexShrink: 0 }}>
+                                  style={{ border: "1px solid #e4e4e8", padding: "8px 10px", fontSize: 12, color: DESIGN_TEXT, background: "#f8f8fa", fontFamily: "Inter, Arial, sans-serif", minWidth: 180, flexShrink: 0 }}>
                                   <option value="">— Select vault —</option>
                                   {allQueryableVaults.map(v => (
                                     <option key={v.id} value={v.id}>{v.name}</option>
@@ -1636,11 +1651,11 @@ export default function App() {
                                   onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && followUpVaultId && followUpQuestion.trim()) { e.preventDefault(); askQuestion(followUpVaultId, followUpQuestion); } }}
                                   placeholder="Ask this vault the same or a different question…"
                                   rows={2} className="arc-input"
-                                  style={{ flex: 1, border: "1px solid #ddd8d0", borderRight: "none", padding: "8px 12px", color: ARC_NAVY, fontSize: 12, outline: "none", resize: "none", lineHeight: 1.5, fontFamily: "Inter, Arial, sans-serif", background: "#ffffff", letterSpacing: "0.01em", minWidth: 200 }} />
+                                  style={{ flex: 1, border: "1px solid #e4e4e8", borderRight: "none", padding: "8px 12px", color: DESIGN_TEXT, fontSize: 12, outline: "none", resize: "none", lineHeight: 1.5, fontFamily: "Inter, Arial, sans-serif", background: "#f8f8fa", letterSpacing: "0.01em", minWidth: 200 }} />
                                 <button className="btn"
                                   onClick={() => { if (followUpVaultId && followUpQuestion.trim()) askQuestion(followUpVaultId, followUpQuestion); }}
                                   disabled={!followUpVaultId || !followUpQuestion.trim()}
-                                  style={{ background: !followUpVaultId || !followUpQuestion.trim() ? "#f0ede8" : ARC_NAVY, color: !followUpVaultId || !followUpQuestion.trim() ? "#9a9088" : "#ffffff", padding: "0 18px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${!followUpVaultId || !followUpQuestion.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 70, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                                  style={{ background: !followUpVaultId || !followUpQuestion.trim() ? DESIGN_GROUND : VAULT_FULL, color: !followUpVaultId || !followUpQuestion.trim() ? "#9a9088" : "#ffffff", padding: "0 18px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${!followUpVaultId || !followUpQuestion.trim() ? "#e4e4e8" : VAULT_FULL}`, minWidth: 70, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                                   Ask
                                 </button>
                               </div>
@@ -1651,37 +1666,37 @@ export default function App() {
 
                       {!answer && !isRunning && vaultIndex && vaultHistory.length === 0 && (
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10 }}>
-                          <div style={{ width: 32, height: 2, background: ARC_TERRACOTTA }} />
-                          <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Ask a question</p>
+                          <div style={{ width: 32, height: 2, background: VAULT_FULL }} />
+                          <p style={{ fontSize: 16, color: DESIGN_TEXT, fontWeight: 300, letterSpacing: "0.02em" }}>Ask a question</p>
                           <p style={{ fontSize: 11, color: "#9a9088", letterSpacing: "0.03em" }}>AI selects the most relevant pages before answering</p>
                         </div>
                       )}
 
                       {!vaultIndex && !isRunning && pdfs.length > 0 && (
                         <div style={{ border: `1px solid ${ARC_TERRACOTTA}`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 20px", margin: "24px 0", background: "#fdf5f3" }}>
-                          <p style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Vault not indexed</p>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 4 }}>Vault not indexed</p>
                           <p style={{ fontSize: 12, color: "#9a9088" }}>Click Index Vault to prepare documents for searching.</p>
                         </div>
                       )}
 
                       {pdfs.length === 0 && !isRunning && (
-                        <div style={{ border: `1px solid #b8d4da`, borderLeft: `3px solid ${AD_GREEN}`, padding: "14px 20px", margin: "24px 0", background: "#f0f5f6" }}>
-                          <p style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>No documents uploaded</p>
+                        <div style={{ border: `1px solid #e4e4e8`, borderLeft: `3px solid ${VAULT_FULL}`, padding: "14px 20px", margin: "24px 0", background: DESIGN_GROUND }}>
+                          <p style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 4 }}>No documents uploaded</p>
                           <p style={{ fontSize: 12, color: "#9a9088" }}>Use the panel on the left to upload PDF documents to this vault.</p>
                         </div>
                       )}
                     </div>
 
                     {(vaultIndex || (queryScope === "all" && parentMaster) || tempDoc) && (
-                      <div style={{ padding: "16px 32px 20px", borderTop: `1px solid #e8e0d5`, background: "#ffffff", flexShrink: 0 }}>
+                      <div style={{ padding: "16px 32px 20px", borderTop: `1px solid #e4e4e8`, background: "#ffffff", flexShrink: 0 }}>
                         <div style={{ display: "flex", gap: 0, alignItems: "stretch" }}>
                           <textarea value={question} onChange={e => setQuestion(e.target.value)}
                             onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askQuestion(); } }}
                             placeholder="Ask a question about your building regulations documents…"
                             disabled={isRunning} rows={2} className="arc-input"
-                            style={{ flex: 1, border: `1px solid #ddd8d0`, borderRight: "none", padding: "12px 16px", color: ARC_NAVY, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#faf8f5" : "#ffffff", letterSpacing: "0.01em" }} />
+                            style={{ flex: 1, border: `1px solid #e4e4e8`, borderRight: "none", padding: "12px 16px", color: DESIGN_TEXT, fontSize: 13, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", opacity: isRunning ? 0.5 : 1, background: isRunning ? "#f8f8fa" : "#ffffff", letterSpacing: "0.01em" }} />
                           <button className="btn" onClick={() => askQuestion()} disabled={isRunning || !question.trim()}
-                            style={{ background: isRunning || !question.trim() ? "#f0ede8" : ARC_NAVY, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#ddd8d0" : ARC_NAVY}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                            style={{ background: isRunning || !question.trim() ? DESIGN_GROUND : VAULT_FULL, color: isRunning || !question.trim() ? "#9a9088" : "#ffffff", padding: "0 24px", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", justifyContent: "center", border: `1px solid ${isRunning || !question.trim() ? "#e4e4e8" : VAULT_FULL}`, minWidth: 90, letterSpacing: "0.08em", textTransform: "uppercase" }}>
                             {isRunning ? <Spinner size={14} /> : "Search"}
                           </button>
                         </div>
@@ -1694,7 +1709,8 @@ export default function App() {
             )}
           </div>
 
-        </> /* end vault section */}
+          </div>{/* end inner flex row */}
+        </div> /* end vault column wrapper */}
 
       </div>
 
