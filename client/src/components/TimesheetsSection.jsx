@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api } from "../api/client";
-import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
+import { DESIGN_GROUND, DESIGN_TEXT, TIMESHEETS_FULL, COMPARE_FULL } from "../constants";
 import TimesheetHistory from "./TimesheetHistory";
 import TimesheetReport from "./TimesheetReport";
 import FeeReview from "./FeeReview";
@@ -70,15 +70,15 @@ function ConfirmDialog({ title, message, confirmLabel = "Submit anyway", onConfi
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9998 }}>
       <div style={{ background: "#fff", padding: 28, maxWidth: 420, width: "90%", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
-        <h3 style={{ margin: "0 0 10px", fontSize: 16, fontWeight: 600, color: ARC_NAVY }}>{title}</h3>
+        <h3 style={{ margin: "0 0 10px", fontSize: 16, fontWeight: 600, color: DESIGN_TEXT }}>{title}</h3>
         <p style={{ margin: "0 0 22px", fontSize: 13, color: "#4a5a6a", lineHeight: 1.6 }}>{message}</p>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
           <button onClick={onCancel}
-            style={{ background: "#fff", border: "1px solid #ccc", color: "#666", padding: "7px 18px", fontSize: 13, cursor: "pointer" }}>
+            style={{ background: "#fff", border: "1px solid #e4e4e8", color: "#666", padding: "7px 18px", fontSize: 13, cursor: "pointer" }}>
             Cancel
           </button>
           <button onClick={onConfirm}
-            style={{ background: ARC_TERRACOTTA, border: "none", color: "#fff", padding: "7px 18px", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
+            style={{ background: COMPARE_FULL, border: "none", color: "#fff", padding: "7px 18px", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
             {confirmLabel}
           </button>
         </div>
@@ -108,7 +108,7 @@ function StatusBadge({ status }) {
 function selStyle(locked) {
   return {
     padding: "5px 8px", fontSize: 13, border: "1px solid #d0d8de",
-    background: locked ? "#f5f5f5" : "#fff", color: ARC_NAVY,
+    background: locked ? "#f5f5f5" : "#fff", color: DESIGN_TEXT,
     fontFamily: "Inter, Arial, sans-serif", cursor: locked ? "default" : "pointer",
   };
 }
@@ -242,8 +242,8 @@ function DayCard({ dayLabel, date, entries, projects, locked, onAdd, onUpdate, o
 
   const quickFillStyle = (active) => ({
     fontSize: 11, padding: "2px 10px", cursor: locked || entries.length > 1 ? "default" : "pointer",
-    border: `1px solid ${active ? AD_GREEN : "#c0ccd4"}`,
-    background: active ? AD_GREEN : "#fff",
+    border: `1px solid ${active ? TIMESHEETS_FULL : "#c0ccd4"}`,
+    background: active ? TIMESHEETS_FULL : "#fff",
     color: active ? "#fff" : "#6a8a9a",
     opacity: (locked || entries.length > 1) ? 0.4 : 1,
     fontWeight: active ? 600 : 400,
@@ -253,8 +253,8 @@ function DayCard({ dayLabel, date, entries, projects, locked, onAdd, onUpdate, o
   return (
     <div style={{ border: "1px solid #dde4e8", background: "#fff", marginBottom: 10 }}>
       {/* Day header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", background: ARC_STONE, borderBottom: (hasReal || showDraft) ? "1px solid #dde4e8" : "none" }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, flex: 1 }}>{dayLabel}</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", background: DESIGN_GROUND, borderBottom: (hasReal || showDraft) ? "1px solid #dde4e8" : "none" }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, flex: 1 }}>{dayLabel}</span>
         {/* Quick-fill buttons */}
         {!locked && (
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -269,7 +269,7 @@ function DayCard({ dayLabel, date, entries, projects, locked, onAdd, onUpdate, o
             </button>
           </div>
         )}
-        {hasReal && <span style={{ fontSize: 12, color: AD_GREEN, fontWeight: 500, minWidth: 40, textAlign: "right" }}>{formatMins(dayTotal)}</span>}
+        {hasReal && <span style={{ fontSize: 12, color: TIMESHEETS_FULL, fontWeight: 500, minWidth: 40, textAlign: "right" }}>{formatMins(dayTotal)}</span>}
       </div>
 
       {/* Entries */}
@@ -289,7 +289,7 @@ function DayCard({ dayLabel, date, entries, projects, locked, onAdd, onUpdate, o
       {!locked && hasReal && (
         <div style={{ padding: "8px 14px" }}>
           <button onClick={() => onAdd(date)}
-            style={{ background: "none", border: `1px dashed ${AD_GREEN}`, color: AD_GREEN, fontSize: 12, padding: "4px 12px", cursor: "pointer" }}>
+            style={{ background: "none", border: `1px dashed ${TIMESHEETS_FULL}`, color: TIMESHEETS_FULL, fontSize: 12, padding: "4px 12px", cursor: "pointer" }}>
             + Add
           </button>
         </div>
@@ -355,13 +355,13 @@ function AdminPanel({ projects }) {
     showToast("Timesheet approved.");
   };
 
-  const ss = { padding: "5px 10px", fontSize: 12, border: "1px solid #d0d8de", background: "#fff", color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" };
+  const ss = { padding: "5px 10px", fontSize: 12, border: "1px solid #d0d8de", background: "#fff", color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" };
 
   return (
     <div style={{ padding: "0 32px 32px" }}>
-      {toast && <div style={{ position: "fixed", bottom: 24, right: 24, background: ARC_NAVY, color: "#fff", padding: "10px 20px", fontSize: 13, zIndex: 9999 }}>{toast}</div>}
+      {toast && <div style={{ position: "fixed", bottom: 24, right: 24, background: DESIGN_TEXT, color: "#fff", padding: "10px 20px", fontSize: 13, zIndex: 9999 }}>{toast}</div>}
 
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 20, padding: "14px 16px", background: ARC_STONE, border: "1px solid #dde4e8" }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 20, padding: "14px 16px", background: DESIGN_GROUND, border: "1px solid #dde4e8" }}>
         <span style={{ fontSize: 12, color: "#6a8a9a", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Filter</span>
         <select value={filterUser} onChange={e => setFilterUser(e.target.value)} style={ss}>
           <option value="">All staff</option>
@@ -372,7 +372,7 @@ function AdminPanel({ projects }) {
         <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} style={ss} />
         {(filterUser || filterFrom || filterTo) && (
           <button onClick={() => { setFilterUser(""); setFilterFrom(""); setFilterTo(""); }}
-            style={{ background: "none", border: "none", color: ARC_TERRACOTTA, fontSize: 12, cursor: "pointer" }}>Clear</button>
+            style={{ background: "none", border: "none", color: COMPARE_FULL, fontSize: 12, cursor: "pointer" }}>Clear</button>
         )}
       </div>
 
@@ -392,17 +392,17 @@ function AdminPanel({ projects }) {
         return (
           <div key={key} style={{ border: "1px solid #dde4e8", marginBottom: 8, background: "#fff" }}>
             <div onClick={() => toggleExpand(key, sub.user_id, sub.week_start)}
-              style={{ display: "flex", alignItems: "center", gap: 16, padding: "10px 16px", cursor: "pointer", background: isOpen ? ARC_STONE : "#fff" }}>
-              <span style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 600, minWidth: 200 }}>{userEmail(sub.user_id)}</span>
+              style={{ display: "flex", alignItems: "center", gap: 16, padding: "10px 16px", cursor: "pointer", background: isOpen ? DESIGN_GROUND : "#fff" }}>
+              <span style={{ fontSize: 13, color: DESIGN_TEXT, fontWeight: 600, minWidth: 200 }}>{userEmail(sub.user_id)}</span>
               <span style={{ fontSize: 13, color: "#6a8a9a", minWidth: 180 }}>{weekStr}</span>
               {isOpen && entries.length > 0 && (
-                <span style={{ fontSize: 12, color: AD_GREEN, fontWeight: 500 }}>{formatMins(wTotal)}</span>
+                <span style={{ fontSize: 12, color: TIMESHEETS_FULL, fontWeight: 500 }}>{formatMins(wTotal)}</span>
               )}
               <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
                 <StatusBadge status={sub.status} />
                 {sub.status === "submitted" && (
                   <button onClick={e => { e.stopPropagation(); handleApprove(sub); }}
-                    style={{ background: AD_GREEN, color: "#fff", border: "none", padding: "4px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+                    style={{ background: TIMESHEETS_FULL, color: "#fff", border: "none", padding: "4px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
                     Approve
                   </button>
                 )}
@@ -424,7 +424,7 @@ function AdminPanel({ projects }) {
                         <span style={{ fontSize: 12, fontWeight: 600, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                           {formatDayLabel(new Date(sub.week_start), di)}
                         </span>
-                        <span style={{ fontSize: 12, color: AD_GREEN }}>{formatMins(dTotal)}</span>
+                        <span style={{ fontSize: 12, color: TIMESHEETS_FULL }}>{formatMins(dTotal)}</span>
                       </div>
                       {dEntries.map(e => (
                         <EntryRow key={e.id} entry={e} projects={projects} locked={false}
@@ -596,9 +596,13 @@ export default function TimesheetsSection({ isAdmin }) {
   if (subView === "fee")     return <FeeReview        onBack={() => setSubView(null)} />;
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#f5f7f8" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
+      <div style={{ background: TIMESHEETS_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+        <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Timesheets</span>
+        <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— Practice Management</span>
+      </div>
       {toast && (
-        <div style={{ position: "fixed", bottom: 24, right: 24, background: ARC_NAVY, color: "#fff", padding: "10px 20px", fontSize: 13, zIndex: 9999 }}>{toast}</div>
+        <div style={{ position: "fixed", bottom: 24, right: 24, background: DESIGN_TEXT, color: "#fff", padding: "10px 20px", fontSize: 13, zIndex: 9999 }}>{toast}</div>
       )}
       {dialog && (
         <ConfirmDialog
@@ -612,28 +616,28 @@ export default function TimesheetsSection({ isAdmin }) {
       {/* Header */}
       <div style={{ background: "#fff", borderBottom: "1px solid #dde4e8", padding: "16px 32px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.02em" }}>Timesheets</h2>
+          <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: DESIGN_TEXT, letterSpacing: "0.02em" }}>Timesheets</h2>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             {/* View History button — visible to all users */}
             <button onClick={() => setSubView("history")}
-              style={{ ...btnBase, background: "#fff", color: AD_GREEN, border: `1px solid ${AD_GREEN}`, padding: "5px 16px", fontSize: 12 }}>
+              style={{ ...btnBase, background: "#fff", color: TIMESHEETS_FULL, border: `1px solid ${TIMESHEETS_FULL}`, padding: "5px 16px", fontSize: 12 }}>
               View History
             </button>
             {/* Admin: Reports button + My/Admin toggle */}
             {isAdmin && (
               <>
                 <button onClick={() => setSubView("report")}
-                  style={{ ...btnBase, background: ARC_NAVY, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
+                  style={{ ...btnBase, background: DESIGN_TEXT, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
                   Reports & Analytics
                 </button>
                 <button onClick={() => setSubView("fee")}
-                  style={{ ...btnBase, background: ARC_TERRACOTTA, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
+                  style={{ ...btnBase, background: COMPARE_FULL, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
                   Fee Review
                 </button>
-                <div style={{ display: "flex", border: `1px solid ${AD_GREEN}` }}>
+                <div style={{ display: "flex", border: `1px solid ${TIMESHEETS_FULL}` }}>
                   {["mine", "admin"].map(v => (
                     <button key={v} onClick={() => setView(v)}
-                      style={{ ...btnBase, background: view === v ? AD_GREEN : "#fff", color: view === v ? "#fff" : AD_GREEN, padding: "5px 20px" }}>
+                      style={{ ...btnBase, background: view === v ? TIMESHEETS_FULL : "#fff", color: view === v ? "#fff" : TIMESHEETS_FULL, padding: "5px 20px" }}>
                       {v === "mine" ? "My Timesheets" : "Admin Review"}
                     </button>
                   ))}
@@ -648,7 +652,7 @@ export default function TimesheetsSection({ isAdmin }) {
         {view === "admin" ? (
           <>
             <div style={{ padding: "24px 32px 8px" }}>
-              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: ARC_NAVY, letterSpacing: "0.04em", textTransform: "uppercase" }}>Staff Timesheets</h3>
+              <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: DESIGN_TEXT, letterSpacing: "0.04em", textTransform: "uppercase" }}>Staff Timesheets</h3>
               <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6a8a9a" }}>Review and approve submitted timesheets. Click a row to expand and amend entries.</p>
             </div>
             <AdminPanel projects={projects} />
@@ -658,9 +662,9 @@ export default function TimesheetsSection({ isAdmin }) {
 
             {/* Week navigator */}
             <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
-              <button onClick={prevWeek} style={{ ...btnBase, background: "#fff", color: ARC_NAVY, border: "1px solid #dde4e8", padding: "5px 12px", fontSize: 16 }}>‹</button>
-              <span style={{ fontSize: 15, fontWeight: 500, color: ARC_NAVY, minWidth: 220, textAlign: "center" }}>{formatWeekLabel(monday)}</span>
-              <button onClick={nextWeek} style={{ ...btnBase, background: "#fff", color: ARC_NAVY, border: "1px solid #dde4e8", padding: "5px 12px", fontSize: 16 }}>›</button>
+              <button onClick={prevWeek} style={{ ...btnBase, background: "#fff", color: DESIGN_TEXT, border: "1px solid #dde4e8", padding: "5px 12px", fontSize: 16 }}>‹</button>
+              <span style={{ fontSize: 15, fontWeight: 500, color: DESIGN_TEXT, minWidth: 220, textAlign: "center" }}>{formatWeekLabel(monday)}</span>
+              <button onClick={nextWeek} style={{ ...btnBase, background: "#fff", color: DESIGN_TEXT, border: "1px solid #dde4e8", padding: "5px 12px", fontSize: 16 }}>›</button>
               <StatusBadge status={submission?.status || "draft"} />
             </div>
 
@@ -689,14 +693,14 @@ export default function TimesheetsSection({ isAdmin }) {
                     {fillOpen && (
                       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px 12px", borderTop: "1px solid #eef2f4", flexWrap: "wrap" }}>
                         <select value={fillProject} onChange={e => setFillProject(e.target.value)}
-                          style={{ flex: 1, minWidth: 220, padding: "6px 8px", fontSize: 13, border: "1px solid #d0d8de", background: "#fff", color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>
+                          style={{ flex: 1, minWidth: 220, padding: "6px 8px", fontSize: 13, border: "1px solid #d0d8de", background: "#fff", color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" }}>
                           <ProjectOptions projects={projects} />
                         </select>
                         <span style={{ fontSize: 12, color: "#8a9aa8" }}>Full day (7h 30m) on empty days only</span>
                         <button
                           onClick={handleFillWeek}
                           disabled={!fillProject || filling}
-                          style={{ ...btnBase, background: fillProject ? AD_GREEN : "#ccc", color: "#fff", padding: "6px 18px", fontSize: 12, cursor: fillProject ? "pointer" : "default" }}>
+                          style={{ ...btnBase, background: fillProject ? TIMESHEETS_FULL : "#ccc", color: "#fff", padding: "6px 18px", fontSize: 12, cursor: fillProject ? "pointer" : "default" }}>
                           {filling ? "Applying…" : "Apply to all days"}
                         </button>
                       </div>
@@ -727,11 +731,11 @@ export default function TimesheetsSection({ isAdmin }) {
                 {/* Footer */}
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 16, padding: "14px 16px", background: "#fff", border: "1px solid #dde4e8" }}>
                   <div>
-                    <span style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 600 }}>
-                      Week total: <span style={{ color: underMin && !isLocked ? ARC_TERRACOTTA : AD_GREEN }}>{formatMins(weekTotal)}</span>
+                    <span style={{ fontSize: 14, color: DESIGN_TEXT, fontWeight: 600 }}>
+                      Week total: <span style={{ color: underMin && !isLocked ? COMPARE_FULL : TIMESHEETS_FULL }}>{formatMins(weekTotal)}</span>
                     </span>
                     {underMin && !isLocked && (
-                      <span style={{ marginLeft: 12, fontSize: 12, color: ARC_TERRACOTTA }}>
+                      <span style={{ marginLeft: 12, fontSize: 12, color: COMPARE_FULL }}>
                         ⚠ Below 37.5h minimum
                       </span>
                     )}
@@ -739,7 +743,7 @@ export default function TimesheetsSection({ isAdmin }) {
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     {!isLocked && (
                       <button onClick={handleSubmitClick} disabled={submitting || entries.length === 0}
-                        style={{ ...btnBase, background: entries.length === 0 ? "#ccc" : AD_GREEN, color: "#fff", padding: "8px 24px", fontSize: 13, cursor: entries.length === 0 ? "default" : "pointer" }}>
+                        style={{ ...btnBase, background: entries.length === 0 ? "#ccc" : TIMESHEETS_FULL, color: "#fff", padding: "8px 24px", fontSize: 13, cursor: entries.length === 0 ? "default" : "pointer" }}>
                         {submitting ? "Submitting…" : "Submit for Approval"}
                       </button>
                     )}
@@ -747,7 +751,7 @@ export default function TimesheetsSection({ isAdmin }) {
                       <>
                         <span style={{ fontSize: 13, color: "#b07800" }}>Awaiting approval</span>
                         <button onClick={nextWeek}
-                          style={{ ...btnBase, background: "#fff", color: AD_GREEN, border: `1px solid ${AD_GREEN}`, padding: "6px 16px", fontSize: 12 }}>
+                          style={{ ...btnBase, background: "#fff", color: TIMESHEETS_FULL, border: `1px solid ${TIMESHEETS_FULL}`, padding: "6px 16px", fontSize: 12 }}>
                           Next week →
                         </button>
                       </>
@@ -756,7 +760,7 @@ export default function TimesheetsSection({ isAdmin }) {
                       <>
                         <span style={{ fontSize: 13, color: "#2e7d32", fontWeight: 600 }}>✓ Approved</span>
                         <button onClick={nextWeek}
-                          style={{ ...btnBase, background: "#fff", color: AD_GREEN, border: `1px solid ${AD_GREEN}`, padding: "6px 16px", fontSize: 12 }}>
+                          style={{ ...btnBase, background: "#fff", color: TIMESHEETS_FULL, border: `1px solid ${TIMESHEETS_FULL}`, padding: "6px 16px", fontSize: 12 }}>
                           Next week →
                         </button>
                       </>
