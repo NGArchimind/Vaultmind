@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { api, callClaude, fileToBase64 } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner, ProgressBar } from "./common/Spinner";
-import { AD_GREEN, AD_GREEN_MID, ARC_NAVY, ARC_TERRACOTTA, isBoilerplate } from "../constants";
+import { DESIGN_GROUND, DESIGN_TEXT, DESIGN_MUTED, COMPARE_FULL, isBoilerplate } from "../constants";
 
 export default function CompareSection({ vaults, isAdmin }) {
   const [docA, setDocA] = useState(null);
@@ -499,16 +499,16 @@ Use only the provided document pages. Do not speculate beyond what the documents
 
   const DropZone = ({ doc, setDoc, label, dragOver, setDragOver, inputRef }) => (
     <div style={{ flex: 1 }}>
-      <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
+      <div style={{ fontSize: 10, fontWeight: 600, color: DESIGN_MUTED, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>{label}</div>
       {doc ? (
-        <div style={{ border: `1px solid ${AD_GREEN}`, background: "#f0f5f6", padding: "20px 24px", display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ border: `1px solid ${COMPARE_FULL}`, background: DESIGN_GROUND, padding: "20px 24px", display: "flex", alignItems: "center", gap: 12 }}>
           <span style={{ fontSize: 24 }}>📄</span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</div>
-            <div style={{ fontSize: 11, color: AD_GREEN, marginTop: 2 }}>Ready</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{doc.name}</div>
+            <div style={{ fontSize: 11, color: COMPARE_FULL, marginTop: 2 }}>Ready</div>
           </div>
           <button className="btn" onClick={() => setDoc(null)}
-            style={{ background: "none", color: "#9a9088", fontSize: 18, padding: "0 4px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
+            style={{ background: "none", color: DESIGN_MUTED, fontSize: 18, padding: "0 4px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
         </div>
       ) : (
         <div
@@ -517,13 +517,13 @@ Use only the provided document pages. Do not speculate beyond what the documents
           onDrop={e => { e.preventDefault(); setDragOver(false); const f = e.dataTransfer.files[0]; if (f) loadDoc(f, setDoc); }}
           onClick={() => inputRef.current.click()}
           style={{
-            border: `2px dashed ${dragOver ? AD_GREEN : "#c8c0b8"}`,
+            border: `2px dashed ${dragOver ? COMPARE_FULL : "#c8c0b8"}`,
             padding: "40px 24px", textAlign: "center", cursor: "pointer",
-            background: dragOver ? "#f0f5f6" : "#faf8f5", transition: "all 0.2s",
+            background: dragOver ? DESIGN_GROUND : "#f8f8fa", transition: "all 0.2s",
           }}>
           <div style={{ fontSize: 32, marginBottom: 10, opacity: 0.4 }}>📄</div>
-          <p style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500, marginBottom: 4 }}>Drop PDF here</p>
-          <p style={{ fontSize: 11, color: "#9a9088" }}>or click to browse</p>
+          <p style={{ fontSize: 13, color: DESIGN_TEXT, fontWeight: 500, marginBottom: 4 }}>Drop PDF here</p>
+          <p style={{ fontSize: 11, color: DESIGN_MUTED }}>or click to browse</p>
           <input ref={inputRef} type="file" accept="application/pdf" style={{ display: "none" }}
             onChange={e => { if (e.target.files[0]) loadDoc(e.target.files[0], setDoc); }} />
         </div>
@@ -534,12 +534,16 @@ Use only the provided document pages. Do not speculate beyond what the documents
   const chatHistory = compareHistory.filter(h => !h.isInitial && h.role === "user");
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
+      <div style={{ background: COMPARE_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+        <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Data Sheet Compare</span>
+        <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— Document Intelligence</span>
+      </div>
 
       {/* Header */}
-      <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "20px 32px", flexShrink: 0 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>Compare</h1>
-        <p style={{ fontSize: 11, color: "#9a9088", marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+      <div style={{ background: "#ffffff", borderBottom: "1px solid #e4e4e8", padding: "20px 32px", flexShrink: 0 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 300, color: DESIGN_TEXT, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif" }}>Compare</h1>
+        <p style={{ fontSize: 11, color: DESIGN_MUTED, marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>
           Upload two documents to compare — then check against your vaults for compliance
         </p>
       </div>
@@ -559,7 +563,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
         {docA && docB && !compareAnswer && (
           <div style={{ marginBottom: 24 }}>
             <button className="btn" onClick={runComparison} disabled={compareRunning}
-              style={{ background: compareRunning ? "#c8c0b8" : ARC_NAVY, color: "#ffffff", padding: "12px 32px", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 10 }}>
+              style={{ background: compareRunning ? "#c8c0b8" : DESIGN_TEXT, color: "#ffffff", padding: "12px 32px", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 10 }}>
               {compareRunning ? <><Spinner size={14} /> Comparing…</> : "Compare Documents"}
             </button>
           </div>
@@ -578,7 +582,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
           <div style={{ marginBottom: 16 }}>
             {chatHistory.map((h, i) => (
               <div key={i} style={{ fontSize: 13, color: "#505a5f", background: "#ffffff", border: "1px solid #b1b4b6", padding: "8px 14px", marginBottom: 6, display: "flex", gap: 12, alignItems: "center" }}>
-                <span style={{ color: AD_GREEN, fontWeight: 700, flexShrink: 0 }}>Q:</span>
+                <span style={{ color: COMPARE_FULL, fontWeight: 700, flexShrink: 0 }}>Q:</span>
                 <span style={{ flex: 1 }}>{h.content}</span>
               </div>
             ))}
@@ -588,7 +592,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
         {/* Comparison answer */}
         {compareAnswer && (
           <div style={{ animation: "fadeIn 0.4s ease", marginBottom: 24 }}>
-            <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: `4px solid ${AD_GREEN}`, padding: "24px 28px", marginBottom: 16 }}>
+            <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: `4px solid ${COMPARE_FULL}`, padding: "24px 28px", marginBottom: 16 }}>
               <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 Comparison — {docA.name.replace(".pdf", "")} vs {docB.name.replace(".pdf", "")}
               </p>
@@ -604,9 +608,9 @@ Use only the provided document pages. Do not speculate beyond what the documents
                     onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); askFollowUp(); } }}
                     placeholder="e.g. What are the fire performance differences between the two products?"
                     rows={2} className="arc-input"
-                    style={{ flex: 1, border: `1px solid #ddd8d0`, borderRight: "none", padding: "10px 14px", fontSize: 13, color: ARC_NAVY, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif" }} />
+                    style={{ flex: 1, border: `1px solid #e4e4e8`, borderRight: "none", padding: "10px 14px", fontSize: 13, color: DESIGN_TEXT, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif" }} />
                   <button className="btn" onClick={askFollowUp} disabled={!followUp.trim()}
-                    style={{ background: followUp.trim() ? ARC_NAVY : "#f0ede8", color: followUp.trim() ? "#ffffff" : "#9a9088", padding: "0 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", border: `1px solid ${followUp.trim() ? ARC_NAVY : "#ddd8d0"}`, minWidth: 80 }}>
+                    style={{ background: followUp.trim() ? DESIGN_TEXT : DESIGN_GROUND, color: followUp.trim() ? "#ffffff" : DESIGN_MUTED, padding: "0 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", border: `1px solid ${followUp.trim() ? DESIGN_TEXT : "#e4e4e8"}`, minWidth: 80 }}>
                     Ask
                   </button>
                 </div>
@@ -619,7 +623,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
                 {!showVaultPicker ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <button className="btn" onClick={() => setShowVaultPicker(true)}
-                      style={{ background: ARC_TERRACOTTA, color: "#ffffff", padding: "12px 28px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8 }}>
+                      style={{ background: COMPARE_FULL, color: "#ffffff", padding: "12px 28px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 8 }}>
                       🔍 Check Compliance Against Vaults
                     </button>
                     {questionsLoading && (
@@ -629,26 +633,26 @@ Use only the provided document pages. Do not speculate beyond what the documents
                     )}
                   </div>
                 ) : (
-                  <div style={{ background: "#ffffff", border: `1px solid #e8e0d5`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "20px 24px" }}>
+                  <div style={{ background: "#ffffff", border: `1px solid #e4e4e8`, borderLeft: `3px solid ${COMPARE_FULL}`, padding: "20px 24px" }}>
 
                     {/* Suggested questions */}
                     {suggestedQuestions.length > 0 && (
                       <div style={{ marginBottom: 20 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Select a compliance question</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 4 }}>Select a compliance question</div>
                         <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 12, lineHeight: 1.6 }}>
                           Choose one of the suggested questions or write your own below.
                         </p>
                         <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 }}>
                           {suggestedQuestions.map((q, i) => (
-                            <label key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 14px", background: selectedQuestion === q ? "#f0f5f6" : "transparent", border: `1px solid ${selectedQuestion === q ? AD_GREEN : "#e8e0d5"}`, transition: "all 0.15s" }}>
+                            <label key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 14px", background: selectedQuestion === q ? DESIGN_GROUND : "transparent", border: `1px solid ${selectedQuestion === q ? COMPARE_FULL : "#e4e4e8"}`, transition: "all 0.15s" }}>
                               <input type="radio" name="complianceQ" checked={selectedQuestion === q} onChange={() => setSelectedQuestion(q)}
-                                style={{ accentColor: AD_GREEN, marginTop: 2, flexShrink: 0 }} />
-                              <span style={{ fontSize: 12, color: ARC_NAVY, lineHeight: 1.6 }}>{q}</span>
+                                style={{ accentColor: COMPARE_FULL, marginTop: 2, flexShrink: 0 }} />
+                              <span style={{ fontSize: 12, color: DESIGN_TEXT, lineHeight: 1.6 }}>{q}</span>
                             </label>
                           ))}
-                          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 14px", background: !suggestedQuestions.includes(selectedQuestion) ? "#f0f5f6" : "transparent", border: `1px solid ${!suggestedQuestions.includes(selectedQuestion) ? AD_GREEN : "#e8e0d5"}`, transition: "all 0.15s" }}>
+                          <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer", padding: "10px 14px", background: !suggestedQuestions.includes(selectedQuestion) ? DESIGN_GROUND : "transparent", border: `1px solid ${!suggestedQuestions.includes(selectedQuestion) ? COMPARE_FULL : "#e4e4e8"}`, transition: "all 0.15s" }}>
                             <input type="radio" name="complianceQ" checked={!suggestedQuestions.includes(selectedQuestion)} onChange={() => setSelectedQuestion("")}
-                              style={{ accentColor: AD_GREEN, marginTop: 2, flexShrink: 0 }} />
+                              style={{ accentColor: COMPARE_FULL, marginTop: 2, flexShrink: 0 }} />
                             <span style={{ fontSize: 12, color: "#9a9088", lineHeight: 1.6 }}>Write my own question…</span>
                           </label>
                         </div>
@@ -656,29 +660,29 @@ Use only the provided document pages. Do not speculate beyond what the documents
                           <textarea value={selectedQuestion} onChange={e => setSelectedQuestion(e.target.value)}
                             placeholder="Type your compliance question here…"
                             rows={2} className="arc-input"
-                            style={{ width: "100%", border: `1px solid #ddd8d0`, padding: "10px 14px", fontSize: 12, color: ARC_NAVY, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", marginBottom: 12 }} />
+                            style={{ width: "100%", border: `1px solid #e4e4e8`, padding: "10px 14px", fontSize: 12, color: DESIGN_TEXT, outline: "none", resize: "none", lineHeight: 1.6, fontFamily: "Inter, Arial, sans-serif", marginBottom: 12 }} />
                         )}
                       </div>
                     )}
 
                     {/* Vault picker */}
-                    <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 4 }}>Select a vault to check against</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 4 }}>Select a vault to check against</div>
                     <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 12, lineHeight: 1.6 }}>Only indexed vaults can be used.</p>
                     <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 16, maxHeight: 200, overflowY: "auto" }}>
                       {vaultOptions.length === 0 && (
                         <p style={{ fontSize: 12, color: "#9a9088", fontStyle: "italic" }}>No vaults available.</p>
                       )}
                       {vaultOptions.map(v => (
-                        <label key={v.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 12px", background: selectedVaultId === v.id ? "#f0f5f6" : "transparent", border: `1px solid ${selectedVaultId === v.id ? AD_GREEN : "#e8e0d5"}` }}>
+                        <label key={v.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 12px", background: selectedVaultId === v.id ? DESIGN_GROUND : "transparent", border: `1px solid ${selectedVaultId === v.id ? COMPARE_FULL : "#e4e4e8"}` }}>
                           <input type="radio" name="vaultSelect" checked={selectedVaultId === v.id} onChange={() => setSelectedVaultId(v.id)}
-                            style={{ accentColor: AD_GREEN }} />
-                          <span style={{ fontSize: 13, color: ARC_NAVY }}>{v.name}</span>
+                            style={{ accentColor: COMPARE_FULL }} />
+                          <span style={{ fontSize: 13, color: DESIGN_TEXT }}>{v.name}</span>
                         </label>
                       ))}
                     </div>
                     <div style={{ display: "flex", gap: 10 }}>
                       <button className="btn" onClick={runComplianceCheck} disabled={!selectedVaultId || !selectedQuestion.trim()}
-                        style={{ background: selectedVaultId && selectedQuestion.trim() ? ARC_TERRACOTTA : "#c8c0b8", color: "#ffffff", padding: "10px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                        style={{ background: selectedVaultId && selectedQuestion.trim() ? COMPARE_FULL : "#c8c0b8", color: "#ffffff", padding: "10px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                         Run Compliance Check
                       </button>
                       <button className="btn" onClick={() => setShowVaultPicker(false)}
@@ -694,26 +698,26 @@ Use only the provided document pages. Do not speculate beyond what the documents
             {/* Compliance running */}
             {complianceRunning && (
               <div style={{ background: "#ffffff", border: "1px solid #e8e0d5", padding: "20px 24px", marginBottom: 20 }}>
-                <div style={{ fontSize: 12, color: ARC_NAVY, marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontWeight: 500 }}>
+                <div style={{ fontSize: 12, color: DESIGN_TEXT, marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontWeight: 500 }}>
                   <Spinner size={12} /> {complianceStatus}
                 </div>
-                <ProgressBar label="Pass 1 · Index scoring" pct={complianceProgress.select} color={AD_GREEN} />
-                <ProgressBar label="Pass 2 · Page extraction" pct={complianceProgress.read} color={ARC_TERRACOTTA} />
-                <ProgressBar label="Pass 3 · Compliance synthesis" pct={complianceProgress.answer} color={ARC_NAVY} />
+                <ProgressBar label="Pass 1 · Index scoring" pct={complianceProgress.select} color={COMPARE_FULL} />
+                <ProgressBar label="Pass 2 · Page extraction" pct={complianceProgress.read} color={COMPARE_FULL} />
+                <ProgressBar label="Pass 3 · Compliance synthesis" pct={complianceProgress.answer} color={DESIGN_TEXT} />
               </div>
             )}
 
             {/* Compliance answer */}
             {complianceAnswer && (
               <div style={{ animation: "fadeIn 0.4s ease" }}>
-                <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: `4px solid ${ARC_TERRACOTTA}`, padding: "24px 28px", marginBottom: 12 }}>
+                <div style={{ background: "#ffffff", border: "1px solid #b1b4b6", borderTop: `4px solid ${COMPARE_FULL}`, padding: "24px 28px", marginBottom: 12 }}>
                   <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                     Compliance Assessment
                   </p>
                   <AnswerRenderer text={complianceAnswer} />
                 </div>
                 <button className="btn" onClick={() => { setComplianceAnswer(null); setComplianceStatus(""); setSelectedVaultId(""); setShowVaultPicker(true); }}
-                  style={{ background: "transparent", color: AD_GREEN, padding: "8px 0", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", border: "none", textDecoration: "underline" }}>
+                  style={{ background: "transparent", color: COMPARE_FULL, padding: "8px 0", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", border: "none", textDecoration: "underline" }}>
                   Check against different vaults
                 </button>
               </div>
@@ -724,8 +728,8 @@ Use only the provided document pages. Do not speculate beyond what the documents
         {/* Empty state */}
         {!docA && !docB && (
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "60px 0", gap: 10 }}>
-            <div style={{ width: 32, height: 2, background: ARC_TERRACOTTA }} />
-            <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, letterSpacing: "0.02em" }}>Upload two documents to compare</p>
+            <div style={{ width: 32, height: 2, background: COMPARE_FULL }} />
+            <p style={{ fontSize: 16, color: DESIGN_TEXT, fontWeight: 300, letterSpacing: "0.02em" }}>Upload two documents to compare</p>
             <p style={{ fontSize: 11, color: "#9a9088", letterSpacing: "0.03em" }}>Product datasheets, specifications, or any technical documents</p>
           </div>
         )}
