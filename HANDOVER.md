@@ -266,6 +266,51 @@ PDF viewer: inline iframe, PDF.js CDN v3.11.174. Two-pass heading search (±20 p
 
 ---
 
+## New Features Built (session 2026-05-22)
+
+### "Test Yourself" Quiz Feature
+
+**Files:**
+- `client/src/components/QuizModal.jsx` — full quiz UI (subject picker → document picker → question screen)
+- `client/src/components/AdminSection.jsx` — Quiz Management section added at bottom
+- `client/src/App.js` — "✎ Test Yourself" button added to vault toolbar; QuizModal import and state
+- `server/index.js` — 6 new endpoints (see below)
+
+**What it does:**
+- Grey outline "✎ Test Yourself" button in vault toolbar (always visible, not admin-gated)
+- Modal opens with two tiles: Approved Documents (teal) and CITB CSCS (slate)
+- **AD path:** picks a document from the designated vault → serves shuffled questions one at a time
+- **CSCS path:** jumps straight to quiz from the question bank
+- Per-question feedback: correct option turns green ✓, wrong option red ✗ with correct highlighted and explanation shown
+- Questions cycle indefinitely (reshuffled when exhausted), no score shown to user
+
+**Server endpoints (in `server/index.js`):**
+- `GET /api/quiz/questions` — fetch questions (params: `type`, `vault_name`, `document_name`)
+- `POST /api/quiz/answer` — record answer; upserts user's `quiz_stats` row
+- `GET /api/admin/quiz/settings` — get designated AD vault name
+- `PUT /api/admin/quiz/settings` — set designated AD vault name
+- `GET /api/admin/quiz/stats` — admin-only; all users' correct/incorrect counts with emails
+- `POST /api/admin/quiz/generate` — generate 25 questions for one AD doc via Gemini + R2
+- `DELETE /api/admin/quiz/questions` — clear questions for a doc or all CSCS
+- `POST /api/admin/quiz/upload-cscs` — parse CSCS PDF verbatim, store questions
+
+**Admin Quiz Management section** (bottom of Admin panel):
+- AD vault selector dropdown + Save
+- Per-document table: question count, Generate button (calls Gemini ~15s), Clear button
+- CSCS section: Upload PDF button, question count, Clear all
+- User stats table: email + AD correct/incorrect + CSCS correct/incorrect (admin-only)
+
+**Database tables (already migrated):**
+```sql
+quiz_questions (id, type, vault_name, document_name, question_text, options jsonb, explanation, source_clause, created_at)
+quiz_stats (id, user_id, quiz_type, correct_count, incorrect_count, updated_at) -- UNIQUE(user_id, quiz_type)
+app_settings (key, value, updated_at) -- stores quiz_ad_vault_name
+```
+
+**Status:** Code complete, pending Nathan's live testing. Deploy: client → Vercel, server → Railway.
+
+---
+
 ## Feature Backlog
 
 ### Vault

@@ -757,7 +757,7 @@ export default function App() {
         const headings = (doc.headings || [])
           .filter(h => !isBoilerplate(h.title))
           .filter(h => !contentsPages.has(h.pageHint))
-          .filter(h => !crowdedPages.has(h.pageHint))
+          .filter(h => !crowdedPages.has(h.pageHint) || /^(table|figure|diagram)\s+\d+/i.test(h.title.trim()))
           .map(h => `  p${h.pageHint || 1}: ${h.title}`)
           .join("\n");
         return `DOCUMENT: ${doc.name}\n${headings}`;
