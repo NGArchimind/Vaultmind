@@ -1151,13 +1151,13 @@ export default function App() {
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
     .vault-item { cursor: pointer; transition: all 0.2s; }
-    .vault-item:hover { background: #f0f5f6 !important; }
+    .vault-item:hover { background: #f1f2f4 !important; }
     .master-item { cursor: pointer; transition: all 0.2s; }
     .master-item:hover { background: rgba(0,0,0,0.04) !important; }
     .btn { cursor: pointer; transition: all 0.2s; border: none; font-family: Inter, Arial, sans-serif; letter-spacing: 0.01em; }
     .btn:hover { opacity: 0.85; }
     .btn:disabled { cursor: not-allowed; opacity: 0.35; }
-    .arc-input:focus { outline: 2px solid ${AD_GREEN}; outline-offset: 0; }
+    .arc-input:focus { outline: 2px solid ${VAULT_FULL}; outline-offset: 0; }
     body { font-family: Inter, Arial, sans-serif; }
   `;
 
@@ -1248,7 +1248,7 @@ export default function App() {
               <button key={section} className="btn" onClick={() => navigate(section)}
                 style={appSection === section
                   ? { color: "#fff", fontSize: 9, fontWeight: 500, letterSpacing: ".18em", textTransform: "uppercase", background: "transparent", border: "none", padding: "0", cursor: "pointer", borderBottom: "1px solid " + DESIGN_GOLD, paddingBottom: 3 }
-                  : { color: "#9a9aa0", fontSize: 9, fontWeight: 500, letterSpacing: ".18em", textTransform: "uppercase", background: "transparent", border: "none", padding: "0", cursor: "pointer" }}>
+                  : { color: DESIGN_MUTED, fontSize: 9, fontWeight: 500, letterSpacing: ".18em", textTransform: "uppercase", background: "transparent", border: "none", padding: "0", cursor: "pointer" }}>
                 {NAV_LABELS[section] ?? section}
               </button>
             ))}
@@ -1256,7 +1256,7 @@ export default function App() {
               <button className="btn" onClick={() => navigate("admin")}
                 style={appSection === "admin"
                   ? { color: "#fff", fontSize: 9, fontWeight: 500, letterSpacing: ".18em", textTransform: "uppercase", background: "transparent", border: "none", padding: "0", cursor: "pointer", borderBottom: "1px solid " + DESIGN_GOLD, paddingBottom: 3 }
-                  : { color: "#9a9aa0", fontSize: 9, fontWeight: 500, letterSpacing: ".18em", textTransform: "uppercase", background: "transparent", border: "none", padding: "0", cursor: "pointer" }}>
+                  : { color: DESIGN_MUTED, fontSize: 9, fontWeight: 500, letterSpacing: ".18em", textTransform: "uppercase", background: "transparent", border: "none", padding: "0", cursor: "pointer" }}>
                 Admin
               </button>
             )}
@@ -1710,7 +1710,7 @@ export default function App() {
           </div>
 
           </div>{/* end inner flex row */}
-        </div> /* end vault column wrapper */}
+        </div>{/* end vault column wrapper */}
 
       </div>
 
