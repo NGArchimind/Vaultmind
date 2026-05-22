@@ -596,7 +596,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
               <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 Comparison — {docA.name.replace(".pdf", "")} vs {docB.name.replace(".pdf", "")}
               </p>
-              <AnswerRenderer text={compareAnswer} />
+              <AnswerRenderer text={compareAnswer} accentColor={COMPARE_FULL} />
             </div>
 
             {/* Follow-up input */}
@@ -714,7 +714,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
                   <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                     Compliance Assessment
                   </p>
-                  <AnswerRenderer text={complianceAnswer} />
+                  <AnswerRenderer text={complianceAnswer} accentColor={COMPARE_FULL} />
                 </div>
                 <button className="btn" onClick={() => { setComplianceAnswer(null); setComplianceStatus(""); setSelectedVaultId(""); setShowVaultPicker(true); }}
                   style={{ background: "transparent", color: COMPARE_FULL, padding: "8px 0", fontSize: 12, fontWeight: 600, letterSpacing: "0.04em", border: "none", textDecoration: "underline" }}>

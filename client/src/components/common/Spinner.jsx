@@ -1,4 +1,4 @@
-import { AD_GREEN } from "../../constants";
+import { DESIGN_GOLD } from "../../constants";
 
 export function Spinner({ size = 18 }) {
   return (
@@ -8,7 +8,7 @@ export function Spinner({ size = 18 }) {
   );
 }
 
-export function ProgressBar({ label, pct, color = AD_GREEN }) {
+export function ProgressBar({ label, pct, color = DESIGN_GOLD }) {
   return (
     <div style={{ marginBottom: 10 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#9a9088", marginBottom: 4, letterSpacing: "0.04em" }}>

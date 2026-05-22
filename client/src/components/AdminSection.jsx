@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { api } from "../api/client";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN_FOREST_FOREST } from "../constants";
+import { ARC_TERRACOTTA, DESIGN_SHELL, DESIGN_GROUND, DESIGN_GOLD } from "../constants";
 
 const DEFAULT_COLOURS = {
   header:      "#1a2332",
@@ -246,18 +246,22 @@ export default function AdminSection() {
   // ── Render ─────────────────────────────────────────────────────────────────
   const sectionHeader = (title, subtitle) => (
     <div style={{ marginBottom: 20 }}>
-      <h2 style={{ fontSize: 16, fontWeight: 300, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif", marginBottom: 4 }}>{title}</h2>
+      <h2 style={{ fontSize: 16, fontWeight: 300, color: DESIGN_SHELL, fontFamily: "Inter, Arial, sans-serif", marginBottom: 4 }}>{title}</h2>
       {subtitle && <p style={{ fontSize: 12, color: "#9a9088" }}>{subtitle}</p>}
     </div>
   );
 
   return (
+    <>
+    <div style={{ background: DESIGN_SHELL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+      <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Admin</span>
+    </div>
     <div style={{ flex: 1, overflowY: "auto", background: "#faf8f5", padding: "32px 40px" }}>
 
       {/* ── User Management ──────────────────────────────────────────────── */}
       <div style={{ marginBottom: 8, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 300, color: ARC_NAVY, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 4 }}>
+          <h1 style={{ fontSize: 24, fontWeight: 300, color: DESIGN_SHELL, letterSpacing: "0.01em", fontFamily: "Inter, Arial, sans-serif", marginBottom: 4 }}>
             User Management
           </h1>
           <p style={{ fontSize: 12, color: "#9a9088", letterSpacing: "0.04em", marginBottom: 28 }}>
@@ -266,9 +270,9 @@ export default function AdminSection() {
         </div>
         <button onClick={() => { setShowAddForm(v => !v); setAddError(""); }}
           style={{
-            background: showAddForm ? "transparent" : ARC_NAVY,
+            background: showAddForm ? "transparent" : DESIGN_SHELL,
             color: showAddForm ? "#9a9088" : "#fff",
-            border: `1px solid ${showAddForm ? "#ccc" : ARC_NAVY}`,
+            border: `1px solid ${showAddForm ? "#ccc" : DESIGN_SHELL}`,
             padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
             textTransform: "uppercase", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif",
           }}>
@@ -293,7 +297,7 @@ export default function AdminSection() {
           </select>
           {addError && <p style={{ color: ARC_TERRACOTTA, fontSize: 12, marginBottom: 12 }}>{addError}</p>}
           <button onClick={handleAddUser} disabled={adding}
-            style={{ marginTop: 8, background: ARC_NAVY, color: "#fff", border: "none", padding: "10px 24px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: adding ? "not-allowed" : "pointer", opacity: adding ? 0.6 : 1, display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter, Arial, sans-serif" }}>
+            style={{ marginTop: 8, background: DESIGN_SHELL, color: "#fff", border: "none", padding: "10px 24px", fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: adding ? "not-allowed" : "pointer", opacity: adding ? 0.6 : 1, display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter, Arial, sans-serif" }}>
             {adding ? <><Spinner size={12} /> Creating…</> : "Create User"}
           </button>
         </div>
@@ -306,7 +310,7 @@ export default function AdminSection() {
       )}
 
       <div style={{ background: "#fff", border: "1px solid #e0dbd4", marginBottom: 8 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px 80px", padding: "10px 20px", borderBottom: "1px solid #e8e0d5", background: ARC_STONE }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px 80px", padding: "10px 20px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
           {["Email", "Role", "Created", ""].map(h => (
             <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</span>
           ))}
@@ -317,7 +321,7 @@ export default function AdminSection() {
           <div style={{ padding: "24px 20px", fontSize: 13, color: "#9a9088" }}>No users found.</div>
         ) : users.map(u => (
           <div key={u.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px 80px", padding: "12px 20px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
-            <span style={{ fontSize: 13, color: ARC_NAVY, letterSpacing: "0.01em" }}>{u.email}</span>
+            <span style={{ fontSize: 13, color: DESIGN_SHELL, letterSpacing: "0.01em" }}>{u.email}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <select value={u.role} onChange={e => handleChangeRole(u.id, e.target.value)} disabled={updatingRole === u.id}
                 style={{ fontSize: 11, padding: "3px 6px", border: `1px solid ${u.role === "admin" ? ARC_TERRACOTTA : "#ccc"}`, color: u.role === "admin" ? ARC_TERRACOTTA : "#505a5f", background: "#fff", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif", fontWeight: u.role === "admin" ? 600 : 400, letterSpacing: "0.04em", textTransform: "uppercase" }}>
@@ -344,7 +348,7 @@ export default function AdminSection() {
       {/* ── Practice Logo ─────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 48 }}>
         {sectionHeader("Practice Logo", "Appears in the header of all drawing schedules. PNG, JPG, SVG or WebP, max 2 MB.")}
-        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${ARC_NAVY}`, padding: "24px 28px", maxWidth: 560 }}>
+        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${DESIGN_SHELL}`, padding: "24px 28px", maxWidth: 560 }}>
 
           {logoMsg && (
             <div style={{ padding: "10px 14px", marginBottom: 16, fontSize: 12, background: logoMsg.type === "ok" ? "#eef6ee" : "#fdf0f0", border: `1px solid ${logoMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`, color: logoMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA }}>
@@ -373,7 +377,7 @@ export default function AdminSection() {
             <p style={{ fontSize: 13, color: "#9a9088", fontStyle: "italic", marginBottom: 16 }}>No logo uploaded yet.</p>
           )}
 
-          <label style={{ background: ARC_NAVY, color: "#fff", border: "none", padding: "10px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: logoUploading ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: 8, fontFamily: "Inter, Arial, sans-serif", opacity: logoUploading ? 0.6 : 1 }}>
+          <label style={{ background: DESIGN_SHELL, color: "#fff", border: "none", padding: "10px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: logoUploading ? "not-allowed" : "pointer", display: "inline-flex", alignItems: "center", gap: 8, fontFamily: "Inter, Arial, sans-serif", opacity: logoUploading ? 0.6 : 1 }}>
             {logoUploading ? <><Spinner size={11} /> Uploading…</> : (logo?.base64 ? "↑ Replace Logo" : "↑ Upload Logo")}
             <input ref={logoInputRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" onChange={handleLogoUpload} disabled={logoUploading} style={{ display: "none" }} />
           </label>
@@ -383,7 +387,7 @@ export default function AdminSection() {
       {/* ── Drawing Schedule Colours ──────────────────────────────────────── */}
       <div style={{ marginBottom: 48 }}>
         {sectionHeader("Drawing Schedule Colours", "Customise the colour scheme used in all drawing schedules and exports.")}
-        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${ARC_NAVY}`, padding: "24px 28px", maxWidth: 560 }}>
+        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${DESIGN_SHELL}`, padding: "24px 28px", maxWidth: 560 }}>
 
           {coloursMsg && (
             <div style={{ padding: "10px 14px", marginBottom: 16, fontSize: 12, background: coloursMsg.type === "ok" ? "#eef6ee" : "#fdf0f0", border: `1px solid ${coloursMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`, color: coloursMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA }}>
@@ -410,7 +414,7 @@ export default function AdminSection() {
                         type="text"
                         value={coloursDraft[key] || ""}
                         onChange={e => setColoursDraft(prev => ({ ...prev, [key]: e.target.value }))}
-                        style={{ width: 80, border: "1px solid #ddd8d0", padding: "5px 8px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none" }}
+                        style={{ width: 80, border: "1px solid #ddd8d0", padding: "5px 8px", fontSize: 12, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_SHELL, outline: "none" }}
                       />
                       <div style={{ width: 20, height: 20, background: coloursDraft[key], border: "1px solid #ddd8d0", flexShrink: 0 }} />
                     </div>
@@ -448,7 +452,7 @@ export default function AdminSection() {
 
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <button onClick={saveColours} disabled={savingColours}
-                  style={{ background: ARC_NAVY, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: savingColours ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter, Arial, sans-serif" }}>
+                  style={{ background: DESIGN_SHELL, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: savingColours ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 8, fontFamily: "Inter, Arial, sans-serif" }}>
                   {savingColours ? <><Spinner size={11} /> Saving…</> : "Save Colours"}
                 </button>
                 <button onClick={resetColours}
@@ -473,7 +477,7 @@ export default function AdminSection() {
                 ))}
               </div>
               <button onClick={() => { setColoursDraft({ ...colours }); setEditingColours(true); }}
-                style={{ background: ARC_NAVY, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
+                style={{ background: DESIGN_SHELL, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
                 Edit Colours
               </button>
             </div>
@@ -484,7 +488,7 @@ export default function AdminSection() {
       {/* ── ArchiSync Connection ──────────────────────────────────────────── */}
       <div style={{ marginBottom: 48 }}>
         {sectionHeader("ArchiSync Connection", "Generate an encrypted connection code to link the ArchiSync desktop tool to this Archimind deployment.")}
-        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${ARC_NAVY}`, padding: "24px 28px", maxWidth: 560 }}>
+        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${DESIGN_SHELL}`, padding: "24px 28px", maxWidth: 560 }}>
 
           <p style={{ fontSize: 13, color: "#6a6058", lineHeight: 1.7, marginBottom: 20 }}>
             Share this code with anyone who needs to connect ArchiSync to this Archimind instance.
@@ -524,7 +528,7 @@ export default function AdminSection() {
                 padding: "12px 16px",
                 fontFamily: "monospace",
                 fontSize: 11,
-                color: ARC_NAVY,
+                color: DESIGN_SHELL,
                 wordBreak: "break-all",
                 letterSpacing: "0.02em",
                 marginBottom: 10,
@@ -539,7 +543,7 @@ export default function AdminSection() {
                 <button
                   onClick={copyArchisyncCode}
                   style={{
-                    background: archisyncCopied ? AD_GREEN_FOREST : ARC_NAVY,
+                    background: archisyncCopied ? DESIGN_GOLD : DESIGN_SHELL,
                     color: "#fff", border: "none", padding: "9px 20px",
                     fontSize: 11, fontWeight: 600, letterSpacing: "0.06em",
                     textTransform: "uppercase", cursor: "pointer",
@@ -550,9 +554,9 @@ export default function AdminSection() {
                 <button
                   onClick={copyArchisyncPassword}
                   style={{
-                    background: archisyncPasswordCopied ? AD_GREEN_FOREST : "none",
-                    color: archisyncPasswordCopied ? "#fff" : ARC_NAVY,
-                    border: `1px solid ${archisyncPasswordCopied ? AD_GREEN_FOREST : ARC_NAVY}`,
+                    background: archisyncPasswordCopied ? DESIGN_GOLD : "none",
+                    color: archisyncPasswordCopied ? "#fff" : DESIGN_SHELL,
+                    border: `1px solid ${archisyncPasswordCopied ? DESIGN_GOLD : DESIGN_SHELL}`,
                     padding: "8px 16px", fontSize: 11, fontWeight: 600,
                     letterSpacing: "0.04em", textTransform: "uppercase", cursor: "pointer",
                     fontFamily: "Inter, Arial, sans-serif", transition: "all 0.2s"
@@ -571,7 +575,7 @@ export default function AdminSection() {
               onClick={generateArchisyncCode}
               disabled={archisyncLoading || !archisyncPassword.trim()}
               style={{
-                background: ARC_NAVY, color: "#fff", border: "none",
+                background: DESIGN_SHELL, color: "#fff", border: "none",
                 padding: "10px 24px", fontSize: 11, fontWeight: 600,
                 letterSpacing: "0.06em", textTransform: "uppercase",
                 cursor: (archisyncLoading || !archisyncPassword.trim()) ? "not-allowed" : "pointer",
@@ -586,18 +590,19 @@ export default function AdminSection() {
       </div>
 
     </div>
+    </>
   );
 }
 
 // ── Shared styles ─────────────────────────────────────────────────────────────
 
 const labelStyle = {
-  fontSize: 11, fontWeight: 600, color: ARC_NAVY, display: "block",
+  fontSize: 11, fontWeight: 600, color: DESIGN_SHELL, display: "block",
   marginBottom: 6, letterSpacing: "0.05em", textTransform: "uppercase",
 };
 
 const inputStyle = (hasError) => ({
   width: "100%", border: hasError ? `1px solid ${ARC_TERRACOTTA}` : "1px solid #ccc",
   padding: "10px 12px", fontSize: 13, marginBottom: 14, outline: "none",
-  fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, background: "#fff", boxSizing: "border-box",
+  fontFamily: "Inter, Arial, sans-serif", color: DESIGN_SHELL, background: "#fff", boxSizing: "border-box",
 });

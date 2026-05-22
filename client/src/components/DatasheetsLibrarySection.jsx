@@ -1043,7 +1043,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
             {complianceAnswer && (
               <div style={{ padding: "16px 20px", flex: 1 }}>
                 <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#9a9088", marginBottom: 10 }}>Result</div>
-                <AnswerRenderer text={complianceAnswer} />
+                <AnswerRenderer text={complianceAnswer} accentColor={LIBRARY_FULL} />
               </div>
             )}
           </div>
