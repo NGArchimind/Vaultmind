@@ -1454,6 +1454,12 @@ export default function App() {
                         {isRunning ? <Spinner size={14} /> : "Search"}
                       </button>
                     </div>
+                    {conversationHistory.length > 0 && (
+                      <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, letterSpacing: "0.04em" }}>
+                        Context: {conversationHistory.length} Q&A{conversationHistory.length !== 1 ? "s" : ""} stored —{" "}
+                        <span onClick={() => setConversationHistory([])} style={{ cursor: "pointer", textDecoration: "underline" }}>clear</span>
+                      </p>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -1701,6 +1707,12 @@ export default function App() {
                           </button>
                         </div>
                         {costEst !== null && <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, letterSpacing: "0.04em" }}>Est. cost: {costEst < 0.01 ? "< 1p" : `${(costEst * 100).toFixed(2)}p`}</p>}
+                        {conversationHistory.length > 0 && (
+                          <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 4, letterSpacing: "0.04em" }}>
+                            Context: {conversationHistory.length} Q&A{conversationHistory.length !== 1 ? "s" : ""} stored —{" "}
+                            <span onClick={() => setConversationHistory([])} style={{ cursor: "pointer", textDecoration: "underline" }}>clear</span>
+                          </p>
+                        )}
                       </div>
                     )}
                   </div>
