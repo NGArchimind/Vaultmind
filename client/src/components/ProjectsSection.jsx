@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { api, callClaude } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
-import { ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, AD_GREEN } from "../constants";
+import { DESIGN_GROUND, DESIGN_TEXT, PROJECTS_FULL, COMPARE_FULL, AD_GREEN } from "../constants";
 import TaskBoard from "./TaskBoard";
 
 // Module-level toast dispatcher — set by ProjectsSection on mount so all
@@ -54,13 +54,13 @@ function EditableField({ value, onSave, placeholder, multiline = false, style = 
     const shared = {
       value: draft, onChange: e => setDraft(e.target.value), onBlur: commit, autoFocus: true,
       onKeyDown: e => { if (!multiline && e.key === "Enter") commit(); if (e.key === "Escape") { setDraft(value || ""); setEditing(false); } },
-      style: { width: "100%", border: `1px solid ${AD_GREEN}`, padding: "4px 8px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff", resize: "none", ...style },
+      style: { width: "100%", border: `1px solid ${PROJECTS_FULL}`, padding: "4px 8px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", background: "#fff", resize: "none", ...style },
     };
     return multiline ? <textarea rows={3} {...shared} /> : <input {...shared} />;
   }
   return (
     <span onClick={() => { setDraft(value || ""); setEditing(true); }} title="Click to edit"
-      style={{ cursor: "text", color: value ? ARC_NAVY : "#b0a8a0", fontStyle: value ? "normal" : "italic", ...style }}>
+      style={{ cursor: "text", color: value ? DESIGN_TEXT : "#b0a8a0", fontStyle: value ? "normal" : "italic", ...style }}>
       {value || placeholder}
     </span>
   );
@@ -73,10 +73,10 @@ function NewProjectForm({ onSave, onCancel }) {
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
   const handleSave = async () => { if (!form.name.trim()) return; setSaving(true); await onSave(form); setSaving(false); };
   const labelStyle = { fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
-  const inputStyle = { width: "100%", border: "1px solid #ddd8d0", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff", marginBottom: 14 };
+  const inputStyle = { width: "100%", border: "1px solid #e4e4e8", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", background: "#fff", marginBottom: 14 };
   return (
-    <div style={{ background: "#fff", border: `1px solid #e8e0d5`, borderTop: `3px solid ${ARC_TERRACOTTA}`, padding: "28px 32px", marginBottom: 20 }}>
-      <h3 style={{ fontSize: 15, fontWeight: 500, color: ARC_NAVY, marginBottom: 20 }}>New Project</h3>
+    <div style={{ background: "#fff", border: `1px solid #e8e0d5`, borderTop: `3px solid ${COMPARE_FULL}`, padding: "28px 32px", marginBottom: 20 }}>
+      <h3 style={{ fontSize: 15, fontWeight: 500, color: DESIGN_TEXT, marginBottom: 20 }}>New Project</h3>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 24px" }}>
         <div><label style={labelStyle}>Project Name *</label><input value={form.name} onChange={e => set("name", e.target.value)} placeholder="e.g. 14 Station Road" style={inputStyle} autoFocus /></div>
         <div><label style={labelStyle}>Job Number</label><input value={form.job_number} onChange={e => set("job_number", e.target.value)} placeholder="e.g. 2024-042" style={inputStyle} /></div>
@@ -85,7 +85,7 @@ function NewProjectForm({ onSave, onCancel }) {
         <div><label style={labelStyle}>Project Lead</label><input value={form.project_lead} onChange={e => set("project_lead", e.target.value)} placeholder="e.g. Nathan" style={inputStyle} /></div>
         <div>
           <label style={labelStyle}>RIBA Stage</label>
-          <select value={form.stage} onChange={e => set("stage", e.target.value)} style={{ ...inputStyle, color: form.stage ? ARC_NAVY : "#9a9088" }}>
+          <select value={form.stage} onChange={e => set("stage", e.target.value)} style={{ ...inputStyle, color: form.stage ? DESIGN_TEXT : "#9a9088" }}>
             <option value="">Select stage…</option>
             {RIBA_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
@@ -94,10 +94,10 @@ function NewProjectForm({ onSave, onCancel }) {
       </div>
       <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
         <button className="btn" onClick={handleSave} disabled={!form.name.trim() || saving}
-          style={{ background: form.name.trim() ? ARC_NAVY : "#c8c0b8", color: "#fff", padding: "9px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+          style={{ background: form.name.trim() ? DESIGN_TEXT : "#c8c0b8", color: "#fff", padding: "9px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
           {saving ? <Spinner size={12} /> : "Create Project"}
         </button>
-        <button className="btn" onClick={onCancel} style={{ background: "none", color: "#9a9088", padding: "9px 16px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+        <button className="btn" onClick={onCancel} style={{ background: "none", color: "#9a9088", padding: "9px 16px", fontSize: 11, border: "1px solid #e4e4e8" }}>Cancel</button>
       </div>
     </div>
   );
@@ -113,7 +113,7 @@ function ProjectCard({ project, onClick }) {
         <span style={{ fontSize: 11, fontWeight: 700, color: "#fff", letterSpacing: "0.04em" }}>{stageShort(project.stage)}</span>
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 15, fontWeight: 500, color: ARC_NAVY, marginBottom: 3, fontFamily: "Inter, Arial, sans-serif" }}>{project.name}</div>
+        <div style={{ fontSize: 15, fontWeight: 500, color: DESIGN_TEXT, marginBottom: 3, fontFamily: "Inter, Arial, sans-serif" }}>{project.name}</div>
         <div style={{ fontSize: 12, color: "#9a9088", display: "flex", gap: 16, flexWrap: "wrap" }}>
           {project.job_number && <span>#{project.job_number}</span>}
           {project.client && <span>👤 {project.client}</span>}
@@ -182,7 +182,7 @@ function PdfViewerModal({ drawing: initialDrawing, projectId, onClose, drawings:
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 2000, display: "flex", flexDirection: "column" }}>
-      <div style={{ background: ARC_NAVY, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+      <div style={{ background: DESIGN_TEXT, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flex: 1, minWidth: 0 }}>
           {drawingsList.length > 1 && (
             <button className="btn" onClick={() => hasPrev && setCurrentIdx(i => i - 1)} style={navBtnStyle(hasPrev)} title="Previous drawing (←)">‹</button>
@@ -208,7 +208,7 @@ function PdfViewerModal({ drawing: initialDrawing, projectId, onClose, drawings:
       </div>
       <div style={{ flex: 1, background: "#525659", display: "flex", alignItems: "center", justifyContent: "center" }}>
         {loading && <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#fff", fontSize: 13 }}><Spinner size={14} /> Loading drawing…</div>}
-        {error && <p style={{ fontSize: 13, color: ARC_TERRACOTTA }}>{error}</p>}
+        {error && <p style={{ fontSize: 13, color: COMPARE_FULL }}>{error}</p>}
         {pdfUrl && !loading && <iframe src={pdfUrl} style={{ width: "100%", height: "100%", border: "none" }} title={drawing.title} />}
       </div>
     </div>
@@ -230,7 +230,7 @@ function FileTypeBadge({ fileName }) {
 function StatusBadge({ status }) {
   if (!status) return <span style={{ color: "#b0a8a0", fontSize: 11 }}>—</span>;
   return (
-    <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", padding: "2px 8px", background: "#f0ede8", color: "#9a7060", whiteSpace: "nowrap" }}>
+    <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", padding: "2px 8px", background: "#f8f8fa", color: "#9a7060", whiteSpace: "nowrap" }}>
       {status}
     </span>
   );
@@ -251,21 +251,21 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
       {selectable && (
         <div style={{ display: "flex", justifyContent: "center" }}>
           <input type="checkbox" checked={selected} onChange={() => onSelect(d.id)}
-            style={{ cursor: "pointer", width: 14, height: 14, accentColor: ARC_NAVY }} />
+            style={{ cursor: "pointer", width: 14, height: 14, accentColor: DESIGN_TEXT }} />
         </div>
       )}
-      <div style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: DESIGN_TEXT, display: "flex", alignItems: "center", gap: 2, minWidth: 0 }}>
         {isAdmin && onUpdate
           ? <EditableField value={d.drawing_number} onSave={v => onUpdate(d.id, "drawing_number", v)} placeholder="—" style={{ fontSize: 11 }} />
           : <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.drawing_number || "—"}</span>}
         <FileTypeBadge fileName={d.file_name} />
       </div>
-      <div style={{ fontSize: 13, color: ARC_NAVY, minWidth: 0, overflow: "hidden" }}>
+      <div style={{ fontSize: 13, color: DESIGN_TEXT, minWidth: 0, overflow: "hidden" }}>
         {isAdmin && onUpdate
           ? <EditableField value={d.title} onSave={v => onUpdate(d.id, "title", v)} placeholder="Untitled" />
           : <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.title}</span>}
       </div>
-      <div style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, textAlign: "center" }}>
+      <div style={{ fontSize: 12, fontWeight: 600, color: DESIGN_TEXT, textAlign: "center" }}>
         {isAdmin && onUpdate
           ? <EditableField value={d.revision} onSave={v => onUpdate(d.id, "revision", v)} placeholder="—" style={{ fontSize: 12, textAlign: "center" }} />
           : <span>{d.revision || "—"}</span>}
@@ -275,12 +275,12 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
       <div style={{ minWidth: 0 }}>
         {isAdmin && onUpdate ? (
           <select value={d.drawing_type || ""} onChange={e => onUpdate(d.id, "drawing_type", e.target.value)}
-            style={{ width: "100%", border: "1px solid #ddd8d0", padding: "3px 5px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: d.drawing_type ? ARC_NAVY : "#b0a8a0", outline: "none", background: "#fff" }}>
+            style={{ width: "100%", border: "1px solid #e4e4e8", padding: "3px 5px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: d.drawing_type ? DESIGN_TEXT : "#b0a8a0", outline: "none", background: "#fff" }}>
             <option value="">— type —</option>
             {(typeOptions || DRAWING_TYPE_OPTIONS).map(t => <option key={t} value={t}>{t}</option>)}
           </select>
         ) : (
-          <span style={{ fontSize: 11, color: d.drawing_type ? ARC_NAVY : "#b0a8a0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+          <span style={{ fontSize: 11, color: d.drawing_type ? DESIGN_TEXT : "#b0a8a0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
             {d.drawing_type || "—"}
           </span>
         )}
@@ -297,23 +297,23 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
       </div>
       <div style={{ display: "flex", justifyContent: "center" }}>
         <button className="btn" onClick={() => onDownload(d)} disabled={downloadingId === d.id} title="Download"
-          style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 8px", fontSize: 13, lineHeight: 1 }}
-          onMouseEnter={e => e.currentTarget.style.color = ARC_NAVY} onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>
+          style={{ background: "none", border: "1px solid #e4e4e8", color: "#9a9088", padding: "4px 8px", fontSize: 13, lineHeight: 1 }}
+          onMouseEnter={e => e.currentTarget.style.color = DESIGN_TEXT} onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>
           {downloadingId === d.id ? <Spinner size={11} /> : "↓"}
         </button>
       </div>
       <div style={{ display: "flex", justifyContent: "center" }}>
         {!(d.file_name || "").endsWith(".dwg") && (
           <button className="btn" onClick={() => onView(d)} title="Full screen view"
-            style={{ background: "none", border: "1px solid #ddd8d0", color: "#9a9088", padding: "4px 8px", fontSize: 12, lineHeight: 1 }}
-            onMouseEnter={e => e.currentTarget.style.color = ARC_NAVY} onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>👁</button>
+            style={{ background: "none", border: "1px solid #e4e4e8", color: "#9a9088", padding: "4px 8px", fontSize: 12, lineHeight: 1 }}
+            onMouseEnter={e => e.currentTarget.style.color = DESIGN_TEXT} onMouseLeave={e => e.currentTarget.style.color = "#9a9088"}>👁</button>
         )}
       </div>
       <div style={{ display: "flex", justifyContent: "center" }}>
         {isAdmin && onDelete && (
           <button className="btn" onClick={() => onDelete(d.id)} title="Delete"
             style={{ background: "none", border: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", lineHeight: 1 }}
-            onMouseEnter={e => e.currentTarget.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.currentTarget.style.color = "#c8c0b8"}>×</button>
+            onMouseEnter={e => e.currentTarget.style.color = COMPARE_FULL} onMouseLeave={e => e.currentTarget.style.color = "#c8c0b8"}>×</button>
         )}
       </div>
       <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
@@ -322,7 +322,7 @@ function DrawingRow({ d, projectId, isAdmin, onUpdate, onDelete, onView, downloa
           : <button className="btn" onClick={() => onReindex && onReindex(d.id)}
               title={d.is_indexed ? "Indexed — click to re-index" : "Not indexed — click to index now"}
               style={{ background: "none", border: "none", color: d.is_indexed ? "#2e7d4f" : "#c8c0b8", fontSize: d.is_indexed ? 12 : 10, padding: "0 4px", lineHeight: 1, cursor: "pointer", fontWeight: d.is_indexed ? 700 : 400 }}
-              onMouseEnter={e => e.currentTarget.style.color = AD_GREEN} onMouseLeave={e => e.currentTarget.style.color = d.is_indexed ? "#2e7d4f" : "#c8c0b8"}>
+              onMouseEnter={e => e.currentTarget.style.color = PROJECTS_FULL} onMouseLeave={e => e.currentTarget.style.color = d.is_indexed ? "#2e7d4f" : "#c8c0b8"}>
               {d.is_indexed ? "✓" : "●"}
             </button>
         }
@@ -402,7 +402,7 @@ function DocumentsTab({ projectId, isAdmin }) {
   if (files.length === 0) return (
     <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
       <div style={{ fontSize: 36, marginBottom: 12 }}>📁</div>
-      <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>No documents yet</p>
+      <p style={{ fontSize: 14, color: DESIGN_TEXT, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>No documents yet</p>
       <p style={{ fontSize: 12, color: "#9a9088" }}>Use "Save PDF Snapshot" in the Drawing Schedule tab to generate and store snapshots here.</p>
     </div>
   );
@@ -416,12 +416,12 @@ function DocumentsTab({ projectId, isAdmin }) {
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {isAdmin && someSelected && (
             <button className="btn" onClick={deleteSelected} disabled={deleting}
-              style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: ARC_TERRACOTTA, border: `1px solid ${ARC_TERRACOTTA}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
+              style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: COMPARE_FULL, border: `1px solid ${COMPARE_FULL}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
               {deleting ? <><Spinner size={10} /> Deleting…</> : `× Delete ${selectedKeys.size} selected`}
             </button>
           )}
           <button className="btn" onClick={loadFiles}
-            style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 10px" }}>
+            style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #e4e4e8", padding: "4px 10px" }}>
             ↻ Refresh
           </button>
         </div>
@@ -430,7 +430,7 @@ function DocumentsTab({ projectId, isAdmin }) {
       {isAdmin && (
         <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 16px", background: "#f5f3f0", border: "1px solid #e8e0d5", borderBottom: "none" }}>
           <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
-            style={{ cursor: "pointer", width: 14, height: 14, accentColor: ARC_NAVY }} />
+            style={{ cursor: "pointer", width: 14, height: 14, accentColor: DESIGN_TEXT }} />
           <span style={{ fontSize: 11, color: "#9a9088" }}>
             {someSelected ? `${selectedKeys.size} of ${files.length} selected` : "Select all"}
           </span>
@@ -446,15 +446,15 @@ function DocumentsTab({ projectId, isAdmin }) {
           }}>
             {isAdmin && (
               <input type="checkbox" checked={selectedKeys.has(f.key)} onChange={() => toggleSelect(f.key)}
-                style={{ cursor: "pointer", width: 14, height: 14, accentColor: ARC_NAVY, flexShrink: 0 }} />
+                style={{ cursor: "pointer", width: 14, height: 14, accentColor: DESIGN_TEXT, flexShrink: 0 }} />
             )}
             <span style={{ fontSize: 18, flexShrink: 0, width: 24, textAlign: "center" }}>📄</span>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>{f.label}</div>
+              <div style={{ fontSize: 13, color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" }}>{f.label}</div>
               <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>{f.name}</div>
             </div>
             <button className="btn" onClick={() => openFile(f)} disabled={opening === f.key}
-              style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, background: "none", border: `1px solid ${ARC_NAVY}`, padding: "4px 12px", flexShrink: 0, letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
+              style={{ fontSize: 11, fontWeight: 600, color: DESIGN_TEXT, background: "none", border: `1px solid ${DESIGN_TEXT}`, padding: "4px 12px", flexShrink: 0, letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
               {opening === f.key ? <><Spinner size={10} /> Opening…</> : "Open / Print"}
             </button>
           </div>
@@ -470,11 +470,11 @@ function DocumentsTab({ projectId, isAdmin }) {
 // ── TransmittalTab ────────────────────────────────────────────────────────────
 const DEFAULT_COLOURS = {
   header:      "#1a2332",
-  groupRow:    "#f0ede8",
+  groupRow:    "#f8f8fa",
   bforward:    "#2e5e8e",
   latestIssue: "#c25a45",
   rowEven:     "#ffffff",
-  rowOdd:      "#faf8f5",
+  rowOdd:      "#f8f8fa",
   headerText:  "#ffffff",
   bodyText:    "#1a2332",
 };
@@ -965,7 +965,7 @@ function TransmittalTab({ projectId, isAdmin }) {
   if (drawings.length === 0) return (
     <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
       <div style={{ fontSize: 36, marginBottom: 12 }}>📐</div>
-      <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif" }}>
+      <p style={{ fontSize: 14, color: DESIGN_TEXT, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif" }}>
         No drawings in the register yet.
       </p>
       <p style={{ fontSize: 12, color: "#9a9088", marginTop: 6 }}>
@@ -1029,8 +1029,8 @@ function TransmittalTab({ projectId, isAdmin }) {
       {/* Print warning modal */}
       {printWarning && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", width: 480, borderTop: `3px solid ${ARC_NAVY}`, padding: "28px 32px", fontFamily: "Inter, Arial, sans-serif" }}>
-            <h3 style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 12 }}>🖨 Before you print</h3>
+          <div style={{ background: "#fff", width: 480, borderTop: `3px solid ${DESIGN_TEXT}`, padding: "28px 32px", fontFamily: "Inter, Arial, sans-serif" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 12 }}>🖨 Before you print</h3>
             <p style={{ fontSize: 13, color: "#5a5048", lineHeight: 1.7, marginBottom: 8 }}>
               To remove browser-generated text (URL, page number, date) from your printed schedule:
             </p>
@@ -1040,7 +1040,7 @@ function TransmittalTab({ projectId, isAdmin }) {
               <li>Click <strong>Print</strong></li>
             </ol>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
-              <input type="checkbox" id="print-dismiss" style={{ width: 14, height: 14, cursor: "pointer", accentColor: ARC_NAVY }}
+              <input type="checkbox" id="print-dismiss" style={{ width: 14, height: 14, cursor: "pointer", accentColor: DESIGN_TEXT }}
                 onChange={e => { if (e.target.checked) localStorage.setItem("archimind_print_warning_dismissed", "1"); else localStorage.removeItem("archimind_print_warning_dismissed"); }} />
               <label htmlFor="print-dismiss" style={{ fontSize: 12, color: "#9a9088", cursor: "pointer" }}>
                 Don't show this again
@@ -1048,11 +1048,11 @@ function TransmittalTab({ projectId, isAdmin }) {
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button className="btn" onClick={() => confirmPrint(localStorage.getItem("archimind_print_warning_dismissed") === "1")}
-                style={{ background: ARC_NAVY, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>
+                style={{ background: DESIGN_TEXT, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>
                 Continue to Print
               </button>
               <button className="btn" onClick={() => setPrintWarning(null)}
-                style={{ background: "none", color: "#9a9088", border: "1px solid #ddd8d0", padding: "9px 16px", fontSize: 11, cursor: "pointer" }}>
+                style={{ background: "none", color: "#9a9088", border: "1px solid #e4e4e8", padding: "9px 16px", fontSize: 11, cursor: "pointer" }}>
                 Cancel
               </button>
             </div>
@@ -1063,21 +1063,21 @@ function TransmittalTab({ projectId, isAdmin }) {
       {/* Delete issue column confirmation */}
       {pendingDeleteIssue && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", width: 440, borderTop: `3px solid ${ARC_TERRACOTTA}`, padding: "28px 32px", fontFamily: "Inter, Arial, sans-serif" }}>
-            <h3 style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 12 }}>⚠ Delete Issue Column?</h3>
+          <div style={{ background: "#fff", width: 440, borderTop: `3px solid ${COMPARE_FULL}`, padding: "28px 32px", fontFamily: "Inter, Arial, sans-serif" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 12 }}>⚠ Delete Issue Column?</h3>
             <p style={{ fontSize: 13, color: "#5a5048", lineHeight: 1.7, marginBottom: 8 }}>
               You are about to permanently delete the issue column dated <strong>{new Date(pendingDeleteIssue.issueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</strong>.
             </p>
-            <p style={{ fontSize: 12, color: ARC_TERRACOTTA, lineHeight: 1.6, marginBottom: 24 }}>
+            <p style={{ fontSize: 12, color: COMPARE_FULL, lineHeight: 1.6, marginBottom: 24 }}>
               This will delete the issue record and all revision data for this column. This action cannot be undone.
             </p>
             <div style={{ display: "flex", gap: 10 }}>
               <button className="btn" onClick={confirmDeleteIssue}
-                style={{ background: ARC_TERRACOTTA, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>
+                style={{ background: COMPARE_FULL, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>
                 Yes, Delete Column
               </button>
               <button className="btn" onClick={() => setPendingDeleteIssue(null)}
-                style={{ background: "none", color: "#9a9088", border: "1px solid #ddd8d0", padding: "9px 16px", fontSize: 11, cursor: "pointer" }}>
+                style={{ background: "none", color: "#9a9088", border: "1px solid #e4e4e8", padding: "9px 16px", fontSize: 11, cursor: "pointer" }}>
                 Cancel
               </button>
             </div>
@@ -1088,32 +1088,32 @@ function TransmittalTab({ projectId, isAdmin }) {
       {/* Warning dialog for cell edits */}
       {pendingCell && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", width: 480, borderTop: `3px solid ${ARC_TERRACOTTA}`, padding: "28px 32px", fontFamily: "Inter, Arial, sans-serif" }}>
-            <h3 style={{ fontSize: 15, fontWeight: 600, color: ARC_NAVY, marginBottom: 12 }}>⚠ Edit Issue Record?</h3>
+          <div style={{ background: "#fff", width: 480, borderTop: `3px solid ${COMPARE_FULL}`, padding: "28px 32px", fontFamily: "Inter, Arial, sans-serif" }}>
+            <h3 style={{ fontSize: 15, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 12 }}>⚠ Edit Issue Record?</h3>
             <p style={{ fontSize: 13, color: "#5a5048", lineHeight: 1.7, marginBottom: 8 }}>
               You are changing the revision for <strong>{pendingCell.drawingTitle || pendingCell.drawingNumber}</strong> in the issue dated <strong>{new Date(pendingCell.issueDate).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</strong>.
             </p>
-            <div style={{ display: "flex", gap: 16, marginBottom: 16, padding: "10px 14px", background: "#faf8f5", border: "1px solid #e8e0d5" }}>
+            <div style={{ display: "flex", gap: 16, marginBottom: 16, padding: "10px 14px", background: "#f8f8fa", border: "1px solid #e8e0d5" }}>
               <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 10, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>Current</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: ARC_NAVY }}>{pendingCell.oldValue || "—"}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: DESIGN_TEXT }}>{pendingCell.oldValue || "—"}</div>
               </div>
               <div style={{ display: "flex", alignItems: "center", fontSize: 16, color: "#9a9088" }}>→</div>
               <div style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 10, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 3 }}>New</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: ARC_TERRACOTTA }}>{pendingCell.newValue || "—"}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: COMPARE_FULL }}>{pendingCell.newValue || "—"}</div>
               </div>
             </div>
-            <p style={{ fontSize: 12, color: ARC_TERRACOTTA, lineHeight: 1.6, marginBottom: 24 }}>
+            <p style={{ fontSize: 12, color: COMPARE_FULL, lineHeight: 1.6, marginBottom: 24 }}>
               Editing the issue history is a permanent change and can cause coordination problems. Only proceed if you are certain this is correct.
             </p>
             <div style={{ display: "flex", gap: 10 }}>
               <button className="btn" onClick={confirmCellEdit}
-                style={{ background: ARC_TERRACOTTA, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>
+                style={{ background: COMPARE_FULL, color: "#fff", border: "none", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: "pointer" }}>
                 Yes, Save Change
               </button>
               <button className="btn" onClick={() => setPendingCell(null)}
-                style={{ background: "none", color: "#9a9088", border: "1px solid #ddd8d0", padding: "9px 16px", fontSize: 11, cursor: "pointer" }}>
+                style={{ background: "none", color: "#9a9088", border: "1px solid #e4e4e8", padding: "9px 16px", fontSize: 11, cursor: "pointer" }}>
                 Cancel
               </button>
             </div>
@@ -1132,18 +1132,18 @@ function TransmittalTab({ projectId, isAdmin }) {
               fontSize: 12, padding: "4px 10px",
               background: pdfMsg.type === "ok" ? "#eef6ee" : "#fdf0f0",
               border: `1px solid ${pdfMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`,
-              color: pdfMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA,
+              color: pdfMsg.type === "ok" ? "#2e7d4f" : COMPARE_FULL,
             }}>{pdfMsg.text}</span>
           )}
           {isAdmin && (
-            <button className="btn" onClick={() => handlePrintClick("snapshot")} disabled={savingPdf} style={btnSm(ARC_TERRACOTTA)}>
+            <button className="btn" onClick={() => handlePrintClick("snapshot")} disabled={savingPdf} style={btnSm(COMPARE_FULL)}>
               {savingPdf ? <><Spinner size={10} /> Saving…</> : "↓ Save PDF Snapshot"}
             </button>
           )}
-          <button className="btn" onClick={() => handlePrintClick("pdf")} disabled={exportingPdf} style={btnSm(ARC_NAVY)}>
+          <button className="btn" onClick={() => handlePrintClick("pdf")} disabled={exportingPdf} style={btnSm(DESIGN_TEXT)}>
             {exportingPdf ? <><Spinner size={10} /> Preparing…</> : "↓ Export PDF"}
           </button>
-          <button className="btn" onClick={exportExcel} disabled={exportingExcel} style={btnSm(AD_GREEN)}>
+          <button className="btn" onClick={exportExcel} disabled={exportingExcel} style={btnSm(PROJECTS_FULL)}>
             {exportingExcel ? <><Spinner size={10} /> Exporting…</> : "↓ Export Excel"}
           </button>
           {/* ── TEST ONLY ── remove before go-live */}
@@ -1152,7 +1152,7 @@ function TransmittalTab({ projectId, isAdmin }) {
             : <button className="btn" onClick={clearTestIssues} style={{ fontSize: 10, color: "#fff", background: "#7a0000", border: "none", padding: "4px 10px", letterSpacing: "0.04em" }}>⚗ Clear test issues</button>
           }
           <button className="btn" onClick={load}
-            style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 10px" }}>
+            style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #e4e4e8", padding: "4px 10px" }}>
             ↻
           </button>
         </div>
@@ -1181,11 +1181,11 @@ function TransmittalTab({ projectId, isAdmin }) {
           </div>
         </div>
         {(notes || isAdmin) && (
-          <div style={{ padding: "8px 0", background: "#faf8f5", borderBottom: "1px solid #e8e0d5" }}>
+          <div style={{ padding: "8px 0", background: "#f8f8fa", borderBottom: "1px solid #e8e0d5" }}>
             {isAdmin ? (
               <textarea value={notesDraft} onChange={e => { setNotesDraft(e.target.value); e.target.style.height = "auto"; e.target.style.height = e.target.scrollHeight + "px"; }} onBlur={saveNotes}
                 placeholder="Transmittal notes (optional)…" rows={2}
-                style={{ width: "100%", fontSize: 11, border: "1px solid #ddd8d0", padding: "6px 8px", fontFamily: "Inter, Arial, sans-serif", resize: "vertical", color: colours.bodyText, background: "#fff", boxSizing: "border-box", overflow: "hidden", minHeight: 48 }} />
+                style={{ width: "100%", fontSize: 11, border: "1px solid #e4e4e8", padding: "6px 8px", fontFamily: "Inter, Arial, sans-serif", resize: "vertical", color: colours.bodyText, background: "#fff", boxSizing: "border-box", overflow: "hidden", minHeight: 48 }} />
             ) : (
               <div style={{ fontSize: 11, color: colours.bodyText, lineHeight: 1.6 }}>{notes}</div>
             )}
@@ -1257,7 +1257,7 @@ function TransmittalTab({ projectId, isAdmin }) {
                               <input autoFocus value={cellDraft} onChange={e => setCellDraft(e.target.value)}
                                 onBlur={() => requestCellEdit(issue.id, issue.issue_date, d.drawing_number, d.title, cellDraft)}
                                 onKeyDown={e => { if (e.key === "Enter") requestCellEdit(issue.id, issue.issue_date, d.drawing_number, d.title, cellDraft); if (e.key === "Escape") setEditingCell(null); }}
-                                style={{ width: "100%", border: `1px solid ${AD_GREEN}`, padding: "2px 3px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", textAlign: "center", outline: "none", background: "#fff" }} />
+                                style={{ width: "100%", border: `1px solid ${PROJECTS_FULL}`, padding: "2px 3px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", textAlign: "center", outline: "none", background: "#fff" }} />
                             ) : (
                               <span onClick={() => { if (isAdmin) { setEditingCell({ issueId: issue.id, drawingNumber: d.drawing_number }); setCellDraft(rev); } }}
                                 title={isAdmin ? "Click to edit (use sparingly)" : rev}
@@ -1711,10 +1711,10 @@ Rules:
   return (
     <div style={{ borderTop: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0 }}>
       {expanded && hasResults && (
-        <div style={{ borderBottom: "1px solid #f0ede8", background: "#faf8f5", maxHeight: 400, overflowY: "auto", animation: "fadeIn 0.3s ease", position: "relative" }}>
+        <div style={{ borderBottom: "1px solid #f0ede8", background: "#f8f8fa", maxHeight: 400, overflowY: "auto", animation: "fadeIn 0.3s ease", position: "relative" }}>
           <button className="btn" onClick={() => { setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setStatus(""); setExpanded(false); }}
             style={{ position: "sticky", top: 8, float: "right", marginRight: 12, marginTop: 8, background: "none", color: "#b0a8a0", border: "1px solid #e8e0d5", fontSize: 11, padding: "2px 8px", zIndex: 10, fontFamily: "Inter, Arial, sans-serif" }}
-            onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA}
+            onMouseEnter={e => e.target.style.color = COMPARE_FULL}
             onMouseLeave={e => e.target.style.color = "#b0a8a0"}>
             ✕
           </button>
@@ -1730,12 +1730,12 @@ Rules:
           )}
           {!running && status && (
             <div style={{ padding: "14px 32px" }}>
-              <p style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{status}</p>
+              <p style={{ fontSize: 12, color: COMPARE_FULL }}>{status}</p>
             </div>
           )}
           {matchedProducts.length > 0 && (
             <div>
-              <div style={{ padding: "8px 16px", background: "#f0ede8", display: "flex", alignItems: "center" }}>
+              <div style={{ padding: "8px 16px", background: "#f8f8fa", display: "flex", alignItems: "center" }}>
                 <span style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase" }}>
                   {matchedProducts.length} product{matchedProducts.length !== 1 ? "s" : ""} referenced
                 </span>
@@ -1747,11 +1747,11 @@ Rules:
                 const isExpanded = expandedProductId === p.id;
                 const hasAttrs = p.attributes && p.attributes.length > 0;
                 return (
-                  <div key={a.id} style={{ borderBottom: i < matchedProducts.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#faf8f5" : "#fff" }}>
+                  <div key={a.id} style={{ borderBottom: i < matchedProducts.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#f8f8fa" : "#fff" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px" }}>
                       <div style={{ flex: 1, minWidth: 0, cursor: hasAttrs ? "pointer" : "default" }}
                         onClick={() => hasAttrs && setExpandedProductId(isExpanded ? null : p.id)}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY }}>{p.name}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT }}>{p.name}</div>
                         <div style={{ fontSize: 11, color: "#9a9088", marginTop: 1 }}>
                           {p.manufacturer || "—"}
                           {cat && <span style={{ marginLeft: 10, color: "#b0a8a0" }}>· {cat.name}</span>}
@@ -1780,16 +1780,16 @@ Rules:
                         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "Inter, Arial, sans-serif" }}>
                           <thead>
                             <tr>
-                              <th style={{ background: ARC_NAVY, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "35%" }}>Attribute</th>
-                              <th style={{ background: ARC_NAVY, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase" }}>Value</th>
-                              <th style={{ background: ARC_NAVY, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "15%" }}>Unit</th>
+                              <th style={{ background: DESIGN_TEXT, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "35%" }}>Attribute</th>
+                              <th style={{ background: DESIGN_TEXT, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase" }}>Value</th>
+                              <th style={{ background: DESIGN_TEXT, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "15%" }}>Unit</th>
                             </tr>
                           </thead>
                           <tbody>
                             {p.attributes.map((attr, j) => (
                               <tr key={j} style={{ background: j % 2 === 0 ? "#f9f7f5" : "#fff" }}>
                                 <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: "#5a5048", fontWeight: 500 }}>{attr.attribute}</td>
-                                <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: ARC_NAVY }}>{attr.value}</td>
+                                <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: DESIGN_TEXT }}>{attr.value}</td>
                                 <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: "#9a9088" }}>{attr.unit || "—"}</td>
                               </tr>
                             ))}
@@ -1804,16 +1804,16 @@ Rules:
           )}
           {matchedDrawings.length > 0 && (
             <div>
-              <div style={{ padding: "8px 16px", background: "#f0ede8", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ padding: "8px 16px", background: "#f8f8fa", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <span style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase" }}>
                   {matchedDrawings.length} drawing{matchedDrawings.length !== 1 ? "s" : ""} found
                 </span>
                 <button className="btn" onClick={downloadAll} disabled={downloadingAll}
-                  style={{ fontSize: 10, fontWeight: 600, color: ARC_NAVY, background: "none", border: `1px solid ${ARC_NAVY}`, padding: "3px 10px", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
+                  style={{ fontSize: 10, fontWeight: 600, color: DESIGN_TEXT, background: "none", border: `1px solid ${DESIGN_TEXT}`, padding: "3px 10px", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
                   {downloadingAll ? <><Spinner size={10} /> Downloading…</> : "↓ Download All"}
                 </button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "6px 16px", background: ARC_NAVY }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "6px 16px", background: DESIGN_TEXT }}>
                 {["Drawing No.", "Title", "Rev.", "Status", "Scale", "", "", ""].map((h, i) => (
                   <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
                 ))}
@@ -1833,14 +1833,14 @@ Rules:
         <input value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={e => { if (e.key === "Enter") ask(); }}
           placeholder="Ask anything about this project, or find drawings — e.g. 'show me all 1:200 floor plans'"
           className="arc-input"
-          style={{ flex: 1, border: "1px solid #ddd8d0", borderRight: "none", padding: "8px 14px", fontSize: 13, color: ARC_NAVY, outline: "none", fontFamily: "Inter, Arial, sans-serif", background: "#fff" }} />
+          style={{ flex: 1, border: "1px solid #e4e4e8", borderRight: "none", padding: "8px 14px", fontSize: 13, color: DESIGN_TEXT, outline: "none", fontFamily: "Inter, Arial, sans-serif", background: "#fff" }} />
         <button className="btn" onClick={ask} disabled={!question.trim() || running}
-          style={{ background: question.trim() && !running ? ARC_NAVY : "#f0ede8", color: question.trim() && !running ? "#fff" : "#9a9088", padding: "0 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", border: `1px solid ${question.trim() && !running ? ARC_NAVY : "#ddd8d0"}`, minWidth: 70 }}>
+          style={{ background: question.trim() && !running ? DESIGN_TEXT : "#f8f8fa", color: question.trim() && !running ? "#fff" : "#9a9088", padding: "0 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", border: `1px solid ${question.trim() && !running ? DESIGN_TEXT : "#ddd8d0"}`, minWidth: 70 }}>
           {running ? <Spinner size={12} /> : "Ask"}
         </button>
         {hasResults && (
           <button className="btn" onClick={() => { setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setStatus(""); setExpanded(false); }}
-            style={{ background: "none", color: "#9a9088", padding: "0 10px", fontSize: 11, border: "1px solid #ddd8d0", borderLeft: "none", marginLeft: -1 }}>Clear</button>
+            style={{ background: "none", color: "#9a9088", padding: "0 10px", fontSize: 11, border: "1px solid #e4e4e8", borderLeft: "none", marginLeft: -1 }}>Clear</button>
         )}
       </div>
 
@@ -1856,7 +1856,7 @@ Rules:
 
       {viewingPdfProduct && (
         <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 2000, display: "flex", flexDirection: "column" }}>
-          <div style={{ background: ARC_NAVY, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <div style={{ background: DESIGN_TEXT, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{viewingPdfProduct.name}</div>
               {viewingPdfProduct.manufacturer && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>{viewingPdfProduct.manufacturer}</div>}
@@ -2014,7 +2014,7 @@ function ProductsTab({ projectId, isAdmin }) {
         const isCollapsed = collapsed[cat.id];
         return (
           <div key={cat.id} style={{ marginBottom: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, background: ARC_NAVY, padding: "8px 14px", cursor: "pointer" }}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, background: DESIGN_TEXT, padding: "8px 14px", cursor: "pointer" }}
               onClick={() => setCollapsed(prev => ({ ...prev, [cat.id]: !prev[cat.id] }))}>
               <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "#fff", flex: 1 }}>{cat.name}</span>
               <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginRight: 4 }}>{catAssignments.length > 0 ? `${catAssignments.length}` : ""}</span>
@@ -2027,7 +2027,7 @@ function ProductsTab({ projectId, isAdmin }) {
               {isAdmin && cat.name !== "Uncategorised" && (
                 <button className="btn" onClick={e => { e.stopPropagation(); deleteCategory(cat.id); }}
                   style={{ fontSize: 12, color: "rgba(255,255,255,0.4)", background: "none", border: "none", padding: "0 4px", lineHeight: 1 }}
-                  onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA}
+                  onMouseEnter={e => e.target.style.color = COMPARE_FULL}
                   onMouseLeave={e => e.target.style.color = "rgba(255,255,255,0.4)"}>×</button>
               )}
               <span style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginLeft: 2 }}>{isCollapsed ? "▶" : "▼"}</span>
@@ -2043,9 +2043,9 @@ function ProductsTab({ projectId, isAdmin }) {
                     const prod = a.products;
                     if (!prod) return null;
                     return (
-                      <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: i < catAssignments.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#faf8f5" : "#fff" }}>
+                      <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px", borderBottom: i < catAssignments.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#f8f8fa" : "#fff" }}>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 1 }}>{prod.name}</div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 1 }}>{prod.name}</div>
                           <div style={{ fontSize: 11, color: "#9a9088" }}>{prod.manufacturer || "—"}</div>
                         </div>
                         {prod.product_type && (
@@ -2064,7 +2064,7 @@ function ProductsTab({ projectId, isAdmin }) {
                             <select autoFocus defaultValue={a.category_id || ""}
                               onChange={e => { if (e.target.value) moveAssignment(a.id, e.target.value); else setMovingId(null); }}
                               onBlur={() => setMovingId(null)}
-                              style={{ fontSize: 11, padding: "3px 6px", border: "1px solid #ddd8d0", fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY }}>
+                              style={{ fontSize: 11, padding: "3px 6px", border: "1px solid #e4e4e8", fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT }}>
                               <option value="">— cancel —</option>
                               {categories.filter(c => c.id !== a.category_id).map(c => (
                                 <option key={c.id} value={c.id}>{c.name}</option>
@@ -2073,7 +2073,7 @@ function ProductsTab({ projectId, isAdmin }) {
                           ) : (
                             <button className="btn" onClick={() => setMovingId(a.id)}
                               title="Move to another category"
-                              style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "3px 8px", flexShrink: 0 }}>
+                              style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #e4e4e8", padding: "3px 8px", flexShrink: 0 }}>
                               ⇄
                             </button>
                           )
@@ -2081,7 +2081,7 @@ function ProductsTab({ projectId, isAdmin }) {
                         {isAdmin && (
                           <button className="btn" onClick={() => removeAssignment(a.id)}
                             style={{ fontSize: 14, color: "#c8c0b8", background: "none", border: "none", padding: "0 4px", flexShrink: 0 }}
-                            onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA}
+                            onMouseEnter={e => e.target.style.color = COMPARE_FULL}
                             onMouseLeave={e => e.target.style.color = "#c8c0b8"}>×</button>
                         )}
                       </div>
@@ -2101,17 +2101,17 @@ function ProductsTab({ projectId, isAdmin }) {
               <input value={newCategoryName} onChange={e => setNewCategoryName(e.target.value)} autoFocus
                 placeholder="Category name…"
                 onKeyDown={e => { if (e.key === "Enter") addCategory(); if (e.key === "Escape") { setAddingCategory(false); setNewCategoryName(""); } }}
-                style={{ flex: 1, border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none" }} />
+                style={{ flex: 1, border: "1px solid #e4e4e8", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none" }} />
               <button className="btn" onClick={addCategory} disabled={!newCategoryName.trim() || savingCategory}
-                style={{ background: AD_GREEN, color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                style={{ background: PROJECTS_FULL, color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                 {savingCategory ? <Spinner size={11} /> : "Add"}
               </button>
               <button className="btn" onClick={() => { setAddingCategory(false); setNewCategoryName(""); }}
-                style={{ background: "none", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+                style={{ background: "none", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #e4e4e8" }}>Cancel</button>
             </div>
           ) : (
             <button className="btn" onClick={() => setAddingCategory(true)}
-              style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "6px 16px", fontWeight: 600, letterSpacing: "0.04em" }}>
+              style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #e4e4e8", padding: "6px 16px", fontWeight: 600, letterSpacing: "0.04em" }}>
               + Add Category
             </button>
           )}
@@ -2120,14 +2120,14 @@ function ProductsTab({ projectId, isAdmin }) {
 
       {pickerCategoryId !== null && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", width: 520, maxHeight: "80vh", display: "flex", flexDirection: "column", borderTop: `3px solid ${AD_GREEN}`, fontFamily: "Inter, Arial, sans-serif" }}>
+          <div style={{ background: "#fff", width: 520, maxHeight: "80vh", display: "flex", flexDirection: "column", borderTop: `3px solid ${PROJECTS_FULL}`, fontFamily: "Inter, Arial, sans-serif" }}>
             <div style={{ padding: "20px 24px 14px", borderBottom: "1px solid #e8e0d5", flexShrink: 0 }}>
-              <div style={{ fontSize: 14, fontWeight: 500, color: ARC_NAVY, marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 500, color: DESIGN_TEXT, marginBottom: 12 }}>
                 Add Product — {categories.find(c => c.id === pickerCategoryId)?.name}
               </div>
               <input value={pickerSearch} onChange={e => setPickerSearch(e.target.value)} autoFocus
                 placeholder="Search by name or manufacturer…"
-                style={{ width: "100%", border: "1px solid #ddd8d0", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", boxSizing: "border-box" }} />
+                style={{ width: "100%", border: "1px solid #e4e4e8", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", boxSizing: "border-box" }} />
             </div>
             <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
               {allProducts.length === 0 ? (
@@ -2144,7 +2144,7 @@ function ProductsTab({ projectId, isAdmin }) {
                     onMouseEnter={e => e.currentTarget.style.background = "#f0f8f0"}
                     onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY }}>{p.name}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT }}>{p.name}</div>
                       <div style={{ fontSize: 11, color: "#9a9088", marginTop: 1 }}>{p.manufacturer || "—"}</div>
                     </div>
                     {p.product_type && (
@@ -2152,14 +2152,14 @@ function ProductsTab({ projectId, isAdmin }) {
                         {p.product_type}
                       </span>
                     )}
-                    <span style={{ fontSize: 18, color: AD_GREEN, flexShrink: 0 }}>+</span>
+                    <span style={{ fontSize: 18, color: PROJECTS_FULL, flexShrink: 0 }}>+</span>
                   </div>
                 ))
               )}
             </div>
             <div style={{ padding: "12px 24px", borderTop: "1px solid #e8e0d5", flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
               <button className="btn" onClick={() => { setPickerCategoryId(null); setPickerSearch(""); }}
-                style={{ background: "none", color: "#9a9088", padding: "7px 16px", fontSize: 11, border: "1px solid #ddd8d0" }}>Close</button>
+                style={{ background: "none", color: "#9a9088", padding: "7px 16px", fontSize: 11, border: "1px solid #e4e4e8" }}>Close</button>
             </div>
           </div>
         </div>
@@ -2167,7 +2167,7 @@ function ProductsTab({ projectId, isAdmin }) {
 
       {viewingProduct && (
         <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 2000, display: "flex", flexDirection: "column" }}>
-          <div style={{ background: ARC_NAVY, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+          <div style={{ background: DESIGN_TEXT, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{viewingProduct.name}</div>
               {viewingProduct.manufacturer && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.6)", marginTop: 2 }}>{viewingProduct.manufacturer}</div>}
@@ -2393,27 +2393,27 @@ function EmailsTab({ projectId }) {
     <div style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
 
       {/* ── Question input bar ── */}
-      <div style={{ padding: "12px 16px", borderBottom: "1px solid #e8e2d9", background: "#faf8f5", flexShrink: 0 }}>
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid #e8e2d9", background: "#f8f8fa", flexShrink: 0 }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: AD_GREEN, textTransform: "uppercase", whiteSpace: "nowrap" }}>✦ Ask</span>
+          <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", color: PROJECTS_FULL, textTransform: "uppercase", whiteSpace: "nowrap" }}>✦ Ask</span>
           <input
             value={question}
             onChange={e => setQuestion(e.target.value)}
             onKeyDown={e => e.key === "Enter" && handleAsk()}
             placeholder="Ask a question about your emails…"
-            style={{ flex: 1, border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 12, color: ARC_NAVY, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }}
+            style={{ flex: 1, border: "1px solid #e4e4e8", padding: "7px 10px", fontSize: 12, color: DESIGN_TEXT, outline: "none", background: "#fff", fontFamily: "Inter, Arial, sans-serif" }}
           />
           <button
             onClick={handleAsk}
             disabled={asking || !question.trim()}
-            style={{ background: asking ? "#999" : AD_GREEN, color: "#fff", border: "none", padding: "8px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: asking ? "default" : "pointer", whiteSpace: "nowrap" }}
+            style={{ background: asking ? "#999" : PROJECTS_FULL, color: "#fff", border: "none", padding: "8px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: asking ? "default" : "pointer", whiteSpace: "nowrap" }}
           >
             {asking ? "Asking…" : "Ask"}
           </button>
           {qaMode && (
             <button
               onClick={handleClearResults}
-              style={{ background: "transparent", border: "1px solid #ccc", padding: "7px 12px", fontSize: 11, color: "#666", cursor: "pointer" }}
+              style={{ background: "transparent", border: "1px solid #e4e4e8", padding: "7px 12px", fontSize: 11, color: "#666", cursor: "pointer" }}
             >
               Clear
             </button>
@@ -2422,21 +2422,21 @@ function EmailsTab({ projectId }) {
 
         {/* ── Filter row ── */}
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
-          <input value={filterFrom} onChange={e => setFilterFrom(e.target.value)} placeholder="From…" style={{ border: "1px solid #ddd8d0", padding: "4px 8px", fontSize: 11, width: 120, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif", outline: "none" }} />
-          <input value={filterSubject} onChange={e => setFilterSubject(e.target.value)} placeholder="Subject…" style={{ border: "1px solid #ddd8d0", padding: "4px 8px", fontSize: 11, width: 140, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif", outline: "none" }} />
-          <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} style={{ border: "1px solid #ddd8d0", padding: "4px 8px", fontSize: 11, color: ARC_NAVY }} />
+          <input value={filterFrom} onChange={e => setFilterFrom(e.target.value)} placeholder="From…" style={{ border: "1px solid #e4e4e8", padding: "4px 8px", fontSize: 11, width: 120, color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif", outline: "none" }} />
+          <input value={filterSubject} onChange={e => setFilterSubject(e.target.value)} placeholder="Subject…" style={{ border: "1px solid #e4e4e8", padding: "4px 8px", fontSize: 11, width: 140, color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif", outline: "none" }} />
+          <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} style={{ border: "1px solid #e4e4e8", padding: "4px 8px", fontSize: 11, color: DESIGN_TEXT }} />
           <span style={{ fontSize: 10, color: "#999" }}>to</span>
-          <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} style={{ border: "1px solid #ddd8d0", padding: "4px 8px", fontSize: 11, color: ARC_NAVY }} />
-          <select value={filterHasAttachments} onChange={e => setFilterHasAttachments(e.target.value)} style={{ border: "1px solid #ddd8d0", padding: "4px 8px", fontSize: 11, color: ARC_NAVY }}>
+          <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} style={{ border: "1px solid #e4e4e8", padding: "4px 8px", fontSize: 11, color: DESIGN_TEXT }} />
+          <select value={filterHasAttachments} onChange={e => setFilterHasAttachments(e.target.value)} style={{ border: "1px solid #e4e4e8", padding: "4px 8px", fontSize: 11, color: DESIGN_TEXT }}>
             <option value="">Attachments: any</option>
             <option value="yes">Has attachments</option>
           </select>
-          <select value={filterEmailType} onChange={e => setFilterEmailType(e.target.value)} style={{ border: "1px solid #ddd8d0", padding: "4px 8px", fontSize: 11, color: ARC_NAVY }}>
+          <select value={filterEmailType} onChange={e => setFilterEmailType(e.target.value)} style={{ border: "1px solid #e4e4e8", padding: "4px 8px", fontSize: 11, color: DESIGN_TEXT }}>
             <option value="">Type: any</option>
             {emailTypeOptions.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
           </select>
           {hasActiveFilters && (
-            <button onClick={clearFilters} style={{ background: "transparent", border: "none", fontSize: 11, color: AD_GREEN, cursor: "pointer", padding: "4px 6px" }}>
+            <button onClick={clearFilters} style={{ background: "transparent", border: "none", fontSize: 11, color: PROJECTS_FULL, cursor: "pointer", padding: "4px 6px" }}>
               Clear filters
             </button>
           )}
@@ -2452,8 +2452,8 @@ function EmailsTab({ projectId }) {
           {/* Q&A summary */}
           {qaMode && aiSummary && (
             <div style={{ padding: "12px 16px", background: "#f0f7f9", borderBottom: "1px solid #c5dde4", flexShrink: 0 }}>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: AD_GREEN, textTransform: "uppercase", marginBottom: 4 }}>AI Summary</div>
-              <p style={{ margin: 0, fontSize: 12, color: ARC_NAVY, lineHeight: 1.6 }}>{aiSummary}</p>
+              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.08em", color: PROJECTS_FULL, textTransform: "uppercase", marginBottom: 4 }}>AI Summary</div>
+              <p style={{ margin: 0, fontSize: 12, color: DESIGN_TEXT, lineHeight: 1.6 }}>{aiSummary}</p>
             </div>
           )}
           {qaMode && qaMessage && !aiSummary && (
@@ -2468,7 +2468,7 @@ function EmailsTab({ projectId }) {
           )}
 
           {/* Email count row */}
-          <div style={{ padding: "6px 16px", fontSize: 10, color: "#999", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", borderBottom: "1px solid #eee", background: "#faf8f5", flexShrink: 0 }}>
+          <div style={{ padding: "6px 16px", fontSize: 10, color: "#999", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", borderBottom: "1px solid #eee", background: "#f8f8fa", flexShrink: 0 }}>
             {qaMode
               ? `${emails.length} supporting email${emails.length !== 1 ? "s" : ""}`
               : loadingEmails ? "Loading…" : `${totalEmails.toLocaleString()} email${totalEmails !== 1 ? "s" : ""}`}
@@ -2498,7 +2498,7 @@ function EmailsTab({ projectId }) {
                     <button
                       onClick={() => loadEmails(page + 1, true)}
                       disabled={loadingMore}
-                      style={{ background: "transparent", border: "1px solid #ddd8d0", padding: "6px 16px", fontSize: 11, color: AD_GREEN, cursor: "pointer" }}
+                      style={{ background: "transparent", border: "1px solid #e4e4e8", padding: "6px 16px", fontSize: 11, color: PROJECTS_FULL, cursor: "pointer" }}
                     >
                       {loadingMore ? "Loading…" : `Load more (${totalEmails - emails.length} remaining)`}
                     </button>
@@ -2527,11 +2527,11 @@ function EmailsTab({ projectId }) {
       </div>
 
       {/* ── Re-embed admin row ── */}
-      <div style={{ padding: "8px 16px", borderTop: "1px solid #e8e2d9", background: "#faf8f5", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+      <div style={{ padding: "8px 16px", borderTop: "1px solid #e8e2d9", background: "#f8f8fa", display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
         <button
           onClick={handleReembed}
           disabled={reembedding}
-          style={{ background: "transparent", border: "1px solid #ddd8d0", padding: "4px 12px", fontSize: 10, color: "#888", cursor: reembedding ? "default" : "pointer", textTransform: "uppercase", letterSpacing: "0.06em" }}
+          style={{ background: "transparent", border: "1px solid #e4e4e8", padding: "4px 12px", fontSize: 10, color: "#888", cursor: reembedding ? "default" : "pointer", textTransform: "uppercase", letterSpacing: "0.06em" }}
         >
           {reembedding ? "Re-indexing…" : "Re-index emails"}
         </button>
@@ -2551,8 +2551,8 @@ function EmailsTab({ projectId }) {
 function EmailRow({ email, selected, onClick, onDelete }) {
   const [hovered, setHovered] = useState(false);
   const typeColors = {
-    confirmation: AD_GREEN, query: "#8a6040", instruction: "#5a4080",
-    information: "#4a6040", objection: ARC_TERRACOTTA, other: "#888",
+    confirmation: PROJECTS_FULL, query: "#8a6040", instruction: "#5a4080",
+    information: "#4a6040", objection: COMPARE_FULL, other: "#888",
   };
   return (
     <div
@@ -2563,13 +2563,13 @@ function EmailRow({ email, selected, onClick, onDelete }) {
         padding: "10px 16px",
         borderBottom: "1px solid #eee",
         cursor: "pointer",
-        background: selected ? "#e8f4f7" : hovered ? "#faf8f5" : "#fff",
-        borderLeft: selected ? `3px solid ${AD_GREEN}` : "3px solid transparent",
+        background: selected ? "#e8f4f7" : hovered ? "#f8f8fa" : "#fff",
+        borderLeft: selected ? `3px solid ${PROJECTS_FULL}` : "3px solid transparent",
         transition: "background 0.1s",
       }}
     >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 2 }}>
-        <span style={{ fontWeight: 600, fontSize: 12, color: ARC_NAVY }}>{email.from_name || email.from_address || "Unknown"}</span>
+        <span style={{ fontWeight: 600, fontSize: 12, color: DESIGN_TEXT }}>{email.from_name || email.from_address || "Unknown"}</span>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexShrink: 0 }}>
           {email.email_type && (
             <span style={{ fontSize: 9, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", color: typeColors[email.email_type] || "#888", border: `1px solid ${typeColors[email.email_type] || "#888"}`, padding: "1px 5px", borderRadius: 2 }}>
@@ -2581,7 +2581,7 @@ function EmailRow({ email, selected, onClick, onDelete }) {
           {hovered && (
             <button
               onClick={e => { e.stopPropagation(); onDelete(); }}
-              style={{ background: "transparent", border: "none", fontSize: 12, color: ARC_TERRACOTTA, cursor: "pointer", padding: "0 2px", fontWeight: 700 }}
+              style={{ background: "transparent", border: "none", fontSize: 12, color: COMPARE_FULL, cursor: "pointer", padding: "0 2px", fontWeight: 700 }}
               title="Delete email"
             >×</button>
           )}
@@ -2595,7 +2595,7 @@ function EmailRow({ email, selected, onClick, onDelete }) {
 
 function EmailPreview({ email, body, loading }) {
   const metaStyle = { fontSize: 11, color: "#9a9088", marginBottom: 4, lineHeight: 1.8 };
-  const metaLabelStyle = { fontWeight: 600, color: ARC_NAVY, marginRight: 6, display: "inline-block", width: 32 };
+  const metaLabelStyle = { fontWeight: 600, color: DESIGN_TEXT, marginRight: 6, display: "inline-block", width: 32 };
   const sentDate = email.sent_at ? new Date(email.sent_at).toLocaleString("en-GB", {
     day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"
   }) : "—";
@@ -2603,7 +2603,7 @@ function EmailPreview({ email, body, loading }) {
   return (
     <div style={{ padding: 16, height: "100%", boxSizing: "border-box" }}>
       <div style={{ marginBottom: 12, paddingBottom: 12, borderBottom: "1px solid #eee" }}>
-        <div style={{ fontWeight: 700, fontSize: 13, color: ARC_NAVY, marginBottom: 8 }}>{email.subject || "(no subject)"}</div>
+        <div style={{ fontWeight: 700, fontSize: 13, color: DESIGN_TEXT, marginBottom: 8 }}>{email.subject || "(no subject)"}</div>
         <div style={metaStyle}><span style={metaLabelStyle}>From</span>{email.from_name ? `${email.from_name} <${email.from_address}>` : email.from_address}</div>
         {(email.to_addresses || []).length > 0 && (
           <div style={metaStyle}><span style={metaLabelStyle}>To</span>{email.to_addresses.join(", ")}</div>
@@ -2632,7 +2632,7 @@ function PlaceholderTab({ icon, title, description }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 40px", textAlign: "center" }}>
       <div style={{ fontSize: 48, marginBottom: 16 }}>{icon}</div>
-      <p style={{ fontSize: 16, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>{title}</p>
+      <p style={{ fontSize: 16, color: DESIGN_TEXT, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>{title}</p>
       <p style={{ fontSize: 12, color: "#9a9088", maxWidth: 360, lineHeight: 1.7 }}>{description}</p>
       <div style={{ marginTop: 20, fontSize: 10, fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase", color: "#b0a8a0", border: "1px solid #e8e0d5", padding: "4px 12px" }}>Coming Soon</div>
     </div>
@@ -2925,15 +2925,15 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
   }
 
   const labelStyle = { fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 };
-  const inputStyle = { width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" };
-  const filterSelectStyle = { border: "1px solid #ddd8d0", padding: "6px 8px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", outline: "none", background: "#fff", color: "#9a9088" };
+  const inputStyle = { width: "100%", border: "1px solid #e4e4e8", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", background: "#fff" };
+  const filterSelectStyle = { border: "1px solid #e4e4e8", padding: "6px 8px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", outline: "none", background: "#fff", color: "#9a9088" };
   const COLS = "32px minmax(180px,220px) 1fr 60px minmax(70px,120px) 80px 120px 90px 80px 36px 36px 36px 36px";
 
   const subTabStyle = (id) => ({
     padding: "6px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase",
-    background: drawingSubTab === id ? ARC_NAVY : "transparent",
+    background: drawingSubTab === id ? DESIGN_TEXT : "transparent",
     color: drawingSubTab === id ? "#fff" : "#9a9088",
-    border: `1px solid ${drawingSubTab === id ? ARC_NAVY : "#ddd8d0"}`,
+    border: `1px solid ${drawingSubTab === id ? DESIGN_TEXT : "#ddd8d0"}`,
     cursor: "pointer", fontFamily: "Inter, Arial, sans-serif",
     borderRadius: 2,
   });
@@ -2961,12 +2961,12 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
             <h3 style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.1em", textTransform: "uppercase" }}>Drawing Register</h3>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <button className="btn" onClick={handleReindexAll}
-                style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+                style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #e4e4e8", padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
                 ↺ Re-index All
               </button>
               {isAdmin && !showUpload && (
                 <button className="btn" onClick={() => setShowUpload(true)}
-                  style={{ fontSize: 11, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+                  style={{ fontSize: 11, color: PROJECTS_FULL, background: "none", border: `1px solid ${PROJECTS_FULL}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
                   + Upload Drawing
                 </button>
               )}
@@ -2975,13 +2975,13 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
 
           {/* Upload panel */}
           {showUpload && (
-            <div style={{ background: "#fff", border: `1px solid ${AD_GREEN}`, padding: "20px 24px", marginBottom: 20 }}>
-              <h4 style={{ fontSize: 12, fontWeight: 600, color: ARC_NAVY, marginBottom: 16, letterSpacing: "0.04em", textTransform: "uppercase" }}>Upload Drawing</h4>
+            <div style={{ background: "#fff", border: `1px solid ${PROJECTS_FULL}`, padding: "20px 24px", marginBottom: 20 }}>
+              <h4 style={{ fontSize: 12, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 16, letterSpacing: "0.04em", textTransform: "uppercase" }}>Upload Drawing</h4>
               <div style={{ marginBottom: 16 }}>
                 <label style={labelStyle}>File (PDF or DWG)</label>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <input ref={fileInputRef} type="file" accept=".pdf,.dwg" onChange={handleFileChange}
-                    style={{ fontSize: 12, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif", flex: 1 }} />
+                    style={{ fontSize: 12, color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif", flex: 1 }} />
                   {selectedFile && <span style={{ fontSize: 11, color: "#9a9088", whiteSpace: "nowrap" }}>{(selectedFile.size / 1024 / 1024).toFixed(1)} MB</span>}
                 </div>
               </div>
@@ -2991,13 +2991,13 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
                 <div style={{ marginBottom: 14 }}><label style={labelStyle}>Revision</label><input value={form.revision} onChange={e => setForm(f => ({ ...f, revision: e.target.value }))} placeholder="e.g. P1" style={inputStyle} /></div>
                 <div style={{ marginBottom: 14 }}><label style={labelStyle}>Status</label><input value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))} placeholder="e.g. Preliminary" style={inputStyle} /></div>
               </div>
-              {uploadError && <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 12 }}>{uploadError}</p>}
+              {uploadError && <p style={{ fontSize: 12, color: COMPARE_FULL, marginBottom: 12 }}>{uploadError}</p>}
               <div style={{ display: "flex", gap: 8 }}>
                 <button className="btn" onClick={handleUpload} disabled={!selectedFile || !form.title.trim() || uploading}
-                  style={{ background: selectedFile && form.title.trim() && !uploading ? AD_GREEN : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  style={{ background: selectedFile && form.title.trim() && !uploading ? PROJECTS_FULL : "#c8c0b8", color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                   {uploading ? <><Spinner size={12} /> &nbsp;Uploading…</> : "Upload"}
                 </button>
-                <button className="btn" onClick={cancelUpload} disabled={uploading} style={{ background: "none", color: "#9a9088", padding: "8px 14px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+                <button className="btn" onClick={cancelUpload} disabled={uploading} style={{ background: "none", color: "#9a9088", padding: "8px 14px", fontSize: 11, border: "1px solid #e4e4e8" }}>Cancel</button>
               </div>
             </div>
           )}
@@ -3007,7 +3007,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10, flexWrap: "wrap" }}>
               <input value={filterText} onChange={e => { setFilterText(e.target.value); setSelectedIds(new Set()); }}
                 placeholder="Search no. or title…"
-                style={{ flex: "1 1 180px", minWidth: 140, border: "1px solid #ddd8d0", padding: "6px 10px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" }} />
+                style={{ flex: "1 1 180px", minWidth: 140, border: "1px solid #e4e4e8", padding: "6px 10px", fontSize: 11, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", background: "#fff" }} />
               {drawingTypeOptions.length > 0 && (
                 <select value={filterDrawingType} onChange={e => { setFilterDrawingType(e.target.value); setSelectedIds(new Set()); }} style={filterSelectStyle}>
                   <option value="">All types</option>
@@ -3033,7 +3033,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
               </select>
               {hasFilters && (
                 <button className="btn" onClick={clearFilters}
-                  style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "5px 10px" }}>
+                  style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #e4e4e8", padding: "5px 10px" }}>
                   Clear ×
                 </button>
               )}
@@ -3046,14 +3046,14 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
           {/* Bulk action toolbar */}
           {someSelected && (
             <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", background: "#eef6ff", border: "1px solid #b8d0e8", marginBottom: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY }}>{selectedIds.size} selected</span>
+              <span style={{ fontSize: 11, fontWeight: 600, color: DESIGN_TEXT }}>{selectedIds.size} selected</span>
               <button className="btn" onClick={downloadSelected} disabled={downloadingSelected}
-                style={{ fontSize: 11, fontWeight: 600, color: ARC_NAVY, background: "#fff", border: `1px solid ${ARC_NAVY}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
+                style={{ fontSize: 11, fontWeight: 600, color: DESIGN_TEXT, background: "#fff", border: `1px solid ${DESIGN_TEXT}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
                 {downloadingSelected ? <><Spinner size={10} /> Downloading…</> : "↓ Download Selected"}
               </button>
               {isAdmin && (
                 <button className="btn" onClick={deleteSelected} disabled={deletingSelected}
-                  style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: ARC_TERRACOTTA, border: `1px solid ${ARC_TERRACOTTA}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
+                  style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: COMPARE_FULL, border: `1px solid ${COMPARE_FULL}`, padding: "4px 12px", display: "flex", alignItems: "center", gap: 5 }}>
                   {deletingSelected ? <><Spinner size={10} /> Deleting…</> : "× Delete Selected"}
                 </button>
               )}
@@ -3070,7 +3070,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
           ) : drawings.length === 0 ? (
             <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
               <div style={{ fontSize: 36, marginBottom: 12 }}>📐</div>
-              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>No drawings uploaded yet</p>
+              <p style={{ fontSize: 14, color: DESIGN_TEXT, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 6 }}>No drawings uploaded yet</p>
               {isAdmin && <p style={{ fontSize: 12, color: "#9a9088" }}>Click + Upload Drawing to add the first one, or use Archimind Sync.</p>}
             </div>
           ) : filteredDrawings.length === 0 ? (
@@ -3079,7 +3079,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
             </div>
           ) : (
             <div style={{ background: "#fff", border: "1px solid #e8e0d5", overflowX: "auto" }}>
-              <div style={{ display: "grid", gridTemplateColumns: COLS, gap: "0 10px", padding: "8px 16px", background: ARC_NAVY, minWidth: 900 }}>
+              <div style={{ display: "grid", gridTemplateColumns: COLS, gap: "0 10px", padding: "8px 16px", background: DESIGN_TEXT, minWidth: 900 }}>
                 <div style={{ display: "flex", justifyContent: "center", alignItems: "center" }}>
                   <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
                     style={{ cursor: "pointer", width: 14, height: 14, accentColor: "#fff" }} />
@@ -3089,7 +3089,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
                 ))}
               </div>
               {filteredDrawings.map((d, i) => (
-                <div key={d.id} style={{ background: selectedIds.has(d.id) ? "#eef6ff" : i % 2 === 0 ? "#faf8f5" : "#fff", minWidth: 900 }}>
+                <div key={d.id} style={{ background: selectedIds.has(d.id) ? "#eef6ff" : i % 2 === 0 ? "#f8f8fa" : "#fff", minWidth: 900 }}>
                   <DrawingRow d={d} projectId={projectId} isAdmin={isAdmin}
                     onUpdate={updateField} onDelete={handleDelete}
                     onView={setViewingDrawing} downloadingId={downloadingId} onDownload={handleDownload}
@@ -3133,26 +3133,26 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
               onChange={e => setSearchQuery(e.target.value)}
               onKeyDown={e => e.key === "Enter" && handleDrawingSearch()}
               placeholder="e.g. fire escape routes, external doors, structural columns…"
-              style={{ flex: 1, border: "1px solid #ddd8d0", padding: "9px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", background: "#fff" }}
+              style={{ flex: 1, border: "1px solid #e4e4e8", padding: "9px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", background: "#fff" }}
             />
             <button className="btn" onClick={handleDrawingSearch} disabled={!searchQuery.trim() || searching}
-              style={{ background: searchQuery.trim() && !searching ? ARC_NAVY : "#b0a8a0", color: "#fff", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", border: "none", cursor: searchQuery.trim() && !searching ? "pointer" : "default" }}>
+              style={{ background: searchQuery.trim() && !searching ? DESIGN_TEXT : "#b0a8a0", color: "#fff", padding: "9px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", border: "none", cursor: searchQuery.trim() && !searching ? "pointer" : "default" }}>
               {searching ? <><Spinner size={11} />&nbsp;Searching…</> : "Search"}
             </button>
           </div>
 
-          {searchError && <p style={{ fontSize: 12, color: ARC_TERRACOTTA, marginBottom: 16 }}>{searchError}</p>}
+          {searchError && <p style={{ fontSize: 12, color: COMPARE_FULL, marginBottom: 16 }}>{searchError}</p>}
 
           {!searchDone && !searching && (
             <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
-              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif" }}>Search across drawing contents</p>
+              <p style={{ fontSize: 14, color: DESIGN_TEXT, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif" }}>Search across drawing contents</p>
               <p style={{ fontSize: 12, color: "#9a9088", marginTop: 6 }}>Type a description of what you're looking for — rooms, materials, notes, or anything visible on the drawings.</p>
             </div>
           )}
 
           {searchDone && !searching && searchResults.length === 0 && (
             <div style={{ background: "#fff", border: "1px solid #e8e0d5", padding: "48px", textAlign: "center" }}>
-              <p style={{ fontSize: 14, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif" }}>No drawings matched your search.</p>
+              <p style={{ fontSize: 14, color: DESIGN_TEXT, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif" }}>No drawings matched your search.</p>
               <p style={{ fontSize: 12, color: "#9a9088", marginTop: 6 }}>Try different keywords, or note that drawings without indexed content won't appear yet.</p>
             </div>
           )}
@@ -3172,8 +3172,8 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
             const chipStyle = (active) => ({
               fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase",
               padding: "3px 10px", cursor: "pointer",
-              border: `1px solid ${active ? ARC_NAVY : "#ddd8d0"}`,
-              background: active ? ARC_NAVY : "#fff",
+              border: `1px solid ${active ? DESIGN_TEXT : "#ddd8d0"}`,
+              background: active ? DESIGN_TEXT : "#fff",
               color: active ? "#fff" : "#9a9088",
               fontFamily: "Inter, Arial, sans-serif",
             });
@@ -3188,7 +3188,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
                     {volumeOpts.map(v => <button key={v} className="btn" style={chipStyle(searchFilterVolume === v)} onClick={() => setSearchFilterVolume(searchFilterVolume === v ? "" : v)}>{v}</button>)}
                     {statusOpts.map(s => <button key={s} className="btn" style={chipStyle(searchFilterStatus === s)} onClick={() => setSearchFilterStatus(searchFilterStatus === s ? "" : s)}>{s}</button>)}
                     {hasActiveFilter && (
-                      <button className="btn" style={{ ...chipStyle(false), color: ARC_TERRACOTTA, borderColor: ARC_TERRACOTTA }}
+                      <button className="btn" style={{ ...chipStyle(false), color: COMPARE_FULL, borderColor: COMPARE_FULL }}
                         onClick={() => { setSearchFilterType(""); setSearchFilterLevel(""); setSearchFilterVolume(""); setSearchFilterStatus(""); }}>
                         Clear filters
                       </button>
@@ -3198,7 +3198,7 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
 
                 {searchTermsUsed.length > 0 && (
                   <p style={{ fontSize: 11, color: "#9a9088", marginBottom: 8 }}>
-                    Searched for: {searchTermsUsed.map((t, i) => <span key={i} style={{ background: "#f0ede8", padding: "1px 6px", marginRight: 4, borderRadius: 2 }}>{t}</span>)}
+                    Searched for: {searchTermsUsed.map((t, i) => <span key={i} style={{ background: "#f8f8fa", padding: "1px 6px", marginRight: 4, borderRadius: 2 }}>{t}</span>)}
                   </p>
                 )}
 
@@ -3212,15 +3212,15 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
                       <>
                         <span style={{ fontSize: 11, color: "#9a9088" }}>{searchSelectedIds.size} selected</span>
                         <button className="btn" onClick={() => setSearchViewingDrawing(filtered.find(r => searchSelectedIds.has(r.id)))}
-                          style={{ fontSize: 11, color: ARC_NAVY, background: "none", border: `1px solid ${ARC_NAVY}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+                          style={{ fontSize: 11, color: DESIGN_TEXT, background: "none", border: `1px solid ${DESIGN_TEXT}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
                           Open Selected
                         </button>
                         <button className="btn" onClick={() => handleSearchDownloadSelected(filtered.filter(r => searchSelectedIds.has(r.id)))} disabled={searchDownloading}
-                          style={{ fontSize: 11, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
+                          style={{ fontSize: 11, color: PROJECTS_FULL, background: "none", border: `1px solid ${PROJECTS_FULL}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>
                           {searchDownloading ? "Downloading…" : "↓ Download Selected"}
                         </button>
                         <button className="btn" onClick={() => setSearchSelectedIds(new Set())}
-                          style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #ddd8d0", padding: "4px 8px" }}>
+                          style={{ fontSize: 11, color: "#9a9088", background: "none", border: "1px solid #e4e4e8", padding: "4px 8px" }}>
                           Clear
                         </button>
                       </>
@@ -3233,17 +3233,17 @@ function DrawingsTab({ projectId, isAdmin, onDrawingsLoaded, customDrawingTypes 
                     const isSelected = searchSelectedIds.has(r.id);
                     return (
                       <div key={r.id}
-                        style={{ background: isSelected ? "#eef6ff" : "#fff", border: `1px solid ${isSelected ? "#2a6496" : "#e8e0d5"}`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12 }}>
+                        style={{ background: isSelected ? "#eef6ff" : "#fff", border: `1px solid ${isSelected ? "#2a6496" : "#e4e4e8"}`, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12 }}>
                         <input type="checkbox" checked={isSelected}
                           onChange={() => setSearchSelectedIds(prev => { const n = new Set(prev); n.has(r.id) ? n.delete(r.id) : n.add(r.id); return n; })}
-                          style={{ cursor: "pointer", width: 14, height: 14, flexShrink: 0, accentColor: ARC_NAVY }} />
+                          style={{ cursor: "pointer", width: 14, height: 14, flexShrink: 0, accentColor: DESIGN_TEXT }} />
                         <div style={{ flex: 1, minWidth: 0, cursor: "pointer" }} onClick={() => setSearchViewingDrawing(r)}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title}</div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.title}</div>
                           <div style={{ fontSize: 11, color: "#9a9088", marginTop: 2 }}>{r.drawing_number || "—"}</div>
                         </div>
                         {r.drawing_type && <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#2a6496", background: "#e8f0f8", padding: "2px 7px", flexShrink: 0 }}>{r.drawing_type}</span>}
                         {r.level        && <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0 }}>{r.level}</span>}
-                        {r.revision     && <span style={{ fontSize: 10, fontWeight: 700, color: ARC_NAVY, flexShrink: 0 }}>Rev. {r.revision}</span>}
+                        {r.revision     && <span style={{ fontSize: 10, fontWeight: 700, color: DESIGN_TEXT, flexShrink: 0 }}>Rev. {r.revision}</span>}
                         {r.status       && <span style={{ fontSize: 10, color: "#9a9088", flexShrink: 0 }}>{r.status}</span>}
                         <span style={{ fontSize: 16, color: "#ddd8d0", flexShrink: 0, cursor: "pointer" }} onClick={() => setSearchViewingDrawing(r)}>›</span>
                       </div>
@@ -3379,7 +3379,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
 
   const tabStyle = t => ({
     padding: "10px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase",
-    background: activeTab === t ? "#ffffff" : "transparent", color: activeTab === t ? ARC_NAVY : "#9a9088",
+    background: activeTab === t ? "#ffffff" : "transparent", color: activeTab === t ? DESIGN_TEXT : "#9a9088",
     border: "none", borderBottom: activeTab === t ? `2px solid ${sColor}` : "2px solid transparent",
     cursor: "pointer", fontFamily: "Inter, Arial, sans-serif", transition: "all 0.15s",
   });
@@ -3392,7 +3392,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
   );
 
   const addBtn = (label, onClick) => (
-    <button className="btn" onClick={onClick} style={{ fontSize: 11, color: AD_GREEN, background: "none", border: `1px solid ${AD_GREEN}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>+ {label}</button>
+    <button className="btn" onClick={onClick} style={{ fontSize: 11, color: PROJECTS_FULL, background: "none", border: `1px solid ${PROJECTS_FULL}`, padding: "4px 12px", fontWeight: 600, letterSpacing: "0.04em" }}>+ {label}</button>
   );
 
   return (
@@ -3403,8 +3403,8 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
           <button className="btn" onClick={onBack} style={{ background: "none", color: "#9a9088", fontSize: 13, padding: "4px 0", border: "none", display: "flex", alignItems: "center", gap: 6, flexShrink: 0, marginTop: 2 }}>← Back</button>
           <div style={{ flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
-              <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>{project.name}</h1>
-              {project.job_number && <span style={{ fontSize: 11, color: "#9a9088", background: ARC_STONE, padding: "2px 8px", fontWeight: 500 }}>#{project.job_number}</span>}
+              <h1 style={{ fontSize: 22, fontWeight: 300, color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" }}>{project.name}</h1>
+              {project.job_number && <span style={{ fontSize: 11, color: "#9a9088", background: DESIGN_GROUND, padding: "2px 8px", fontWeight: 500 }}>#{project.job_number}</span>}
               {project.stage && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: sColor, background: `${sColor}18`, padding: "3px 8px" }}>{project.stage.split("—")[0].trim()}</span>}
             </div>
             <div style={{ fontSize: 12, color: "#9a9088", display: "flex", gap: 20, flexWrap: "wrap" }}>
@@ -3414,7 +3414,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
               {project.stage && <span>🏗 {project.stage}</span>}
             </div>
           </div>
-          {isAdmin && <button className="btn" onClick={() => { setEditForm({ ...project }); setEditingProject(true); }} style={{ background: "none", color: "#9a9088", border: "1px solid #ddd8d0", padding: "6px 14px", fontSize: 11, flexShrink: 0 }}>Edit</button>}
+          {isAdmin && <button className="btn" onClick={() => { setEditForm({ ...project }); setEditingProject(true); }} style={{ background: "none", color: "#9a9088", border: "1px solid #e4e4e8", padding: "6px 14px", fontSize: 11, flexShrink: 0 }}>Edit</button>}
         </div>
         <div style={{ display: "flex", overflowX: "auto" }}>
           {TABS.map(t => <button key={t.id} className="btn" style={tabStyle(t.id)} onClick={() => setActiveTab(t.id)}>{t.label}</button>)}
@@ -3424,19 +3424,19 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
       {/* Edit modal */}
       {editingProject && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center" }}>
-          <div style={{ background: "#fff", padding: "32px", width: 560, borderTop: `3px solid ${ARC_TERRACOTTA}`, fontFamily: "Inter, Arial, sans-serif", maxHeight: "90vh", overflowY: "auto" }}>
-            <h2 style={{ fontSize: 16, fontWeight: 500, color: ARC_NAVY, marginBottom: 20 }}>Edit Project</h2>
+          <div style={{ background: "#fff", padding: "32px", width: 560, borderTop: `3px solid ${COMPARE_FULL}`, fontFamily: "Inter, Arial, sans-serif", maxHeight: "90vh", overflowY: "auto" }}>
+            <h2 style={{ fontSize: 16, fontWeight: 500, color: DESIGN_TEXT, marginBottom: 20 }}>Edit Project</h2>
             {[["name","Project Name"],["job_number","Job Number"],["client","Client"],["location","Location"],["project_lead","Project Lead"],["description","Description"]].map(([field, label]) => (
               <div key={field} style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>{label}</label>
                 <input value={editForm[field] || ""} onChange={e => setEditForm(f => ({ ...f, [field]: e.target.value }))}
-                  style={{ width: "100%", border: "1px solid #ddd8d0", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", boxSizing: "border-box" }} />
+                  style={{ width: "100%", border: "1px solid #e4e4e8", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", boxSizing: "border-box" }} />
               </div>
             ))}
             <div style={{ marginBottom: 14 }}>
               <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>RIBA Stage</label>
               <select value={editForm.stage || ""} onChange={e => setEditForm(f => ({ ...f, stage: e.target.value }))}
-                style={{ width: "100%", border: "1px solid #ddd8d0", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: editForm.stage ? ARC_NAVY : "#9a9088", outline: "none", boxSizing: "border-box" }}>
+                style={{ width: "100%", border: "1px solid #e4e4e8", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: editForm.stage ? DESIGN_TEXT : "#9a9088", outline: "none", boxSizing: "border-box" }}>
                 <option value="">Select stage…</option>
                 {RIBA_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
@@ -3444,16 +3444,16 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
             <div style={{ marginBottom: 20 }}>
               <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>Status</label>
               <select value={editForm.status || "active"} onChange={e => setEditForm(f => ({ ...f, status: e.target.value }))}
-                style={{ width: "100%", border: "1px solid #ddd8d0", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", boxSizing: "border-box" }}>
+                style={{ width: "100%", border: "1px solid #e4e4e8", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", boxSizing: "border-box" }}>
                 {["active","on-hold","complete","archived"].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
             <div style={{ display: "flex", gap: 10 }}>
               <button className="btn" onClick={saveEditForm} disabled={saving.editForm}
-                style={{ background: ARC_NAVY, color: "#fff", padding: "9px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                style={{ background: DESIGN_TEXT, color: "#fff", padding: "9px 24px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                 {saving.editForm ? <Spinner size={12} /> : "Save Changes"}
               </button>
-              <button className="btn" onClick={() => setEditingProject(false)} style={{ background: "none", color: "#9a9088", padding: "9px 16px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+              <button className="btn" onClick={() => setEditingProject(false)} style={{ background: "none", color: "#9a9088", padding: "9px 16px", fontSize: 11, border: "1px solid #e4e4e8" }}>Cancel</button>
             </div>
           </div>
         </div>
@@ -3475,10 +3475,10 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
               ].map(([label, field]) => (
                 <div key={field} style={{ display: "flex", marginBottom: 16, gap: 20 }}>
                   <div style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", width: 120, flexShrink: 0, paddingTop: 2 }}>{label}</div>
-                  <div style={{ flex: 1, fontSize: 13, color: ARC_NAVY }}>
+                  <div style={{ flex: 1, fontSize: 13, color: DESIGN_TEXT }}>
                     {isAdmin
                       ? <EditableField value={project[field]} onSave={async v => { try { const { project: p } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { [field]: v } }); setData(d => ({ ...d, project: p })); } catch (e) { console.error(e); showToast("Failed to save"); } }} placeholder={`Click to add ${label.toLowerCase()}…`} multiline={field === "description"} />
-                      : <span style={{ color: project[field] ? ARC_NAVY : "#b0a8a0", fontStyle: project[field] ? "normal" : "italic" }}>{project[field] || `No ${label.toLowerCase()} set`}</span>
+                      : <span style={{ color: project[field] ? DESIGN_TEXT : "#b0a8a0", fontStyle: project[field] ? "normal" : "italic" }}>{project[field] || `No ${label.toLowerCase()} set`}</span>
                     }
                   </div>
                 </div>
@@ -3488,12 +3488,12 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
                 <div style={{ flex: 1 }}>
                   {isAdmin ? (
                     <select value={project.stage || ""} onChange={async e => { try { const { project: p } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { stage: e.target.value } }); setData(d => ({ ...d, project: p })); } catch (err) { console.error(err); showToast("Failed to save stage"); } }}
-                      style={{ border: "1px solid #ddd8d0", padding: "5px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: project.stage ? ARC_NAVY : "#9a9088", outline: "none", background: "#fff" }}>
+                      style={{ border: "1px solid #e4e4e8", padding: "5px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: project.stage ? DESIGN_TEXT : "#9a9088", outline: "none", background: "#fff" }}>
                       <option value="">Select stage…</option>
                       {RIBA_STAGES.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
                   ) : (
-                    <span style={{ fontSize: 13, color: project.stage ? ARC_NAVY : "#b0a8a0" }}>{project.stage || "No stage set"}</span>
+                    <span style={{ fontSize: 13, color: project.stage ? DESIGN_TEXT : "#b0a8a0" }}>{project.stage || "No stage set"}</span>
                   )}
                 </div>
               </div>
@@ -3505,23 +3505,23 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
           <div style={{ maxWidth: 800 }}>
             {sectionTitle("Consultants", isAdmin && addBtn("Add Consultant", () => setAddingConsultant(true)))}
             {addingConsultant && (
-              <div style={{ background: "#fff", border: `1px solid ${AD_GREEN}`, padding: "20px 24px", marginBottom: 16 }}>
+              <div style={{ background: "#fff", border: `1px solid ${PROJECTS_FULL}`, padding: "20px 24px", marginBottom: 16 }}>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 20px" }}>
                   {[["discipline","Discipline"],["company","Company"],["contact_name","Contact Name"],["email","Email"],["phone","Phone"]].map(([f, l]) => (
                     <div key={f} style={{ marginBottom: 12 }}>
                       <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>{l}</label>
                       <input value={newConsultant[f]} onChange={e => setNewConsultant(c => ({ ...c, [f]: e.target.value }))}
-                        style={{ width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", boxSizing: "border-box" }} />
+                        style={{ width: "100%", border: "1px solid #e4e4e8", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", boxSizing: "border-box" }} />
                     </div>
                   ))}
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button className="btn" onClick={addConsultant} disabled={saving.consultant}
-                    style={{ background: AD_GREEN, color: "#fff", padding: "7px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    style={{ background: PROJECTS_FULL, color: "#fff", padding: "7px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                     {saving.consultant ? <Spinner size={11} /> : "Add"}
                   </button>
                   <button className="btn" onClick={() => { setAddingConsultant(false); setNewConsultant({ discipline: "", company: "", contact_name: "", email: "", phone: "" }); }}
-                    style={{ background: "none", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+                    style={{ background: "none", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #e4e4e8" }}>Cancel</button>
                 </div>
               </div>
             )}
@@ -3532,7 +3532,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
                 {consultants.map((c, i) => (
                   <div key={c.id} style={{ display: "flex", alignItems: "flex-start", gap: 16, padding: "14px 20px", borderBottom: i < consultants.length - 1 ? "1px solid #f0ede8" : "none" }}>
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: ARC_NAVY, marginBottom: 3 }}>{c.company || "—"}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 3 }}>{c.company || "—"}</div>
                       <div style={{ fontSize: 11, color: "#9a9088", display: "flex", gap: 16, flexWrap: "wrap" }}>
                         {c.discipline && <span style={{ fontWeight: 600, color: "#6a7a8a" }}>{c.discipline}</span>}
                         {c.contact_name && <span>👤 {c.contact_name}</span>}
@@ -3542,7 +3542,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
                     </div>
                     {isAdmin && <button className="btn" onClick={() => deleteConsultant(c.id)}
                       style={{ background: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", border: "none", flexShrink: 0 }}
-                      onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.target.style.color = "#c8c0b8"}>×</button>}
+                      onMouseEnter={e => e.target.style.color = COMPARE_FULL} onMouseLeave={e => e.target.style.color = "#c8c0b8"}>×</button>}
                   </div>
                 ))}
               </div>
@@ -3557,30 +3557,30 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
               <div style={{ display: "flex", gap: 8, marginBottom: 14, alignItems: "center" }}>
                 <input value={newUvalueElement} onChange={e => setNewUvalueElement(e.target.value)} autoFocus placeholder="Element name…"
                   onKeyDown={e => { if (e.key === "Enter") addUvalue(); if (e.key === "Escape") { setAddingUvalue(false); setNewUvalueElement(""); } }}
-                  style={{ flex: 1, border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none" }} />
+                  style={{ flex: 1, border: "1px solid #e4e4e8", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none" }} />
                 <button className="btn" onClick={addUvalue} disabled={!newUvalueElement.trim() || saving.uvalue}
-                  style={{ background: AD_GREEN, color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                  style={{ background: PROJECTS_FULL, color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                   {saving.uvalue ? <Spinner size={11} /> : "Add"}
                 </button>
                 <button className="btn" onClick={() => { setAddingUvalue(false); setNewUvalueElement(""); }}
-                  style={{ background: "none", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+                  style={{ background: "none", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #e4e4e8" }}>Cancel</button>
               </div>
             )}
             <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 1fr 36px", gap: "0 12px", padding: "8px 16px", background: ARC_NAVY }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 1fr 36px", gap: "0 12px", padding: "8px 16px", background: DESIGN_TEXT }}>
                 {["Element", "Target (W/m²K)", "Achieved (W/m²K)", "Notes", ""].map((h, i) => (
                   <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
                 ))}
               </div>
               {uvalues.map((u, i) => (
-                <div key={u.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 1fr 36px", gap: "0 12px", padding: "10px 16px", alignItems: "center", background: i % 2 === 0 ? "#faf8f5" : "#fff", borderBottom: "1px solid #f0ede8" }}>
-                  <div style={{ fontSize: 13, color: ARC_NAVY, fontWeight: 500 }}>{u.element}</div>
+                <div key={u.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 120px 1fr 36px", gap: "0 12px", padding: "10px 16px", alignItems: "center", background: i % 2 === 0 ? "#f8f8fa" : "#fff", borderBottom: "1px solid #f0ede8" }}>
+                  <div style={{ fontSize: 13, color: DESIGN_TEXT, fontWeight: 500 }}>{u.element}</div>
                   <div><EditableField value={u.target !== null ? String(u.target) : ""} onSave={v => updateUvalue(u.id, "target", v)} placeholder="—" style={{ fontSize: 13, textAlign: "center" }} /></div>
                   <div><EditableField value={u.achieved !== null ? String(u.achieved) : ""} onSave={v => updateUvalue(u.id, "achieved", v)} placeholder="—" style={{ fontSize: 13, textAlign: "center" }} /></div>
                   <div><EditableField value={u.notes} onSave={v => updateUvalue(u.id, "notes", v)} placeholder="Notes…" style={{ fontSize: 12 }} /></div>
                   {isAdmin && <button className="btn" onClick={() => deleteUvalue(u.id)}
                     style={{ background: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", border: "none", textAlign: "center" }}
-                    onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.target.style.color = "#c8c0b8"}>×</button>}
+                    onMouseEnter={e => e.target.style.color = COMPARE_FULL} onMouseLeave={e => e.target.style.color = "#c8c0b8"}>×</button>}
                 </div>
               ))}
             </div>
@@ -3591,24 +3591,24 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
           <div style={{ maxWidth: 700 }}>
             {sectionTitle("Key Notes", isAdmin && addBtn("Add Note", () => setAddingNote(true)))}
             {addingNote && (
-              <div style={{ background: "#fff", border: `1px solid ${AD_GREEN}`, padding: "16px 20px", marginBottom: 14 }}>
+              <div style={{ background: "#fff", border: `1px solid ${PROJECTS_FULL}`, padding: "16px 20px", marginBottom: 14 }}>
                 <div style={{ marginBottom: 10 }}>
                   <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>Label</label>
                   <input value={newNote.label} onChange={e => setNewNote(n => ({ ...n, label: e.target.value }))} autoFocus placeholder="e.g. Planning reference"
-                    style={{ width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", boxSizing: "border-box" }} />
+                    style={{ width: "100%", border: "1px solid #e4e4e8", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", boxSizing: "border-box" }} />
                 </div>
                 <div style={{ marginBottom: 12 }}>
                   <label style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "block", marginBottom: 4 }}>Value</label>
                   <input value={newNote.value} onChange={e => setNewNote(n => ({ ...n, value: e.target.value }))} placeholder="e.g. 22/01234/FUL"
-                    style={{ width: "100%", border: "1px solid #ddd8d0", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: ARC_NAVY, outline: "none", boxSizing: "border-box" }} />
+                    style={{ width: "100%", border: "1px solid #e4e4e8", padding: "7px 10px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", boxSizing: "border-box" }} />
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button className="btn" onClick={addNote} disabled={!newNote.label.trim() || saving.note}
-                    style={{ background: AD_GREEN, color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    style={{ background: PROJECTS_FULL, color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>
                     {saving.note ? <Spinner size={11} /> : "Add"}
                   </button>
                   <button className="btn" onClick={() => { setAddingNote(false); setNewNote({ label: "", value: "" }); }}
-                    style={{ background: "none", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #ddd8d0" }}>Cancel</button>
+                    style={{ background: "none", color: "#9a9088", padding: "7px 12px", fontSize: 11, border: "1px solid #e4e4e8" }}>Cancel</button>
                 </div>
               </div>
             )}
@@ -3617,14 +3617,14 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
             ) : (
               <div style={{ background: "#fff", border: "1px solid #e8e0d5" }}>
                 {notes.map((n, i) => (
-                  <div key={n.id} style={{ display: "flex", alignItems: "flex-start", gap: 16, padding: "12px 20px", borderBottom: i < notes.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#faf8f5" : "#fff" }}>
+                  <div key={n.id} style={{ display: "flex", alignItems: "flex-start", gap: 16, padding: "12px 20px", borderBottom: i < notes.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#f8f8fa" : "#fff" }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: "#9a9088", letterSpacing: "0.04em", textTransform: "uppercase", width: 140, flexShrink: 0, paddingTop: 2 }}>
                       <EditableField value={n.label} onSave={v => updateNote(n.id, "label", v)} placeholder="Label" style={{ fontSize: 11 }} />
                     </div>
-                    <div style={{ flex: 1, fontSize: 13, color: ARC_NAVY }}>
+                    <div style={{ flex: 1, fontSize: 13, color: DESIGN_TEXT }}>
                       <EditableField value={n.value} onSave={v => updateNote(n.id, "value", v)} placeholder="Value…" multiline />
                     </div>
-                    {isAdmin && <button className="btn" onClick={() => deleteNote(n.id)} style={{ background: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", border: "none", flexShrink: 0 }} onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.target.style.color = "#c8c0b8"}>×</button>}
+                    {isAdmin && <button className="btn" onClick={() => deleteNote(n.id)} style={{ background: "none", color: "#c8c0b8", fontSize: 16, padding: "0 4px", border: "none", flexShrink: 0 }} onMouseEnter={e => e.target.style.color = COMPARE_FULL} onMouseLeave={e => e.target.style.color = "#c8c0b8"}>×</button>}
                   </div>
                 ))}
               </div>
@@ -3685,7 +3685,11 @@ export default function ProjectsSection({ isAdmin }) {
 
   if (selectedId) {
     return (
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
+        <div style={{ background: PROJECTS_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+          <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Projects</span>
+          <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— Practice Management</span>
+        </div>
         <ProjectDetail projectId={selectedId} onBack={() => setSelectedId(null)} isAdmin={isAdmin} />
       </div>
     );
@@ -3694,11 +3698,15 @@ export default function ProjectsSection({ isAdmin }) {
   const filtered = projects.filter(p => filterStatus === "all" || p.status === filterStatus);
 
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: "#faf8f5" }}>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
+      <div style={{ background: PROJECTS_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+        <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Projects</span>
+        <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— Practice Management</span>
+      </div>
       {toast && (
         <div style={{
           position: "fixed", bottom: 24, right: 24, zIndex: 9999,
-          background: ARC_TERRACOTTA, color: "#fff",
+          background: COMPARE_FULL, color: "#fff",
           padding: "12px 20px", fontSize: 13,
           fontFamily: "Inter, Arial, sans-serif",
           boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
@@ -3711,19 +3719,19 @@ export default function ProjectsSection({ isAdmin }) {
       <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "20px 32px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 300, color: ARC_NAVY, fontFamily: "Inter, Arial, sans-serif" }}>Projects</h1>
+            <h1 style={{ fontSize: 22, fontWeight: 300, color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" }}>Projects</h1>
             <p style={{ fontSize: 11, color: "#9a9088", marginTop: 4, letterSpacing: "0.04em", textTransform: "uppercase" }}>{projects.length} project{projects.length !== 1 ? "s" : ""}</p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ display: "flex", border: "1px solid #e8e0d5", overflow: "hidden" }}>
               {["active","all","on-hold","complete"].map(s => (
                 <button key={s} className="btn" onClick={() => setFilterStatus(s)}
-                  style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: filterStatus === s ? ARC_NAVY : "transparent", color: filterStatus === s ? "#fff" : "#9a9088", border: "none", borderRight: "1px solid #e8e0d5" }}>
+                  style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: filterStatus === s ? DESIGN_TEXT : "transparent", color: filterStatus === s ? "#fff" : "#9a9088", border: "none", borderRight: "1px solid #e8e0d5" }}>
                   {s === "on-hold" ? "On Hold" : s.charAt(0).toUpperCase() + s.slice(1)}
                 </button>
               ))}
             </div>
-            {isAdmin && <button className="btn" onClick={() => setShowNewForm(true)} style={{ background: ARC_NAVY, color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>+ New Project</button>}
+            {isAdmin && <button className="btn" onClick={() => setShowNewForm(true)} style={{ background: DESIGN_TEXT, color: "#fff", padding: "8px 20px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>+ New Project</button>}
           </div>
         </div>
       </div>
@@ -3734,7 +3742,7 @@ export default function ProjectsSection({ isAdmin }) {
         ) : filtered.length === 0 ? (
           <div style={{ textAlign: "center", padding: "80px 40px" }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>🏗</div>
-            <p style={{ fontSize: 15, color: ARC_NAVY, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>{projects.length === 0 ? "No projects yet" : "No projects match this filter"}</p>
+            <p style={{ fontSize: 15, color: DESIGN_TEXT, fontWeight: 300, fontFamily: "Inter, Arial, sans-serif", marginBottom: 8 }}>{projects.length === 0 ? "No projects yet" : "No projects match this filter"}</p>
             <p style={{ fontSize: 12, color: "#9a9088" }}>{projects.length === 0 && isAdmin ? "Click + New Project to get started" : "Try a different filter"}</p>
           </div>
         ) : (
