@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AD_GREEN_MID, AD_GREEN_LIGHT, ARC_STONE, ARC_TERRACOTTA, DESIGN_TEXT, VAULT_FULL } from "../../constants";
+import { AD_GREEN_MID, AD_GREEN_LIGHT, ARC_TERRACOTTA, DESIGN_TEXT, VAULT_FULL } from "../../constants";
 
 function formatInline(text) {
   const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g);
