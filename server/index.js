@@ -4155,8 +4155,9 @@ app.get("/api/shared-answers/:id", async (req, res) => {
       .select("question, answer, vault_name, expires_at")
       .eq("id", id)
       .single();
-    if (error || !data) return res.status(404).json({ error: "not_found" });
-    if (new Date(data.expires_at) < new Date()) return res.status(404).json({ error: "not_found" });
+    if (error?.code === 'PGRST116' || !data) return res.status(404).json({ error: "not_found" });
+    if (error) throw error;
+    if (!data.expires_at || new Date(data.expires_at) < new Date()) return res.status(404).json({ error: "not_found" });
     res.json(data);
   } catch (err) {
     return serverError(res, err, "GET /api/shared-answers/:id");
