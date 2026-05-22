@@ -8,6 +8,7 @@ import LandingPage from "./components/LandingPage";
 import ProjectsSection from "./components/ProjectsSection";
 import DatasheetsLibrarySection from "./components/DatasheetsLibrarySection";
 import AdminSection from "./components/AdminSection";
+import QuizModal from "./components/QuizModal";
 import TimesheetsSection from "./components/TimesheetsSection";
 import { BOILERPLATE_HEADINGS, isBoilerplate, DESIGN_SHELL, DESIGN_GROUND, DESIGN_GOLD, DESIGN_TEXT, DESIGN_MUTED, VAULT_FULL, COMPARE_FULL } from "./constants";
 
@@ -210,6 +211,7 @@ export default function App() {
   const [lastQuestion, setLastQuestion] = useState("");
   const [timedOut, setTimedOut] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
+  const [showQuiz, setShowQuiz] = useState(false);
   const fileInputRef = useRef();
   const tempDocInputRef = useRef();
   const tempDocTextareaRef = useRef(null);
@@ -1235,6 +1237,8 @@ export default function App() {
         />
       )}
 
+      {showQuiz && <QuizModal onClose={() => setShowQuiz(false)} />}
+
       {/* Top nav */}
       <div style={{ background: DESIGN_SHELL, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, height: 56, borderBottom: "1px solid #1e2028" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
@@ -1506,6 +1510,12 @@ export default function App() {
                           {stage === "indexing" ? <><Spinner size={12} /> Indexing…</> : vaultIndex ? "Re-index" : "Index Vault"}
                         </button>
                       )}
+                      <button
+                        onClick={() => setShowQuiz(true)}
+                        style={{ background: "none", border: "1px solid #d0ccc8", color: "#7a7a80", padding: "4px 12px", fontSize: 11, letterSpacing: "0.04em", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}
+                      >
+                        ✎ Test Yourself
+                      </button>
                     </div>
                   </div>
                 </div>

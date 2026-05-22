@@ -133,9 +133,8 @@ PDF viewer: inline iframe, PDF.js CDN v3.11.174.
 
 ## Outstanding issues (as of 2026-05-22)
 
-1. **Conversation history contamination** (MEDIUM) — failed answers stored in `conversationHistory` pollute subsequent Pass 1 scoring. Workaround: page refresh.
-2. **SQL migrations for review tables** — may not be run in production. See memory file for SQL.
-3. **Cross-reference clauses still appearing** (LOW) — AD M Vol 1 cl.0.14 and related still appear despite filtering rule.
-4. **Wide table column extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column boundaries for wide tables.
-5. **Email structured summaries not stored** (ENHANCEMENT) — `generateStructuredSummary` output used only for embedding, not saved. Future: add `email_summary text` column. See HANDOVER.md.
-6. **Email Q&A relevance tuning** (ONGOING) — 0.35 similarity threshold and top-20 limit are starting points. May need tuning as corpus grows beyond 500 emails.
+1. **Multi-clause blocks not combining** (LOW) — AD K 1.38, 1.39, 1.40 etc. still get separate citation blocks. Prompt rule covers same-section but not same-subject across sections.
+2. **Wide table column extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column boundaries for wide tables.
+3. **Email work** (PARKED) — email structured summaries not stored in DB; Q&A relevance threshold (0.35) and limit (20) need tuning. Deferred to dedicated email session.
+
+See `HANDOVER.md` for full feature backlog.

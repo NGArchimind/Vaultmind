@@ -65,12 +65,29 @@ export default function AdminSection() {
   const [archisyncPassword, setArchisyncPassword] = useState("");
   const [archisyncShowPassword, setArchisyncShowPassword] = useState(false);
 
+  // Quiz management
+  const [quizVaults, setQuizVaults] = useState([]);
+  const [quizAdVault, setQuizAdVault] = useState("");
+  const [quizAdVaultSaving, setQuizAdVaultSaving] = useState(false);
+  const [quizDocs, setQuizDocs] = useState([]); // [{ document_name, count }]
+  const [quizDocsLoading, setQuizDocsLoading] = useState(false);
+  const [generatingDoc, setGeneratingDoc] = useState(null); // document_name | null
+  const [clearingDoc, setClearingDoc] = useState(null);
+  const [cscsCount, setCscsCount] = useState(null);
+  const [cscsUploading, setCscsUploading] = useState(false);
+  const [quizStats, setQuizStats] = useState([]);
+  const [quizStatsLoading, setQuizStatsLoading] = useState(false);
+  const [quizMsg, setQuizMsg] = useState(null); // { type: 'ok'|'err', text }
+  const [cscsClearing, setCscsClearing] = useState(false);
+  const cscsInputRef = useRef(null);
+  const quizDocsTokenRef = useRef(0); // race guard for loadQuizDocs
+
   function showMsg(setter, type, text) {
     setter({ type, text });
     setTimeout(() => setter(null), 6000);
   }
 
-  useEffect(() => { loadUsers(); loadLogo(); loadColours(); }, []);
+  useEffect(() => { loadUsers(); loadLogo(); loadColours(); loadQuizInit(); }, []);
 
   // ── Users ──────────────────────────────────────────────────────────────────
   const loadUsers = async () => {
@@ -241,6 +258,136 @@ export default function AdminSection() {
     await navigator.clipboard.writeText(archisyncPassword);
     setArchisyncPasswordCopied(true);
     setTimeout(() => setArchisyncPasswordCopied(false), 2500);
+  }
+
+  // ── Quiz management ────────────────────────────────────────────────────────
+  async function loadQuizInit() {
+    // Load vaults for selector
+    api("/api/vaults").then(d => setQuizVaults(d.vaults || [])).catch(() => {});
+    // Load current AD vault setting
+    api("/api/admin/quiz/settings").then(d => {
+      if (d.quiz_ad_vault_name) {
+        setQuizAdVault(d.quiz_ad_vault_name);
+        loadQuizDocs(d.quiz_ad_vault_name);
+      }
+    }).catch(() => {});
+    // Load CSCS count
+    api("/api/quiz/questions?type=cscs").then(d => setCscsCount(d.questions?.length ?? 0)).catch(() => {});
+    // Load stats
+    setQuizStatsLoading(true);
+    api("/api/admin/quiz/stats")
+      .then(d => setQuizStats(d.stats || []))
+      .catch(() => {})
+      .finally(() => setQuizStatsLoading(false));
+  }
+
+  async function loadQuizDocs(vaultName) {
+    if (!vaultName) return;
+    const token = ++quizDocsTokenRef.current;
+    setQuizDocs([]); // clear stale data immediately on vault change
+    setQuizDocsLoading(true);
+    try {
+      const [{ pdfs }, { questions }] = await Promise.all([
+        api(`/api/vaults/${encodeURIComponent(vaultName)}/pdfs`),
+        api(`/api/quiz/questions?type=approved_docs&vault_name=${encodeURIComponent(vaultName)}`),
+      ]);
+      if (token !== quizDocsTokenRef.current) return; // discard stale response
+      const counts = {};
+      (questions || []).forEach(q => { counts[q.document_name] = (counts[q.document_name] || 0) + 1; });
+      setQuizDocs((pdfs || []).map(p => ({ document_name: p.name, count: counts[p.name] || 0 })));
+    } catch (e) {
+      if (token !== quizDocsTokenRef.current) return;
+      showMsg(setQuizMsg, "err", "Failed to load documents: " + e.message);
+    } finally {
+      if (token === quizDocsTokenRef.current) setQuizDocsLoading(false);
+    }
+  }
+
+  async function saveQuizVault() {
+    if (!quizAdVault) return;
+    setQuizAdVaultSaving(true);
+    setQuizMsg(null);
+    try {
+      await api("/api/admin/quiz/settings", { method: "PUT", body: { quiz_ad_vault_name: quizAdVault } });
+      showMsg(setQuizMsg, "ok", "AD vault saved.");
+      loadQuizDocs(quizAdVault);
+    } catch (e) {
+      showMsg(setQuizMsg, "err", e.message);
+    } finally {
+      setQuizAdVaultSaving(false);
+    }
+  }
+
+  async function generateQuizQuestions(document_name) {
+    setGeneratingDoc(document_name);
+    setQuizMsg(null);
+    try {
+      const result = await api("/api/admin/quiz/generate", {
+        method: "POST",
+        body: { vault_name: quizAdVault, document_name },
+      });
+      showMsg(setQuizMsg, "ok", `Generated ${result.count} questions for ${document_name}`);
+      loadQuizDocs(quizAdVault);
+    } catch (e) {
+      showMsg(setQuizMsg, "err", e.message);
+    } finally {
+      setGeneratingDoc(null);
+    }
+  }
+
+  async function clearQuizQuestions(document_name) {
+    setClearingDoc(document_name);
+    setQuizMsg(null);
+    try {
+      await api("/api/admin/quiz/questions", {
+        method: "DELETE",
+        body: { type: "approved_docs", vault_name: quizAdVault, document_name },
+      });
+      showMsg(setQuizMsg, "ok", `Cleared questions for ${document_name}`);
+      loadQuizDocs(quizAdVault);
+    } catch (e) {
+      showMsg(setQuizMsg, "err", e.message);
+    } finally {
+      setClearingDoc(null);
+    }
+  }
+
+  async function uploadCscs(file) {
+    if (!file || file.type !== "application/pdf") {
+      showMsg(setQuizMsg, "err", "Please select a PDF file.");
+      return;
+    }
+    setCscsUploading(true);
+    setQuizMsg(null);
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result.split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const result = await api("/api/admin/quiz/upload-cscs", { method: "POST", body: { base64 } });
+      setCscsCount(result.count);
+      showMsg(setQuizMsg, "ok", `Imported ${result.count} CSCS questions.`);
+    } catch (e) {
+      showMsg(setQuizMsg, "err", e.message);
+    } finally {
+      setCscsUploading(false);
+    }
+  }
+
+  async function clearCscsQuestions() {
+    setCscsClearing(true);
+    setQuizMsg(null);
+    try {
+      await api("/api/admin/quiz/questions", { method: "DELETE", body: { type: "cscs" } });
+      setCscsCount(0);
+      showMsg(setQuizMsg, "ok", "CSCS questions cleared.");
+    } catch (e) {
+      showMsg(setQuizMsg, "err", e.message);
+    } finally {
+      setCscsClearing(false);
+    }
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -482,6 +629,140 @@ export default function AdminSection() {
               </button>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* ── Quiz Management ──────────────────────────────────────────────── */}
+      <div style={{ marginBottom: 48 }}>
+        {sectionHeader("Quiz Management", "Generate practice questions for Approved Documents and upload the CSCS question bank.")}
+
+        {quizMsg && (
+          <div style={{ padding: "10px 14px", marginBottom: 16, fontSize: 12,
+            background: quizMsg.type === "ok" ? "#eef6ee" : "#fdf0f0",
+            border: `1px solid ${quizMsg.type === "ok" ? "#a8d4a8" : "#f0b8b8"}`,
+            color: quizMsg.type === "ok" ? "#2e7d4f" : ARC_TERRACOTTA, maxWidth: 560 }}>
+            {quizMsg.text}
+          </div>
+        )}
+
+        {/* AD Vault selector */}
+        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${DESIGN_SHELL}`, padding: "20px 24px", maxWidth: 560, marginBottom: 20 }}>
+          <p style={{ fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>Approved Documents Vault</p>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <select
+              value={quizAdVault}
+              onChange={e => { setQuizAdVault(e.target.value); loadQuizDocs(e.target.value); }}
+              style={{ flex: 1, fontSize: 12, padding: "7px 10px", border: "1px solid #d0ccc8", background: "#fff", color: DESIGN_SHELL, fontFamily: "Inter, Arial, sans-serif" }}
+            >
+              <option value="">— Select vault —</option>
+              {quizVaults.map(v => (
+                <option key={v.id || v.name} value={v.name}>{v.name}</option>
+              ))}
+            </select>
+            <button
+              onClick={saveQuizVault}
+              disabled={!quizAdVault || quizAdVaultSaving}
+              style={{ background: DESIGN_SHELL, color: "#fff", border: "none", padding: "8px 18px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: (!quizAdVault || quizAdVaultSaving) ? "not-allowed" : "pointer", opacity: !quizAdVault ? 0.5 : 1, display: "flex", alignItems: "center", gap: 6, fontFamily: "Inter, Arial, sans-serif" }}
+            >
+              {quizAdVaultSaving ? <><Spinner size={11} /> Saving…</> : "Save"}
+            </button>
+          </div>
+        </div>
+
+        {/* AD documents table */}
+        {quizAdVault && (
+          <div style={{ background: "#fff", border: "1px solid #e0dbd4", maxWidth: 560, marginBottom: 20 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 180px", padding: "10px 16px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
+              {["Document", "Questions", ""].map(h => (
+                <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</span>
+              ))}
+            </div>
+            {quizDocsLoading ? (
+              <div style={{ padding: "16px", display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}><Spinner size={12} /> Loading…</div>
+            ) : quizDocs.length === 0 ? (
+              <div style={{ padding: "16px", fontSize: 12, color: "#9a9088" }}>No PDFs found in this vault.</div>
+            ) : quizDocs.map(({ document_name, count }) => (
+              <div key={document_name} style={{ display: "grid", gridTemplateColumns: "1fr 100px 180px", padding: "10px 16px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: DESIGN_SHELL }}>{document_name}</span>
+                <span style={{ fontSize: 12, color: count > 0 ? "#2e7d4f" : "#9a9088" }}>{count > 0 ? count : "None"}</span>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => generateQuizQuestions(document_name)}
+                    disabled={generatingDoc === document_name}
+                    style={{ fontSize: 10, padding: "4px 10px", background: DESIGN_SHELL, color: "#fff", border: "none", cursor: generatingDoc === document_name ? "not-allowed" : "pointer", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 4, fontFamily: "Inter, Arial, sans-serif" }}
+                  >
+                    {generatingDoc === document_name ? <><Spinner size={10} /> Generating…</> : "Generate"}
+                  </button>
+                  {count > 0 && (
+                    <button
+                      onClick={() => clearQuizQuestions(document_name)}
+                      disabled={clearingDoc === document_name}
+                      style={{ fontSize: 10, padding: "4px 10px", background: "none", color: "#c0b8b0", border: "1px solid #d0ccc8", cursor: clearingDoc === document_name ? "not-allowed" : "pointer", fontFamily: "Inter, Arial, sans-serif" }}
+                    >
+                      {clearingDoc === document_name ? <Spinner size={10} /> : "Clear"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* CSCS upload */}
+        <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${DESIGN_SHELL}`, padding: "20px 24px", maxWidth: 560, marginBottom: 20 }}>
+          <p style={{ fontSize: 10, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 12 }}>
+            CSCS Question Bank
+            {cscsCount !== null && (
+              <span style={{ marginLeft: 8, color: cscsCount > 0 ? "#2e7d4f" : "#9a9088", fontWeight: 400, textTransform: "none" }}>
+                ({cscsCount} questions stored)
+              </span>
+            )}
+          </p>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <input ref={cscsInputRef} type="file" accept="application/pdf" style={{ display: "none" }}
+              onChange={e => { if (e.target.files[0]) { uploadCscs(e.target.files[0]); e.target.value = ""; } }} />
+            <button
+              onClick={() => cscsInputRef.current?.click()}
+              disabled={cscsUploading}
+              style={{ background: DESIGN_SHELL, color: "#fff", border: "none", padding: "8px 18px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", cursor: cscsUploading ? "not-allowed" : "pointer", display: "flex", alignItems: "center", gap: 6, fontFamily: "Inter, Arial, sans-serif" }}
+            >
+              {cscsUploading ? <><Spinner size={11} /> Uploading…</> : "Upload CSCS PDF"}
+            </button>
+            {cscsCount > 0 && (
+              <button
+                onClick={clearCscsQuestions}
+                disabled={cscsClearing}
+                style={{ fontSize: 10, padding: "8px 14px", background: "none", color: "#c0b8b0", border: "1px solid #d0ccc8", cursor: cscsClearing ? "not-allowed" : "pointer", fontFamily: "Inter, Arial, sans-serif", display: "flex", alignItems: "center", gap: 4 }}
+              >
+                {cscsClearing ? <Spinner size={10} /> : "Clear all"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* User stats table */}
+        <div style={{ marginTop: 8 }}>
+          {sectionHeader("Quiz Stats — All Users", "Correct and incorrect answer counts per user.")}
+          <div style={{ background: "#fff", border: "1px solid #e0dbd4", maxWidth: 680 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 110px 110px 110px", padding: "10px 16px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
+              {["User", "AD Correct", "AD Incorrect", "CSCS Correct", "CSCS Incorrect"].map(h => (
+                <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</span>
+              ))}
+            </div>
+            {quizStatsLoading ? (
+              <div style={{ padding: 16, display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}><Spinner size={12} /> Loading…</div>
+            ) : quizStats.length === 0 ? (
+              <div style={{ padding: 16, fontSize: 12, color: "#9a9088" }}>No quiz activity yet.</div>
+            ) : quizStats.map(s => (
+              <div key={s.user_id} style={{ display: "grid", gridTemplateColumns: "1fr 110px 110px 110px 110px", padding: "10px 16px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
+                <span style={{ fontSize: 12, color: DESIGN_SHELL }}>{s.email}</span>
+                <span style={{ fontSize: 12, color: "#2e7d4f" }}>{s.ad_correct}</span>
+                <span style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{s.ad_incorrect}</span>
+                <span style={{ fontSize: 12, color: "#2e7d4f" }}>{s.cscs_correct}</span>
+                <span style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{s.cscs_incorrect}</span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
