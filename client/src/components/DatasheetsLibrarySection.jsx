@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { api, callClaude, fileToBase64 } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
-import { DESIGN_GROUND, DESIGN_TEXT, LIBRARY_FULL, COMPARE_FULL } from "../constants";
+import { DESIGN_GROUND, DESIGN_TEXT, LIBRARY_FULL, COMPARE_FULL, isBoilerplate } from "../constants";
 
 export default function DatasheetsLibrarySection({ vaults, isAdmin }) {
   const [products, setProducts] = useState([]);

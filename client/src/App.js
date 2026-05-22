@@ -9,7 +9,7 @@ import ProjectsSection from "./components/ProjectsSection";
 import DatasheetsLibrarySection from "./components/DatasheetsLibrarySection";
 import AdminSection from "./components/AdminSection";
 import TimesheetsSection from "./components/TimesheetsSection";
-import { AD_GREEN, AD_GREEN_MID, AD_GREEN_GRASS, ARC_NAVY, ARC_TERRACOTTA, ARC_STONE, BOILERPLATE_HEADINGS, isBoilerplate, DESIGN_SHELL, DESIGN_GROUND, DESIGN_GOLD, DESIGN_TEXT, DESIGN_MUTED, VAULT_FULL, COMPARE_FULL } from "./constants";
+import { BOILERPLATE_HEADINGS, isBoilerplate, DESIGN_SHELL, DESIGN_GROUND, DESIGN_GOLD, DESIGN_TEXT, DESIGN_MUTED, VAULT_FULL, COMPARE_FULL } from "./constants";
 
 // ── Vault PDF Viewer Modal ────────────────────────────────────────────────────
 function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
@@ -147,7 +147,7 @@ function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 3000, display: "flex", flexDirection: "column" }}>
-      <div style={{ background: ARC_NAVY, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+      <div style={{ background: DESIGN_SHELL, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{fileName}</div>
@@ -1151,7 +1151,7 @@ export default function App() {
     @keyframes spin { to { transform: rotate(360deg); } }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
     .vault-item { cursor: pointer; transition: all 0.2s; }
-    .vault-item:hover { background: #f1f2f4 !important; }
+    .vault-item:hover { background: ${DESIGN_GROUND} !important; }
     .master-item { cursor: pointer; transition: all 0.2s; }
     .master-item:hover { background: rgba(0,0,0,0.04) !important; }
     .btn { cursor: pointer; transition: all 0.2s; border: none; font-family: Inter, Arial, sans-serif; letter-spacing: 0.01em; }
@@ -1164,7 +1164,7 @@ export default function App() {
   // ── Auth loading screen ───────────────────────────────────────────────────────
   if (authLoading) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: ARC_STONE, fontFamily: "Inter, Arial, sans-serif" }}>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: DESIGN_GROUND, fontFamily: "Inter, Arial, sans-serif" }}>
         <style>{globalStyles}</style>
         <Spinner size={20} />
       </div>
@@ -1340,10 +1340,10 @@ export default function App() {
               {tempDoc ? (
                 <div style={{ padding: "10px 0" }}>
                   <div style={{ fontSize: 9, color: "#9a9088", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 6 }}>Temporary Document</div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#fdf5f3", border: `1px solid ${ARC_TERRACOTTA}`, padding: "8px 10px" }}>
-                    <span style={{ fontSize: 11, color: ARC_TERRACOTTA, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {tempDoc.name}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#fdf5f3", border: `1px solid ${COMPARE_FULL}`, padding: "8px 10px" }}>
+                    <span style={{ fontSize: 11, color: COMPARE_FULL, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>📄 {tempDoc.name}</span>
                     <button className="btn" onClick={() => { setTempDoc(null); setTempDocIndex(null); setTempDocIndexing(false); tempDocIndexRef.current = null; setTempDocMode("query-vault-with-temp"); }} title="Remove"
-                      style={{ background: "none", color: ARC_TERRACOTTA, fontSize: 14, padding: "0 2px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
+                      style={{ background: "none", color: COMPARE_FULL, fontSize: 14, padding: "0 2px", fontWeight: 700, lineHeight: 1, flexShrink: 0 }}>×</button>
                   </div>
                   <p style={{ fontSize: 10, color: "#b0a8a0", marginTop: 6, lineHeight: 1.5, letterSpacing: "0.02em" }}>Temporary — will not be saved. Included in all questions.</p>
                   {vault && (
@@ -1425,7 +1425,7 @@ export default function App() {
                     ) : statusMsg && statusMsg !== "Answer ready" ? (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
                         <p style={{ fontSize: 20, color: DESIGN_TEXT, fontWeight: 300, letterSpacing: "0.02em" }}>📄 {tempDoc.name}</p>
-                        <p style={{ fontSize: 12, color: ARC_TERRACOTTA }}>{statusMsg}</p>
+                        <p style={{ fontSize: 12, color: COMPARE_FULL }}>{statusMsg}</p>
                       </div>
                     ) : (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
@@ -1478,7 +1478,7 @@ export default function App() {
                         {pdfs.length} document{pdfs.length !== 1 ? "s" : ""} &nbsp;·&nbsp;
                         {vaultIndex
                           ? <span style={{ color: VAULT_FULL, fontWeight: 600 }}>Indexed</span>
-                          : <span style={{ color: ARC_TERRACOTTA }}>Not indexed</span>}
+                          : <span style={{ color: COMPARE_FULL }}>Not indexed</span>}
                       </p>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1547,7 +1547,7 @@ export default function App() {
                                 onMouseLeave={e => e.target.style.color = "#b0a8a0"}>↻</button>
                               <button className="btn" onClick={() => deletePdf(pdf)} disabled={isRunning} title="Remove"
                                 style={{ background: "none", color: "#b0a8a0", fontSize: 14, padding: "2px 4px", lineHeight: 1, flexShrink: 0 }}
-                                onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA}
+                                onMouseEnter={e => e.target.style.color = COMPARE_FULL}
                                 onMouseLeave={e => e.target.style.color = "#b0a8a0"}>×</button>
                             </>}
                           </div>
@@ -1564,18 +1564,18 @@ export default function App() {
                       <div style={{ padding: "14px 32px", borderBottom: "1px solid #e4e4e8", background: "#ffffff", flexShrink: 0, animation: "fadeIn 0.3s ease" }}>
                         <div style={{ fontSize: 12, color: DESIGN_TEXT, marginBottom: 10, display: "flex", alignItems: "center", gap: 8, fontWeight: 500, letterSpacing: "0.02em" }}><Spinner size={12} /> {statusMsg}</div>
                         <ProgressBar label="Pass 1 · Index scoring" pct={progress.select} color={VAULT_FULL} />
-                        <ProgressBar label="Pass 2 · Page extraction" pct={progress.read} color={ARC_TERRACOTTA} />
+                        <ProgressBar label="Pass 2 · Page extraction" pct={progress.read} color={COMPARE_FULL} />
                         <ProgressBar label="Pass 3 · Answer synthesis" pct={progress.answer} color={DESIGN_SHELL} />
                       </div>
                     )}
 
                     {!isRunning && statusMsg && (
                       <div style={{ padding: "8px 24px", borderBottom: "1px solid #e4e4e8", background: "#ffffff", fontSize: 12, color: "#505a5f", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, gap: 12 }}>
-                        <span style={{ color: timedOut ? ARC_TERRACOTTA : "#505a5f" }}>{statusMsg}</span>
+                        <span style={{ color: timedOut ? COMPARE_FULL : "#505a5f" }}>{statusMsg}</span>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                           {timedOut && lastQuestion && (
                             <button className="btn" onClick={() => { setTimedOut(false); setQuestion(lastQuestion); askQuestion(); }}
-                              style={{ background: ARC_TERRACOTTA, color: "#fff", padding: "4px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
+                              style={{ background: COMPARE_FULL, color: "#fff", padding: "4px 14px", fontSize: 11, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", border: "none" }}>
                               ↻ Retry
                             </button>
                           )}
@@ -1673,7 +1673,7 @@ export default function App() {
                       )}
 
                       {!vaultIndex && !isRunning && pdfs.length > 0 && (
-                        <div style={{ border: `1px solid ${ARC_TERRACOTTA}`, borderLeft: `3px solid ${ARC_TERRACOTTA}`, padding: "14px 20px", margin: "24px 0", background: "#fdf5f3" }}>
+                        <div style={{ border: `1px solid ${COMPARE_FULL}`, borderLeft: `3px solid ${COMPARE_FULL}`, padding: "14px 20px", margin: "24px 0", background: "#fdf5f3" }}>
                           <p style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, marginBottom: 4 }}>Vault not indexed</p>
                           <p style={{ fontSize: 12, color: "#9a9088" }}>Click Index Vault to prepare documents for searching.</p>
                         </div>

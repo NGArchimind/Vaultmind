@@ -563,7 +563,7 @@ Use only the provided document pages. Do not speculate beyond what the documents
         {docA && docB && !compareAnswer && (
           <div style={{ marginBottom: 24 }}>
             <button className="btn" onClick={runComparison} disabled={compareRunning}
-              style={{ background: compareRunning ? "#c8c0b8" : DESIGN_TEXT, color: "#ffffff", padding: "12px 32px", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 10 }}>
+              style={{ background: compareRunning ? "#c8c0b8" : COMPARE_FULL, color: "#ffffff", padding: "12px 32px", fontSize: 12, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", display: "flex", alignItems: "center", gap: 10 }}>
               {compareRunning ? <><Spinner size={14} /> Comparing…</> : "Compare Documents"}
             </button>
           </div>
