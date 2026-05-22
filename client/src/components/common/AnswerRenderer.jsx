@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AD_GREEN_MID, ARC_TERRACOTTA, DESIGN_TEXT, VAULT_FULL } from "../../constants";
+import { AD_GREEN_MID, AD_GREEN_LIGHT, ARC_STONE, ARC_TERRACOTTA, DESIGN_TEXT, VAULT_FULL } from "../../constants";
 
 function formatInline(text) {
   const parts = text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g);
@@ -24,7 +24,7 @@ function CitationLine({ citationText, onCitationClick, keyProp, accentColor }) {
   const { docName, heading } = parseCitation(citationText);
   const displayDoc = docName.replace(/\.pdf$/i, "").replace(/__+/g, " — ").trim();
   return (
-    <div key={keyProp} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: "#f0f5f6", borderLeft: `3px solid ${accentColor}`, padding: "10px 14px", margin: "20px 0 4px", borderRadius: "0 2px 2px 0" }}>
+    <div key={keyProp} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: AD_GREEN_LIGHT, borderLeft: `3px solid ${accentColor}`, padding: "10px 14px", margin: "20px 0 4px", borderRadius: "0 2px 2px 0" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
           <span style={{ fontWeight: 600, color: DESIGN_TEXT, fontSize: 13, fontFamily: "Inter, Arial, sans-serif", lineHeight: 1.4 }}>{displayDoc}</span>
@@ -274,13 +274,13 @@ export default function AnswerRenderer({ text, onCitationClick, accentColor = VA
       const isPractical = lower.includes("practical conclusion");
       if (isSummary) {
         elements.push(
-          <div key={i} style={{ background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${accentColor}`, padding: "14px 18px", margin: "16px 0 8px" }}>
+          <div key={i} style={{ background: AD_GREEN_LIGHT, border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${accentColor}`, padding: "14px 18px", margin: "16px 0 8px" }}>
             <h2 style={{ color: accentColor, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
           </div>
         );
       } else if (isPractical) {
         elements.push(
-          <div key={i} style={{ background: "#f0f5f6", border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${accentColor}`, borderTop: `2px solid ${accentColor}`, padding: "14px 18px", margin: "32px 0 8px" }}>
+          <div key={i} style={{ background: AD_GREEN_LIGHT, border: `1px solid ${AD_GREEN_MID}`, borderLeft: `3px solid ${accentColor}`, borderTop: `2px solid ${accentColor}`, padding: "14px 18px", margin: "32px 0 8px" }}>
             <h2 style={{ color: accentColor, fontSize: 12, fontWeight: 600, margin: 0, fontFamily: "Inter, Arial, sans-serif", textTransform: "uppercase", letterSpacing: "0.08em" }}>{text}</h2>
           </div>
         );

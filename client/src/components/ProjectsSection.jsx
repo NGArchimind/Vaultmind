@@ -1725,7 +1725,7 @@ Rules:
           )}
           {answer && (
             <div style={{ padding: "14px 32px", borderBottom: (matchedDrawings.length > 0 || matchedProducts.length > 0) ? "1px solid #e8e0d5" : "none" }}>
-              <AnswerRenderer text={answer} />
+              <AnswerRenderer text={answer} accentColor={PROJECTS_FULL} />
             </div>
           )}
           {!running && status && (

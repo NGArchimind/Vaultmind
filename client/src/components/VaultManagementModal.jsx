@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../api/client";
 import { Spinner } from "./common/Spinner";
-import { ARC_TERRACOTTA, DESIGN_SHELL, DESIGN_GROUND, VAULT_FULL } from "../constants";
+import { ARC_TERRACOTTA, DESIGN_SHELL, DESIGN_GROUND } from "../constants";
 
 function MenuOption({ icon, title, desc, onClick, disabled, danger }) {
   return (

@@ -1420,7 +1420,7 @@ export default function App() {
                       </div>
                     ) : answer ? (
                       <div style={{ maxWidth: 680, margin: "0 auto" }}>
-                        <AnswerRenderer text={answer} onCitationClick={handleCitationClick} />
+                        <AnswerRenderer text={answer} onCitationClick={handleCitationClick} accentColor={VAULT_FULL} />
                       </div>
                     ) : statusMsg && statusMsg !== "Answer ready" ? (
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
@@ -1627,7 +1627,7 @@ export default function App() {
                             <p style={{ fontSize: 12, color: "#505a5f", marginBottom: 16, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                               Response — {answerVaultName || (queryScope === "all" && parentMaster ? parentMaster.name + " (all vaults)" : vault.name)}
                             </p>
-                            <AnswerRenderer text={answer} onCitationClick={handleCitationClick} />
+                            <AnswerRenderer text={answer} onCitationClick={handleCitationClick} accentColor={VAULT_FULL} />
                           </div>
 
                           {/* ── Follow-up: ask another vault ── */}
