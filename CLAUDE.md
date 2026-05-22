@@ -36,11 +36,36 @@ Vaultmind/
 
 ## Colour constants
 
-Always import from `constants.js`, never hardcode values:
-- `AD_GREEN = "#0d6478"` (teal)
-- `LIBRARY_BLUE` — use the constant, not `#2a6496`
-- `ARC_NAVY = "#1e2a35"`
-- `ARC_TERRACOTTA = "#c25a45"`
+**Always import from `constants.js`, never hardcode hex values in components.**
+
+### New design system tokens (added 2026-05-22)
+```
+DESIGN_SHELL  = "#262830"   // nav bar background, dark UI elements
+DESIGN_GROUND = "#f1f2f4"   // app/page background
+DESIGN_GOLD   = "#c8a84a"   // active nav, avatars, spinner default
+DESIGN_TEXT   = "#262830"   // primary text (same value as SHELL — distinct semantic use)
+DESIGN_MUTED  = "#9a9aa0"   // muted labels, section group headings
+
+// Per-module full colours (section strips, buttons, card borders)
+VAULT_FULL      = "#2e9088"
+COMPARE_FULL    = "#9e4a3a"
+LIBRARY_FULL    = "#3a6e9a"
+PROJECTS_FULL   = "#3e7e58"
+TIMESHEETS_FULL = "#4c6278"
+
+// Per-module washed colours (landing tile rest state)
+VAULT_WASH      = "#7da8a2"
+COMPARE_WASH    = "#a09090"
+LIBRARY_WASH    = "#7e94a8"
+PROJECTS_WASH   = "#8ea09a"
+TIMESHEETS_WASH = "#8898a8"
+```
+
+### Legacy constants — still exported, do not use for UI
+`ARC_NAVY`, `ARC_STONE`, `ARC_TERRACOTTA`, `AD_GREEN`, `AD_GREEN_MID`, `AD_GREEN_GRASS` — retained for backwards compatibility but all UI references have been replaced. Do not use these in new code.
+
+### Constants preserved for logic (not UI)
+`BOILERPLATE_HEADINGS`, `isBoilerplate`, `AD_GREEN_FOREST`, `AD_GREEN_GRASS`, `STAGE_COLORS` — used in data/logic, not styling. Do not remove.
 
 ---
 
@@ -106,7 +131,7 @@ PDF viewer: inline iframe, PDF.js CDN v3.11.174.
 
 ---
 
-## Outstanding issues (as of 2026-05-21)
+## Outstanding issues (as of 2026-05-22)
 
 1. **Conversation history contamination** (MEDIUM) — failed answers stored in `conversationHistory` pollute subsequent Pass 1 scoring. Workaround: page refresh.
 2. **SQL migrations for review tables** — may not be run in production. See memory file for SQL.

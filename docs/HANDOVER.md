@@ -127,6 +127,58 @@ Layout: question input + always-visible filter row at top; two-column body (left
 
 ---
 
+## Global redesign (2026-05-22)
+
+Full visual overhaul of `client/` — all on the `develop` branch, not yet merged to `main`.
+
+**Spec:** `docs/superpowers/specs/2026-05-22-global-redesign.md`
+
+### What was done
+
+- **Design tokens** — 17 new constants added to `client/src/constants.js` (see CLAUDE.md for the full list). All old constants kept for export but UI now uses only the new ones.
+- **LandingPage.jsx** — complete rewrite. Two groups ("Document Intelligence" / "Practice Management"), each with a row of tiles. Tile hover: `washColor` at rest → `fullColor` on hover (0.22s transition on the header band and CTA text), with `translateY(-2px)` + shadow lift on the outer card. State: `useState(hover)` per tile, `onMouseEnter`/`onMouseLeave` on the outer div.
+- **App.js** — nav bar (DESIGN_SHELL, gold underline for active nav item, DESIGN_GOLD avatar circle), login screen (DESIGN_SHELL outer, COMPARE_FULL error borders), vault section header strip, full colour token replacement.
+- **CompareSection.jsx, DatasheetsLibrarySection.jsx, ProjectsSection.jsx** — each gets a section header strip + full colour replacement.
+- **TimesheetsSection.jsx + TimesheetHistory.jsx + TimesheetReport.jsx + FeeReview.jsx** — section header strips on all four (the three sub-views render full-screen without the parent, so each needs its own strip).
+- **Spinner.jsx** — default colour changed to `DESIGN_GOLD`, `color` prop added.
+- **AnswerRenderer.jsx** — `accentColor` prop added (default `VAULT_FULL`), threaded through `CitationLine`, `ClauseBlock`, `DocumentGroup`. All callers pass the correct module colour.
+- **VaultManagementModal.jsx, AdminSection.jsx** — colour replacements + Admin section header strip.
+
+### JSX comment gotcha — DO NOT REPEAT
+
+The Task 3 implementer introduced a closing-brace bug that took several passes to find.
+
+The vault section conditional opens at ~line 1287 of App.js as:
+```jsx
+{appSection === "vault" && <div style={{ ... }}>
+  ...
+</div>}   ← this } closes the { at the start
+```
+
+Because there was no parenthesis (`&&` directly before the JSX), the `}` comes immediately after the closing `</div>`. An earlier attempt to add a comment produced:
+
+```
+</div> /* end vault column wrapper */}    ← original: } closes the conditional
+```
+
+A fix commit changed this to:
+
+```
+</div>{/* end vault column wrapper */}    ← WRONG: } now closes the comment, not the conditional
+```
+
+The conditional `{appSection === "vault" && ...` was left unclosed. ESLint reported it as a syntax error hundreds of lines later. The correct form is:
+
+```jsx
+</div>}{/* end vault column wrapper */}
+    ↑
+    closes the {appSection === "vault" && ...} expression
+```
+
+**Rule:** When writing JSX comments adjacent to a closing element that itself closes a `{condition && <div>}` expression, the `}` closing the expression must come FIRST, before any `{/* comment */}`.
+
+---
+
 ## Deployment
 
 | Target | How |
