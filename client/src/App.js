@@ -9,6 +9,7 @@ import ProjectsSection from "./components/ProjectsSection";
 import DatasheetsLibrarySection from "./components/DatasheetsLibrarySection";
 import AdminSection from "./components/AdminSection";
 import QuizModal from "./components/QuizModal";
+import ShareModal from "./components/ShareModal";
 import TimesheetsSection from "./components/TimesheetsSection";
 import { BOILERPLATE_HEADINGS, isBoilerplate, DESIGN_SHELL, DESIGN_GROUND, DESIGN_GOLD, DESIGN_TEXT, DESIGN_MUTED, VAULT_FULL, COMPARE_FULL } from "./constants";
 
@@ -212,6 +213,8 @@ export default function App() {
   const [timedOut, setTimedOut] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
   const [showQuiz, setShowQuiz] = useState(false);
+  const [shareId, setShareId] = useState(null);
+  const [showShareModal, setShowShareModal] = useState(false);
   const fileInputRef = useRef();
   const tempDocInputRef = useRef();
   const tempDocTextareaRef = useRef(null);
@@ -353,6 +356,8 @@ export default function App() {
     }
     prevTempDocIndexingRef.current = tempDocIndexing;
   }, [tempDocIndexing, tempDocIndex]);
+
+  useEffect(() => { setShareId(null); }, [answer]);
 
   const loadVaultContents = async (vaultId) => {
     setAnswer(null);
@@ -1238,6 +1243,16 @@ export default function App() {
       )}
 
       {showQuiz && <QuizModal onClose={() => setShowQuiz(false)} />}
+      {showShareModal && answer && (
+        <ShareModal
+          question={question}
+          answer={answer}
+          vaultName={answerVaultName}
+          shareId={shareId}
+          setShareId={setShareId}
+          onClose={() => setShowShareModal(false)}
+        />
+      )}
 
       {/* Top nav */}
       <div style={{ background: DESIGN_SHELL, padding: "0 40px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0, height: 56, borderBottom: "1px solid #1e2028" }}>
@@ -1675,6 +1690,17 @@ export default function App() {
                                   Ask
                                 </button>
                               </div>
+                            </div>
+                          )}
+                          {/* ── Share button ── */}
+                          {!isRunning && (
+                            <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
+                              <button
+                                onClick={() => setShowShareModal(true)}
+                                style={{ background: "none", border: "1px solid #d0ccc8", color: "#7a7a80", padding: "4px 12px", fontSize: 11, letterSpacing: "0.04em", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}
+                              >
+                                Share
+                              </button>
                             </div>
                           )}
                         </div>
