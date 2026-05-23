@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import AnswerRenderer from "./common/AnswerRenderer";
-import { VAULT_FULL } from "../constants";
+import { VAULT_FULL, DESIGN_GROUND } from "../constants";
 
 const API_BASE = process.env.REACT_APP_API_URL || "https://archimind.up.railway.app";
 
@@ -18,7 +18,7 @@ export default function SharePage({ id }) {
   }, [id]);
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f1f2f4", fontFamily: "Inter, Arial, sans-serif" }}>
+    <div style={{ minHeight: "100vh", background: DESIGN_GROUND, fontFamily: "Inter, Arial, sans-serif" }}>
       <div style={{ maxWidth: 800, margin: "0 auto", padding: "48px 24px 80px" }}>
 
         {state === "loading" && (
@@ -39,16 +39,14 @@ export default function SharePage({ id }) {
         )}
 
         {state === "loaded" && answer && (
-          <div>
-            <div style={{
-              background: "#ffffff",
-              border: "1px solid #e4e4e8",
-              borderTop: `4px solid ${VAULT_FULL}`,
-              padding: "24px 28px",
-              marginBottom: 24
-            }}>
-              <AnswerRenderer text={answer} onCitationClick={null} accentColor={VAULT_FULL} />
-            </div>
+          <div style={{
+            background: "#ffffff",
+            border: "1px solid #e4e4e8",
+            borderTop: `4px solid ${VAULT_FULL}`,
+            padding: "24px 28px",
+            marginBottom: 24
+          }}>
+            <AnswerRenderer text={answer} onCitationClick={null} accentColor={VAULT_FULL} />
           </div>
         )}
 
