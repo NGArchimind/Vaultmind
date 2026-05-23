@@ -179,6 +179,30 @@ The conditional `{appSection === "vault" && ...` was left unclosed. ESLint repor
 
 ---
 
+## Vault indexing — heading extraction fix (2026-05-22)
+
+**Problem:** Certain important headings in Approved Documents were not making it into the vault index, so the Pass 1 scoring AI never saw them and couldn't select the right pages.
+
+Two classes of heading were being silently dropped:
+
+1. **Unnumbered named sub-headings** — e.g. "Siting of pedestrian guarding", "Design of guarding". In mupdf's flat text output these look identical to body text (no clause number, no visual styling cue). Gemini-flash-lite was treating them as body text and not extracting them.
+
+2. **Diagram/table captions** — e.g. "Diagram 3.1 Guarding design". The green caption bar sits at the very bottom of a table block. In mupdf text output it appears as the last line after all the table row text and looks like another row, not a structural heading.
+
+Additionally, the crowded pages filter (`count > 8`) was stripping entire pages that had dense tables — removing even the diagram title headings from the index.
+
+**Fixes applied (all in `client/src/App.js`):**
+
+- **`TEXT_PROMPT` and `INDEX_PROMPT`** — both updated to explicitly instruct Gemini to: (a) extract unnumbered named sub-headings that introduce distinct content blocks; (b) recognise diagram/table captions at the bottom of table text as structural titles, not table row content.
+
+- **Crowded pages filter** (Pass 1 index build, ~line 760) — changed from dropping all headings on crowded pages to keeping any heading whose title matches `^(table|figure|diagram)\s+\d+/i` even on crowded pages.
+
+- **Scoring prompt** — added DUTY CLAUSES AND IMPLEMENTATION SECTIONS rule: for quantitative questions (heights, dimensions, thresholds), the scoring AI must select both the duty clause (e.g. K2) AND the implementation sections that follow later in the same document (e.g. "Section 3: Protection from falling", "Design of guarding"). The duty clause only states the legal obligation — the actual values are always in the implementation sections.
+
+**Critical — re-index after deploying:** The vault index is stored in Supabase and was built with the old extraction prompt. Deploying these changes has no effect until the affected documents are re-indexed via the vault admin panel. Re-indexing replaces the stored headings list with one built from the new prompt.
+
+---
+
 ## Deployment
 
 | Target | How |
