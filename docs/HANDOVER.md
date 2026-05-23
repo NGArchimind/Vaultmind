@@ -203,6 +203,67 @@ Additionally, the crowded pages filter (`count > 8`) was stripping entire pages 
 
 ---
 
+## Agreements & Confirmations feature (2026-05-23)
+
+**Spec:** `docs/superpowers/specs/2026-05-23-agreements-confirmations-design.md`
+
+### Route ordering — critical
+
+The file `server/index.js` has these agreements routes registered in order (~line 1467):
+
+```
+GET  /api/projects/:id/agreements
+POST /api/projects/:id/agreements
+POST /api/projects/:id/agreements/extract   ← MUST be before :aid routes
+POST /api/projects/:id/agreements/ask       ← MUST be before :aid routes
+POST /api/projects/:id/agreements/:aid/entries
+DELETE /api/projects/:id/agreements/:aid
+```
+
+Express matches routes in registration order. If `extract` or `ask` were moved below the `:aid` routes, Express would match the literal string "extract" or "ask" as the `:aid` parameter, silently routing to the wrong handler. **Do not reorder these routes.**
+
+### Two-insert pattern (data integrity)
+
+Both the POST /agreements and POST /agreements/:aid/entries endpoints write to two tables. To avoid orphaned rows without transactions (Supabase JS SDK doesn't expose BEGIN/COMMIT):
+
+- **POST /agreements**: creates parent row first, then inserts first entry. If entry insert fails, a compensating `DELETE` removes the parent row before throwing.
+- **POST /agreements/:aid/entries**: inserts entry (`.select().single()` to capture id), then updates parent. If parent update fails, a compensating `DELETE` removes the orphaned entry row before throwing.
+
+### Keyword match detection
+
+The extract endpoint runs a simple overlap check (no vector embeddings) against existing project agreements. Words ≥4 chars, minus common stop words, are extracted from both the candidate text and each existing agreement's `current_text`. If ≥3 words overlap, `possible_match_id` is set to the existing agreement's id (best match by overlap count, not first match).
+
+Stop words list is inline in the extract handler — expand it if false positives become a problem.
+
+### Date rendering — timezone safety
+
+`date_agreed` comes from PostgreSQL as a plain date string (e.g. `"2026-05-14"`). `new Date("2026-05-14")` parses as UTC midnight — in browsers behind UTC this shifts the displayed date one day earlier. Both `AgreementsTab.jsx` and `AgreementsReviewModal.jsx` use a `formatDateStr(str)` helper that constructs the Date in local time:
+
+```js
+function formatDateStr(str) {
+  if (!str) return "";
+  const [y, m, d] = str.split("-");
+  return new Date(Number(y), Number(m) - 1, Number(d))
+    .toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+}
+```
+
+Apply this pattern everywhere a `date` column from Supabase is rendered — not just in the agreements components.
+
+### What's not built yet
+
+Auto-extraction triggers are deferred:
+- Email sync → call `POST /agreements/extract` with email body, `source_type: "email"`
+- Minutes tab upload → call `POST /agreements/extract` with minutes text, `source_type: "minutes"`
+
+Both endpoints already accept these source types. No structural changes needed when those features are built — just call the extract endpoint and open the review modal with the returned candidates.
+
+### SQL migration (pending Nathan)
+
+The `project_agreements` and `project_agreement_entries` tables must be created in Supabase before the server endpoints will work. SQL is in the memory file (`project_archimind.md` → Agreements & Confirmations section). Run in Supabase → SQL Editor → New query. Deploy order: SQL first, then server (Railway), then client (Vercel).
+
+---
+
 ## Deployment
 
 | Target | How |
