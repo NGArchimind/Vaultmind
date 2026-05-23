@@ -311,13 +311,41 @@ app_settings (key, value, updated_at) -- stores quiz_ad_vault_name
 
 ---
 
+## New Feature — Share Answer (session 2026-05-23)
+
+**"Share" button** below vault Q&A answers — generates a 7-day public link to the formatted answer.
+
+**Files:**
+- `client/src/components/SharePage.jsx` (new) — standalone public page, no login, renders answer via AnswerRenderer
+- `client/src/components/ShareModal.jsx` (new) — modal with Copy Link button (teal) + "Links expire after 7 days" footer
+- `client/vercel.json` (new) — SPA catch-all rewrite so `/share/:id` paths are served by index.html
+- `client/src/index.js` — path check: if pathname matches `/share/:id`, renders SharePage instead of App
+- `client/src/App.js` — ShareModal import, `shareId` + `showShareModal` state, `useEffect` to reset shareId on new answer, Share button in `{answer && ...}` block
+
+**Server endpoints (in `server/index.js`):**
+- `POST /api/shared-answers` — requireAuth, inserts row, returns `{ id }`
+- `GET /api/shared-answers/:id` — public (no auth), returns answer or 404 if expired/missing
+
+**DB table (already migrated in Supabase):**
+```sql
+shared_answers (id uuid PK, question text, answer text, vault_name text, created_by uuid, created_at timestamptz, expires_at timestamptz DEFAULT now()+7days)
+RLS: Public read USING (true) | Auth insert WITH CHECK (true)
+```
+
+**Critical gotchas discovered during build:**
+1. **RLS policy** — use `WITH CHECK (true)` not `WITH CHECK (auth.role() = 'authenticated')`. The server uses the service role key which bypasses RLS, but if the key is the anon key in practice, the auth.role() check fails. All other tables in this codebase use `WITH CHECK (true)`.
+2. **question state is cleared** — `askQuestion()` calls `setQuestion("")` at line ~737. By the time the user clicks Share, `question` is empty. Fix: pass `lastQuestion` (not `question`) to ShareModal — `lastQuestion` is set at the start of `askQuestion()` and never cleared.
+3. **Email removed** — `mailto:` approach was unreliable. Share is link-only (Copy Link button). Email feature dropped entirely from ShareModal.
+4. **SharePage routing** — no React Router in this project. Route detection is in `index.js` using `window.location.pathname.match(/^\/share\/([^/]+)/)`. If matched, renders `<SharePage id={...} />` instead of `<App />`. `client/vercel.json` catch-all rewrite required for Vercel to serve index.html on `/share/*` paths.
+
+---
+
 ## Feature Backlog
 
 ### Vault
 - **Loading animation** — add "test while you wait" content during answer generation (building regs or CSCS themed animation/tips)
 - **Part K guarding question** — question references Part K but not the correct clause; correct clause should appear front and centre in the answer
 - **Wrong diagram page** — most critical diagram for an answer is not being surfaced; should be the first/most prominent thing shown
-- **Forward answer via email** — ability to email a Q&A answer directly from the vault interface
 
 ### Projects
 - **Bottom Q&A — data coverage** — update project Q&A to cover all data within the project section; recently added data types need connecting to the index

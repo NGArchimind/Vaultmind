@@ -1504,16 +1504,26 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
   const [viewingPdfProduct, setViewingPdfProduct] = useState(null);
   const [pdfUrl, setPdfUrl] = useState(null);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [todos, setTodos] = useState([]);
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [transmittal, setTransmittal] = useState(null);
+  const [matchedTasks, setMatchedTasks] = useState([]);
 
   useEffect(() => {
     async function loadProducts() {
       try {
-        const [{ products }, { categories }] = await Promise.all([
+        const [{ products }, { categories }, todosRes, membersRes, transmittalRes] = await Promise.all([
           api(`/api/projects/${projectId}/products`),
           api(`/api/projects/${projectId}/categories`),
+          api(`/api/projects/${projectId}/todos`),
+          api(`/api/team-members`),
+          api(`/api/projects/${projectId}/transmittal`),
         ]);
         setAssignedProducts(products || []);
         setProductCategories(categories || []);
+        setTodos(todosRes.todos || []);
+        setTeamMembers(membersRes || []);
+        setTransmittal(transmittalRes);
       } catch (e) {}
     }
     loadProducts();
@@ -1568,7 +1578,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
     if (!question.trim() || running) return;
     const q = question.trim();
     setLastQuestion(q);
-    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setExpanded(true); setStatus("Searching drawings…");
+    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setMatchedTasks([]); setExpandedProductId(null); setExpanded(true); setStatus("Searching drawings…");
 
     const drawingContext = drawings.length === 0
       ? "No drawings in register."
@@ -1607,6 +1617,30 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
           return `ID:${p.id} | ${p.name}${p.manufacturer ? ` by ${p.manufacturer}` : ""}${p.product_type ? ` [${p.product_type}]` : ""} — Category: ${catName}${attrLine}`;
         }).filter(Boolean).join("\n");
 
+    const memberMap = Object.fromEntries(teamMembers.map(m => [m.id, m.full_name]));
+    const tasksContext = todos.length === 0
+      ? "No tasks recorded."
+      : todos.map(t => {
+          const assignee = t.assigned_to ? (memberMap[t.assigned_to] || "Unknown") : "Unassigned";
+          const due = t.due_date ? new Date(t.due_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "No due date";
+          return `ID:${t.id} | "${t.description}" | Status: ${t.status || "open"} | Assigned: ${assignee} | Due: ${due}`;
+        }).join("\n");
+
+    let transmittalContext = "No transmittal issues recorded.";
+    if (transmittal && transmittal.issues && transmittal.issues.length > 0) {
+      const issueLines = transmittal.issues.map(issue => {
+        const revs = transmittal.revMap?.[issue.id] || {};
+        const revEntries = Object.entries(revs).map(([dn, rev]) => `${dn} Rev ${rev}`).join(", ");
+        const date = new Date(issue.issue_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+        return `${date}: ${revEntries || "no revisions recorded"}`;
+      });
+      const bfLines = Object.entries(transmittal.autoBforward || {})
+        .filter(([, rev]) => rev)
+        .map(([dn, rev]) => `${dn}: Rev ${rev}`)
+        .join(", ");
+      transmittalContext = issueLines.join("\n") + (bfLines ? `\nLatest revision per drawing: ${bfLines}` : "");
+    }
+
     const ctx = `PROJECT: ${project.name}
 Job Number: ${project.job_number || "—"}
 Client: ${project.client || "—"}
@@ -1628,10 +1662,16 @@ ${notes.length === 0 ? "None recorded." : notes.map(n => `${n.label}: ${n.value}
 SPECIFIED PRODUCTS:
 ${productsContext}
 
+TASKS (TO DO LIST):
+${tasksContext}
+
+TRANSMITTAL / DRAWING ISSUE HISTORY:
+${transmittalContext}
+
 DRAWING REGISTER (${drawings.length} drawings):
 ${drawingContext}${drawingContentContext}`;
 
-    const systemPrompt = `You are a project assistant for an architectural practice. You have full access to the project data provided — including project info, consultants, U-values, notes, specified products (with full technical attributes), the drawing register, and extracted content from indexed drawings.
+    const systemPrompt = `You are a project assistant for an architectural practice. You have full access to the project data provided — including project info, consultants, U-values, notes, specified products (with full technical attributes), the tasks/to-do list, transmittal issue history, the drawing register, and extracted content from indexed drawings.
 
 When INDEXED DRAWING CONTENT is present in the context, use it to answer questions about what is shown or noted within specific drawings — room names, materials, annotations, schedules, specifications, and other drawing content. Reference the drawing number when citing content from a specific drawing.
 
@@ -1641,13 +1681,15 @@ Return a JSON object with this exact structure:
 {
   "answer": "Your response here — as detailed as the question requires",
   "drawing_ids": ["id1", "id2"],
-  "product_ids": ["id1", "id2"]
+  "product_ids": ["id1", "id2"],
+  "task_ids": ["id1", "id2"]
 }
 
 Rules:
 - Always populate "answer" with a helpful, direct response. For technical questions (fire ratings, U-values, certifications etc) include the specific values from the product attributes.
 - Populate "drawing_ids" with the ID of every drawing you reference or cite in your answer — including drawings from INDEXED DRAWING CONTENT that informed your response
 - Only populate "product_ids" when the answer references one or more specific products — use the product IDs from the SPECIFIED PRODUCTS context (the id field in the products join, format: uuid)
+- Only populate "task_ids" when the answer references one or more specific tasks — use the task IDs from the TASKS context (the ID field, format: uuid)
 - Never say you don't have access to information — use what is in the context
 - Do not include any text outside the JSON object`;
 
@@ -1660,6 +1702,7 @@ Rules:
       let answerText = text;
       let matchedDrawingIds = [];
       let matchedProductIds = [];
+      let matchedTaskIds = [];
       try {
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
@@ -1667,6 +1710,7 @@ Rules:
           if (typeof parsed.answer === "string" && parsed.answer.trim()) answerText = parsed.answer;
           if (Array.isArray(parsed.drawing_ids) && parsed.drawing_ids.length > 0) matchedDrawingIds = parsed.drawing_ids;
           if (Array.isArray(parsed.product_ids) && parsed.product_ids.length > 0) matchedProductIds = parsed.product_ids;
+          if (Array.isArray(parsed.task_ids) && parsed.task_ids.length > 0) matchedTaskIds = parsed.task_ids;
         }
       } catch (parseErr) {}
       setAnswer(answerText);
@@ -1680,6 +1724,7 @@ Rules:
       }
       if (merged.length > 0) setMatchedDrawings(merged);
       if (matchedProductIds.length > 0) setMatchedProducts(assignedProducts.filter(a => a.products && matchedProductIds.includes(a.products.id)));
+      if (matchedTaskIds.length > 0) setMatchedTasks(todos.filter(t => matchedTaskIds.includes(t.id)));
       setStatus("");
     } catch (e) {
       setStatus("Error: " + e.message);
@@ -1706,125 +1751,206 @@ Rules:
     setPdfUrl(null); setViewingPdfProduct(null);
   }
 
-  const hasResults = answer || running || status || matchedDrawings.length > 0 || matchedProducts.length > 0;
+  const hasResults = answer || running || status || matchedDrawings.length > 0 || matchedProducts.length > 0 || matchedTasks.length > 0;
+
+  const renderMap = Object.fromEntries(teamMembers.map(m => [m.id, m.full_name]));
+
+  function renderProjectAnswer(text) {
+    const lines = text.split("\n");
+    const result = [];
+    let listBuf = [];
+    let listOl = false;
+    function flush() {
+      if (!listBuf.length) return;
+      const items = listBuf.splice(0);
+      result.push(listOl
+        ? <ol key={result.length} style={{ margin: "6px 0 12px 22px", padding: 0 }}>{items}</ol>
+        : <ul key={result.length} style={{ margin: "6px 0 12px 22px", padding: 0 }}>{items}</ul>
+      );
+      listOl = false;
+    }
+    function inline(str) {
+      return str.split(/(\*\*[^*]+\*\*|\*[^*]+\*)/).map((s, i) => {
+        if (s.startsWith("**") && s.endsWith("**")) return <strong key={i}>{s.slice(2, -2)}</strong>;
+        if (s.startsWith("*") && s.endsWith("*")) return <em key={i}>{s.slice(1, -1)}</em>;
+        return s;
+      });
+    }
+    lines.forEach((raw, i) => {
+      const line = raw.trim();
+      if (!line) { flush(); return; }
+      if (/^#{2,3}\s/.test(line)) {
+        flush();
+        result.push(<div key={i} style={{ fontSize: 13, fontWeight: 700, color: PROJECTS_FULL, margin: "18px 0 6px", letterSpacing: "0.02em" }}>{line.replace(/^#+\s*/, "")}</div>);
+        return;
+      }
+      const ulM = line.match(/^[-•]\s+(.*)/);
+      if (ulM) { if (listOl) flush(); listBuf.push(<li key={i} style={{ marginBottom: 4, color: "#3a3632", fontSize: 13 }}>{inline(ulM[1])}</li>); return; }
+      const olM = line.match(/^\d+\.\s+(.*)/);
+      if (olM) { if (!listOl && listBuf.length) flush(); listOl = true; listBuf.push(<li key={i} style={{ marginBottom: 4, color: "#3a3632", fontSize: 13 }}>{inline(olM[1])}</li>); return; }
+      flush();
+      result.push(<p key={i} style={{ margin: "0 0 10px", fontSize: 13, color: "#3a3632", lineHeight: 1.65, fontFamily: "Inter, Arial, sans-serif" }}>{inline(line)}</p>);
+    });
+    flush();
+    return <div>{result}</div>;
+  }
+
+  function closePanel() {
+    setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setMatchedTasks([]); setExpandedProductId(null); setStatus(""); setExpanded(false);
+  }
 
   return (
     <div style={{ borderTop: "1px solid #e8e0d5", background: "#ffffff", flexShrink: 0 }}>
       {expanded && hasResults && (
-        <div style={{ borderBottom: "1px solid #f0ede8", background: "#f8f8fa", maxHeight: 400, overflowY: "auto", animation: "fadeIn 0.3s ease", position: "relative" }}>
-          <button className="btn" onClick={() => { setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setStatus(""); setExpanded(false); }}
-            style={{ position: "sticky", top: 8, float: "right", marginRight: 12, marginTop: 8, background: "none", color: "#b0a8a0", border: "1px solid #e8e0d5", fontSize: 11, padding: "2px 8px", zIndex: 10, fontFamily: "Inter, Arial, sans-serif" }}
-            onMouseEnter={e => e.target.style.color = COMPARE_FULL}
-            onMouseLeave={e => e.target.style.color = "#b0a8a0"}>
-            ✕
-          </button>
-          {running && (
-            <div style={{ padding: "14px 32px", display: "flex", alignItems: "center", gap: 8, color: "#9a9088", fontSize: 12 }}>
-              <Spinner size={11} /> {status}
+        <div style={{ position: "fixed", top: 56, left: 16, right: 16, bottom: 16, zIndex: 500, background: "#fff", borderRadius: 6, boxShadow: "0 8px 48px rgba(0,0,0,0.24)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+          {/* Header */}
+          <div style={{ background: PROJECTS_FULL, padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+            <div style={{ minWidth: 0, flex: 1, marginRight: 20 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.65)", letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 3 }}>Project Q&A</div>
+              <div style={{ fontSize: 13, color: "#fff", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{lastQuestion}</div>
             </div>
-          )}
-          {answer && (
-            <div style={{ padding: "14px 32px", borderBottom: (matchedDrawings.length > 0 || matchedProducts.length > 0) ? "1px solid #e8e0d5" : "none" }}>
-              <AnswerRenderer text={answer} accentColor={PROJECTS_FULL} />
-            </div>
-          )}
-          {!running && status && (
-            <div style={{ padding: "14px 32px" }}>
-              <p style={{ fontSize: 12, color: COMPARE_FULL }}>{status}</p>
-            </div>
-          )}
-          {matchedProducts.length > 0 && (
-            <div>
-              <div style={{ padding: "8px 16px", background: "#f8f8fa", display: "flex", alignItems: "center" }}>
-                <span style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                  {matchedProducts.length} product{matchedProducts.length !== 1 ? "s" : ""} referenced
-                </span>
+            <button className="btn" onClick={closePanel}
+              style={{ background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.3)", color: "#fff", padding: "7px 18px", fontSize: 11, fontWeight: 600, letterSpacing: "0.05em", flexShrink: 0 }}>
+              ✕ Close
+            </button>
+          </div>
+
+          {/* Scrollable body */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "28px 40px" }}>
+            {running && (
+              <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#9a9088", fontSize: 13 }}>
+                <Spinner size={13} /> {status}
               </div>
-              {matchedProducts.map((a, i) => {
-                const p = a.products;
-                if (!p) return null;
-                const cat = productCategories.find(c => c.id === a.category_id);
-                const isExpanded = expandedProductId === p.id;
-                const hasAttrs = p.attributes && p.attributes.length > 0;
-                return (
-                  <div key={a.id} style={{ borderBottom: i < matchedProducts.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#f8f8fa" : "#fff" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px" }}>
-                      <div style={{ flex: 1, minWidth: 0, cursor: hasAttrs ? "pointer" : "default" }}
-                        onClick={() => hasAttrs && setExpandedProductId(isExpanded ? null : p.id)}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT }}>{p.name}</div>
-                        <div style={{ fontSize: 11, color: "#9a9088", marginTop: 1 }}>
-                          {p.manufacturer || "—"}
-                          {cat && <span style={{ marginLeft: 10, color: "#b0a8a0" }}>· {cat.name}</span>}
+            )}
+            {!running && status && (
+              <p style={{ fontSize: 13, color: COMPARE_FULL }}>{status}</p>
+            )}
+            {answer && (
+              <div style={{ marginBottom: 28 }}>
+                {renderProjectAnswer(answer)}
+              </div>
+            )}
+
+            {/* Matched tasks */}
+            {matchedTasks.length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>
+                  {matchedTasks.length} task{matchedTasks.length !== 1 ? "s" : ""} referenced
+                </div>
+                {matchedTasks.map(t => {
+                  const assignee = t.assigned_to ? (renderMap[t.assigned_to] || "Unknown") : "Unassigned";
+                  const due = t.due_date ? new Date(t.due_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : null;
+                  const statusColors = { done: "#3e7e58", in_progress: "#2a6496", open: "#9a9088" };
+                  const sColor = statusColors[t.status] || "#9a9088";
+                  return (
+                    <div key={t.id} style={{ background: "#f8f8fa", border: "1px solid #e4e4e8", borderRadius: 4, padding: "12px 16px", marginBottom: 8, display: "flex", alignItems: "center", gap: 14 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, color: DESIGN_TEXT, fontWeight: 500 }}>{t.description}</div>
+                        <div style={{ fontSize: 11, color: "#9a9088", marginTop: 3 }}>
+                          {assignee}{due && ` · Due ${due}`}
                         </div>
                       </div>
-                      {p.product_type && (
-                        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#2a6496", background: "#e8f0f8", padding: "2px 7px", flexShrink: 0 }}>
-                          {p.product_type}
-                        </span>
-                      )}
-                      {p.file_key && (
-                        <button className="btn" onClick={() => viewProductPdf(p)}
-                          style={{ fontSize: 11, color: "#2a6496", background: "none", border: "1px solid #b8d0e8", padding: "3px 10px", flexShrink: 0, fontWeight: 500 }}>
-                          📄 Datasheet
-                        </button>
-                      )}
-                      {hasAttrs && (
-                        <button className="btn" onClick={() => setExpandedProductId(isExpanded ? null : p.id)}
-                          style={{ fontSize: 11, color: "#2a6496", background: "none", border: "none", padding: "2px 6px", flexShrink: 0, fontWeight: 500 }}>
-                          {isExpanded ? "▲" : "▼"}
-                        </button>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: sColor, background: sColor + "18", padding: "3px 9px", borderRadius: 3, letterSpacing: "0.05em", textTransform: "uppercase", flexShrink: 0 }}>
+                        {(t.status || "open").replace(/_/g, " ")}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Referenced products */}
+            {matchedProducts.length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12 }}>
+                  {matchedProducts.length} product{matchedProducts.length !== 1 ? "s" : ""} referenced
+                </div>
+                {matchedProducts.map((a, i) => {
+                  const p = a.products;
+                  if (!p) return null;
+                  const cat = productCategories.find(c => c.id === a.category_id);
+                  const isExpanded = expandedProductId === p.id;
+                  const hasAttrs = p.attributes && p.attributes.length > 0;
+                  return (
+                    <div key={a.id} style={{ borderBottom: i < matchedProducts.length - 1 ? "1px solid #f0ede8" : "none", background: i % 2 === 0 ? "#f8f8fa" : "#fff" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 16px" }}>
+                        <div style={{ flex: 1, minWidth: 0, cursor: hasAttrs ? "pointer" : "default" }}
+                          onClick={() => hasAttrs && setExpandedProductId(isExpanded ? null : p.id)}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT }}>{p.name}</div>
+                          <div style={{ fontSize: 11, color: "#9a9088", marginTop: 1 }}>
+                            {p.manufacturer || "—"}
+                            {cat && <span style={{ marginLeft: 10, color: "#b0a8a0" }}>· {cat.name}</span>}
+                          </div>
+                        </div>
+                        {p.product_type && (
+                          <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", color: "#2a6496", background: "#e8f0f8", padding: "2px 7px", flexShrink: 0 }}>
+                            {p.product_type}
+                          </span>
+                        )}
+                        {p.file_key && (
+                          <button className="btn" onClick={() => viewProductPdf(p)}
+                            style={{ fontSize: 11, color: "#2a6496", background: "none", border: "1px solid #b8d0e8", padding: "3px 10px", flexShrink: 0, fontWeight: 500 }}>
+                            📄 Datasheet
+                          </button>
+                        )}
+                        {hasAttrs && (
+                          <button className="btn" onClick={() => setExpandedProductId(isExpanded ? null : p.id)}
+                            style={{ fontSize: 11, color: "#2a6496", background: "none", border: "none", padding: "2px 6px", flexShrink: 0, fontWeight: 500 }}>
+                            {isExpanded ? "▲" : "▼"}
+                          </button>
+                        )}
+                      </div>
+                      {isExpanded && hasAttrs && (
+                        <div style={{ borderTop: "1px solid #e8e0d5", padding: "0 16px 12px" }}>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "Inter, Arial, sans-serif" }}>
+                            <thead>
+                              <tr>
+                                <th style={{ background: DESIGN_TEXT, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "35%" }}>Attribute</th>
+                                <th style={{ background: DESIGN_TEXT, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase" }}>Value</th>
+                                <th style={{ background: DESIGN_TEXT, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "15%" }}>Unit</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {p.attributes.map((attr, j) => (
+                                <tr key={j} style={{ background: j % 2 === 0 ? "#f9f7f5" : "#fff" }}>
+                                  <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: "#5a5048", fontWeight: 500 }}>{attr.attribute}</td>
+                                  <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: DESIGN_TEXT }}>{attr.value}</td>
+                                  <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: "#9a9088" }}>{attr.unit || "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
                       )}
                     </div>
-                    {isExpanded && hasAttrs && (
-                      <div style={{ borderTop: "1px solid #e8e0d5", padding: "0 16px 12px" }}>
-                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, fontFamily: "Inter, Arial, sans-serif" }}>
-                          <thead>
-                            <tr>
-                              <th style={{ background: DESIGN_TEXT, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "35%" }}>Attribute</th>
-                              <th style={{ background: DESIGN_TEXT, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase" }}>Value</th>
-                              <th style={{ background: DESIGN_TEXT, color: "#fff", padding: "5px 12px", textAlign: "left", fontWeight: 500, fontSize: 10, letterSpacing: "0.05em", textTransform: "uppercase", width: "15%" }}>Unit</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {p.attributes.map((attr, j) => (
-                              <tr key={j} style={{ background: j % 2 === 0 ? "#f9f7f5" : "#fff" }}>
-                                <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: "#5a5048", fontWeight: 500 }}>{attr.attribute}</td>
-                                <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: DESIGN_TEXT }}>{attr.value}</td>
-                                <td style={{ padding: "6px 12px", borderBottom: "1px solid #e8e0d5", color: "#9a9088" }}>{attr.unit || "—"}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {matchedDrawings.length > 0 && (
-            <div>
-              <div style={{ padding: "8px 16px", background: "#f8f8fa", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <span style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-                  {matchedDrawings.length} drawing{matchedDrawings.length !== 1 ? "s" : ""} found
-                </span>
-                <button className="btn" onClick={downloadAll} disabled={downloadingAll}
-                  style={{ fontSize: 10, fontWeight: 600, color: DESIGN_TEXT, background: "none", border: `1px solid ${DESIGN_TEXT}`, padding: "3px 10px", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
-                  {downloadingAll ? <><Spinner size={10} /> Downloading…</> : "↓ Download All"}
-                </button>
+                  );
+                })}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "6px 16px", background: DESIGN_TEXT }}>
-                {["Drawing No.", "Title", "Rev.", "Status", "Scale", "", "", ""].map((h, i) => (
-                  <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
+            )}
+
+            {/* Matched drawings */}
+            {matchedDrawings.length > 0 && (
+              <div>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span>{matchedDrawings.length} drawing{matchedDrawings.length !== 1 ? "s" : ""} found</span>
+                  <button className="btn" onClick={downloadAll} disabled={downloadingAll}
+                    style={{ fontSize: 10, fontWeight: 600, color: DESIGN_TEXT, background: "none", border: `1px solid ${DESIGN_TEXT}`, padding: "3px 10px", letterSpacing: "0.04em", display: "flex", alignItems: "center", gap: 5 }}>
+                    {downloadingAll ? <><Spinner size={10} /> Downloading…</> : "↓ Download All"}
+                  </button>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(200px,240px) 1fr 60px minmax(80px,140px) 80px 36px 36px 36px", gap: "0 12px", padding: "6px 16px", background: DESIGN_TEXT }}>
+                  {["Drawing No.", "Title", "Rev.", "Status", "Scale", "", "", ""].map((h, i) => (
+                    <div key={i} style={{ fontSize: 10, fontWeight: 500, color: "#fff", letterSpacing: "0.05em", textTransform: "uppercase" }}>{h}</div>
+                  ))}
+                </div>
+                {matchedDrawings.map(d => (
+                  <DrawingRow key={d.id} d={d} projectId={projectId} isAdmin={false}
+                    downloadingId={downloadingId} onDownload={handleDownload} onView={setViewingDrawing}
+                    highlight={true} />
                 ))}
               </div>
-              {matchedDrawings.map(d => (
-                <DrawingRow key={d.id} d={d} projectId={projectId} isAdmin={false}
-                  downloadingId={downloadingId} onDownload={handleDownload} onView={setViewingDrawing}
-                  highlight={true} />
-              ))}
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
 
@@ -1839,7 +1965,7 @@ Rules:
           {running ? <Spinner size={12} /> : "Ask"}
         </button>
         {hasResults && (
-          <button className="btn" onClick={() => { setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setExpandedProductId(null); setStatus(""); setExpanded(false); }}
+          <button className="btn" onClick={closePanel}
             style={{ background: "none", color: "#9a9088", padding: "0 10px", fontSize: 11, border: "1px solid #e4e4e8", borderLeft: "none", marginLeft: -1 }}>Clear</button>
         )}
       </div>
