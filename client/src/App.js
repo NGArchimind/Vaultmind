@@ -1245,7 +1245,7 @@ export default function App() {
       {showQuiz && <QuizModal onClose={() => setShowQuiz(false)} />}
       {showShareModal && answer && (
         <ShareModal
-          question={question}
+          question={lastQuestion}
           answer={answer}
           vaultName={answerVaultName}
           shareId={shareId}
