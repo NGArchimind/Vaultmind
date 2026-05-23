@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { api } from "../api/client";
-import { VAULT_FULL, DESIGN_TEXT, DESIGN_MUTED } from "../constants";
+import { VAULT_FULL, DESIGN_MUTED } from "../constants";
 
 export default function ShareModal({ question, answer, vaultName, shareId, setShareId, onClose }) {
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
 
   async function getOrCreateLink() {
     if (shareId) return `${window.location.origin}/share/${shareId}`;
@@ -22,19 +23,35 @@ export default function ShareModal({ question, answer, vaultName, shareId, setSh
   }
 
   async function handleCopyLink() {
-    const link = await getOrCreateLink();
-    await navigator.clipboard.writeText(link);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setError(null);
+    try {
+      const link = await getOrCreateLink();
+      try {
+        await navigator.clipboard.writeText(link);
+      } catch {
+        // Clipboard blocked — show the link as fallback
+        setError(`Copy failed. Link: ${link}`);
+        return;
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError("Could not generate link. Please try again.");
+    }
   }
 
   async function handleEmail() {
-    const link = await getOrCreateLink();
-    const subject = encodeURIComponent(`Archimind: ${question}`);
-    const body = encodeURIComponent(
-      `I used Archimind to look this up — see the full formatted answer here:\n\n${link}`
-    );
-    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+    setError(null);
+    try {
+      const link = await getOrCreateLink();
+      const subject = encodeURIComponent(`Archimind: ${question}`);
+      const body = encodeURIComponent(
+        `I used Archimind to look this up — see the full formatted answer here:\n\n${link}`
+      );
+      window.location.href = `mailto:?subject=${subject}&body=${body}`;
+    } catch {
+      setError("Could not generate link. Please try again.");
+    }
   }
 
   return (
@@ -90,9 +107,13 @@ export default function ShareModal({ question, answer, vaultName, shareId, setSh
               opacity: loading ? 0.6 : 1
             }}
           >
-            Open in Email
+            {loading ? "Generating link…" : "Open in Email"}
           </button>
         </div>
+
+        {error && (
+          <p style={{ fontSize: 11, color: "#c25a45", marginTop: 8, lineHeight: 1.4 }}>{error}</p>
+        )}
 
         <p style={{ fontSize: 10, color: "#c0c0c8", marginTop: 16, letterSpacing: "0.04em" }}>
           Links expire after 7 days.
