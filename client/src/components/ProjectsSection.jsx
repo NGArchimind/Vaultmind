@@ -1488,7 +1488,7 @@ function base64ToBlob(base64, mimeType) {
 }
 
 // ── QA Bar ────────────────────────────────────────────────────────────────────
-function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
+function QABar({ project, consultants, uvalues, notes, drawings, projectId, onNavigateTab }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState(null);
   const [matchedDrawings, setMatchedDrawings] = useState([]);
@@ -1509,6 +1509,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
   const [teamMembers, setTeamMembers] = useState([]);
   const [transmittal, setTransmittal] = useState(null);
   const [matchedTasks, setMatchedTasks] = useState([]);
+  const [matchedAgreements, setMatchedAgreements] = useState([]);
 
   useEffect(() => {
     async function loadProducts() {
@@ -1579,7 +1580,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
     if (!question.trim() || running) return;
     const q = question.trim();
     setLastQuestion(q);
-    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setMatchedTasks([]); setExpandedProductId(null); setExpanded(true); setStatus("Searching drawings…");
+    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setMatchedTasks([]); setMatchedAgreements([]); setExpandedProductId(null); setExpanded(true); setStatus("Searching drawings…");
 
     const drawingContext = drawings.length === 0
       ? "No drawings in register."
@@ -1654,7 +1655,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
           const history = (a.entries || []).length > 1
             ? ` (previously: ${(a.entries || []).slice(0, -1).map(e => `"${e.text}" on ${e.date_agreed}`).join(", ")})`
             : "";
-          return `"${a.current_text}" — confirmed by ${a.confirmed_by || "unknown"} on ${a.date_agreed}${a.others_present ? `, others: ${a.others_present}` : ""}${history}`;
+          return `ID:${a.id} | "${a.current_text}" — confirmed by ${a.confirmed_by || "unknown"} on ${a.date_agreed}${a.others_present ? `, others: ${a.others_present}` : ""}${history}`;
         }).join("\n");
 
     const ctx = `PROJECT: ${project.name}
@@ -1701,7 +1702,8 @@ Return a JSON object with this exact structure:
   "answer": "Your response here — as detailed as the question requires",
   "drawing_ids": ["id1", "id2"],
   "product_ids": ["id1", "id2"],
-  "task_ids": ["id1", "id2"]
+  "task_ids": ["id1", "id2"],
+  "agreement_ids": ["id1", "id2"]
 }
 
 Rules:
@@ -1709,6 +1711,7 @@ Rules:
 - Populate "drawing_ids" with the ID of every drawing you reference or cite in your answer — including drawings from INDEXED DRAWING CONTENT that informed your response
 - Only populate "product_ids" when the answer references one or more specific products — use the product IDs from the SPECIFIED PRODUCTS context (the id field in the products join, format: uuid)
 - Only populate "task_ids" when the answer references one or more specific tasks — use the task IDs from the TASKS context (the ID field, format: uuid)
+- Only populate "agreement_ids" when the answer references one or more agreements, decisions, or client instructions — use the IDs from the AGREED DECISIONS context (the ID field after "ID:", format: uuid)
 - Never say you don't have access to information — use what is in the context
 - Do not include any text outside the JSON object`;
 
@@ -1730,6 +1733,7 @@ Rules:
           if (Array.isArray(parsed.drawing_ids) && parsed.drawing_ids.length > 0) matchedDrawingIds = parsed.drawing_ids;
           if (Array.isArray(parsed.product_ids) && parsed.product_ids.length > 0) matchedProductIds = parsed.product_ids;
           if (Array.isArray(parsed.task_ids) && parsed.task_ids.length > 0) matchedTaskIds = parsed.task_ids;
+          if (Array.isArray(parsed.agreement_ids) && parsed.agreement_ids.length > 0) setMatchedAgreements(freshAgreements.filter(a => parsed.agreement_ids.includes(a.id)));
         }
       } catch (parseErr) {}
       setAnswer(answerText);
@@ -1770,7 +1774,7 @@ Rules:
     setPdfUrl(null); setViewingPdfProduct(null);
   }
 
-  const hasResults = answer || running || status || matchedDrawings.length > 0 || matchedProducts.length > 0 || matchedTasks.length > 0;
+  const hasResults = answer || running || status || matchedDrawings.length > 0 || matchedProducts.length > 0 || matchedTasks.length > 0 || matchedAgreements.length > 0;
 
   const renderMap = Object.fromEntries(teamMembers.map(m => [m.id, m.full_name]));
 
@@ -1815,7 +1819,7 @@ Rules:
   }
 
   function closePanel() {
-    setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setMatchedTasks([]); setExpandedProductId(null); setStatus(""); setExpanded(false);
+    setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setMatchedTasks([]); setMatchedAgreements([]); setExpandedProductId(null); setStatus(""); setExpanded(false);
   }
 
   return (
@@ -1847,6 +1851,55 @@ Rules:
             {answer && (
               <div style={{ marginBottom: 28 }}>
                 {renderProjectAnswer(answer)}
+              </div>
+            )}
+
+            {/* Matched agreements */}
+            {matchedAgreements.length > 0 && (
+              <div style={{ marginBottom: 28 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span>{matchedAgreements.length} agreement{matchedAgreements.length !== 1 ? "s" : ""} referenced</span>
+                  {onNavigateTab && (
+                    <button className="btn" onClick={() => onNavigateTab("agreements")}
+                      style={{ fontSize: 10, fontWeight: 600, color: PROJECTS_FULL, background: "none", border: `1px solid ${PROJECTS_FULL}`, padding: "3px 10px", letterSpacing: "0.04em" }}>
+                      View all in Agreements tab →
+                    </button>
+                  )}
+                </div>
+                {matchedAgreements.map(a => {
+                  const [y, m, d] = (a.date_agreed || "").split("-");
+                  const dateStr = a.date_agreed
+                    ? new Date(Number(y), Number(m) - 1, Number(d)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+                    : null;
+                  const prevEntries = (a.entries || []).slice(0, -1);
+                  return (
+                    <div key={a.id} style={{ background: "#f8f8fa", border: `1px solid #c8e6d4`, borderLeft: `3px solid ${PROJECTS_FULL}`, borderRadius: 4, padding: "12px 16px", marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, color: DESIGN_TEXT, fontWeight: 500, marginBottom: 6 }}>{a.current_text}</div>
+                      <div style={{ fontSize: 11, color: "#9a9088", display: "flex", flexWrap: "wrap", gap: "4px 16px" }}>
+                        {dateStr && <span>📅 {dateStr}</span>}
+                        {a.confirmed_by && <span>✓ {a.confirmed_by}</span>}
+                        {a.others_present && <span>· {a.others_present}</span>}
+                        {a.source_label && <span style={{ color: "#b0a8a0" }}>· {a.source_label}</span>}
+                      </div>
+                      {prevEntries.length > 0 && (
+                        <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #e8e4e0" }}>
+                          <div style={{ fontSize: 10, fontWeight: 600, color: "#b0a8a0", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Previous versions</div>
+                          {prevEntries.reverse().map((e, i) => {
+                            const [ey, em, ed] = (e.date_agreed || "").split("-");
+                            const eDateStr = e.date_agreed
+                              ? new Date(Number(ey), Number(em) - 1, Number(ed)).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })
+                              : null;
+                            return (
+                              <div key={i} style={{ fontSize: 11, color: "#9a9088", marginBottom: 2 }}>
+                                {eDateStr && <span style={{ color: "#b0a8a0" }}>{eDateStr} — </span>}{e.text}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
@@ -3793,7 +3846,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
 
       </div>
 
-      <QABar project={project} consultants={consultants} uvalues={uvalues} notes={notes} drawings={drawings} projectId={projectId} />
+      <QABar project={project} consultants={consultants} uvalues={uvalues} notes={notes} drawings={drawings} projectId={projectId} onNavigateTab={setActiveTab} />
     </div>
   );
 }
