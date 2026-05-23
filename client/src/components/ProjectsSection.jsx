@@ -1509,25 +1509,22 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
   const [teamMembers, setTeamMembers] = useState([]);
   const [transmittal, setTransmittal] = useState(null);
   const [matchedTasks, setMatchedTasks] = useState([]);
-  const [qaAgreements, setQaAgreements] = useState([]);
 
   useEffect(() => {
     async function loadProducts() {
       try {
-        const [{ products }, { categories }, todosRes, membersRes, transmittalRes, agreementsRes] = await Promise.all([
+        const [{ products }, { categories }, todosRes, membersRes, transmittalRes] = await Promise.all([
           api(`/api/projects/${projectId}/products`),
           api(`/api/projects/${projectId}/categories`),
           api(`/api/projects/${projectId}/todos`),
           api(`/api/team-members`),
           api(`/api/projects/${projectId}/transmittal`),
-          api(`/api/projects/${projectId}/agreements`),
         ]);
         setAssignedProducts(products || []);
         setProductCategories(categories || []);
         setTodos(todosRes.todos || []);
         setTeamMembers(membersRes || []);
         setTransmittal(transmittalRes);
-        setQaAgreements(agreementsRes.agreements || []);
       } catch (e) {}
     }
     loadProducts();
@@ -1645,9 +1642,15 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId }) {
       transmittalContext = issueLines.join("\n") + (bfLines ? `\nLatest revision per drawing: ${bfLines}` : "");
     }
 
-    const agreementsContext = qaAgreements.length === 0
-      ? "No agreements recorded."
-      : qaAgreements.map(a => {
+    let freshAgreements = [];
+    try {
+      const agreementsRes = await api(`/api/projects/${projectId}/agreements`);
+      freshAgreements = agreementsRes.agreements || [];
+    } catch (e) { /* non-fatal — QA continues without agreements */ }
+
+    const agreementsContext = freshAgreements.length === 0
+      ? "No client instructions, agreements, or confirmations recorded."
+      : freshAgreements.map(a => {
           const history = (a.entries || []).length > 1
             ? ` (previously: ${(a.entries || []).slice(0, -1).map(e => `"${e.text}" on ${e.date_agreed}`).join(", ")})`
             : "";
@@ -1681,13 +1684,13 @@ ${tasksContext}
 TRANSMITTAL / DRAWING ISSUE HISTORY:
 ${transmittalContext}
 
-AGREEMENTS & CONFIRMATIONS:
+AGREED DECISIONS, CLIENT INSTRUCTIONS & CONFIRMATIONS:
 ${agreementsContext}
 
 DRAWING REGISTER (${drawings.length} drawings):
 ${drawingContext}${drawingContentContext}`;
 
-    const systemPrompt = `You are a project assistant for an architectural practice. You have full access to the project data provided — including project info, consultants, U-values, notes, specified products (with full technical attributes), the tasks/to-do list, transmittal issue history, agreed confirmations and decisions, the drawing register, and extracted content from indexed drawings.
+    const systemPrompt = `You are a project assistant for an architectural practice. You have full access to the project data provided — including project info, consultants, U-values, notes, specified products (with full technical attributes), the tasks/to-do list, transmittal issue history, client instructions and agreed decisions & confirmations (stored in the Agreements section), the drawing register, and extracted content from indexed drawings.
 
 When INDEXED DRAWING CONTENT is present in the context, use it to answer questions about what is shown or noted within specific drawings — room names, materials, annotations, schedules, specifications, and other drawing content. Reference the drawing number when citing content from a specific drawing.
 
