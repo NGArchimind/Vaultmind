@@ -35,8 +35,8 @@ export default function ShareModal({ question, answer, vaultName, shareId, setSh
       }
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      setError("Could not generate link. Please try again.");
+    } catch (err) {
+      setError(err.message || "Could not generate link. Please try again.");
     }
   }
 
@@ -49,8 +49,8 @@ export default function ShareModal({ question, answer, vaultName, shareId, setSh
         `I used Archimind to look this up — see the full formatted answer here:\n\n${link}`
       );
       window.location.href = `mailto:?subject=${subject}&body=${body}`;
-    } catch {
-      setError("Could not generate link. Please try again.");
+    } catch (err) {
+      setError(err.message || "Could not generate link. Please try again.");
     }
   }
 
