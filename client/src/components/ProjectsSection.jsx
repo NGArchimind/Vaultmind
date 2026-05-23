@@ -1712,6 +1712,8 @@ Rules:
 - Only populate "product_ids" when the answer references one or more specific products — use the product IDs from the SPECIFIED PRODUCTS context (the id field in the products join, format: uuid)
 - Only populate "task_ids" when the answer references one or more specific tasks — use the task IDs from the TASKS context (the ID field, format: uuid)
 - Only populate "agreement_ids" when the answer references one or more agreements, decisions, or client instructions — use the IDs from the AGREED DECISIONS context (the ID field after "ID:", format: uuid)
+- Never include UUIDs, IDs, or technical identifiers in the "answer" text — they are handled separately via the _ids fields
+- When the answer is primarily drawn from agreements or client instructions, keep the "answer" brief: state how many were found and that full details are shown below (e.g. "1 client instruction recorded — see the card below." or "Found 3 recorded instructions — see the cards below.")
 - Never say you don't have access to information — use what is in the context
 - Do not include any text outside the JSON object`;
 
@@ -1860,7 +1862,7 @@ Rules:
                 <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span>{matchedAgreements.length} agreement{matchedAgreements.length !== 1 ? "s" : ""} referenced</span>
                   {onNavigateTab && (
-                    <button className="btn" onClick={() => onNavigateTab("agreements")}
+                    <button className="btn" onClick={() => { closePanel(); onNavigateTab("agreements"); }}
                       style={{ fontSize: 10, fontWeight: 600, color: PROJECTS_FULL, background: "none", border: `1px solid ${PROJECTS_FULL}`, padding: "3px 10px", letterSpacing: "0.04em" }}>
                       View all in Agreements tab →
                     </button>
@@ -1881,6 +1883,15 @@ Rules:
                         {a.others_present && <span>· {a.others_present}</span>}
                         {a.source_label && <span style={{ color: "#b0a8a0" }}>· {a.source_label}</span>}
                       </div>
+                      {onNavigateTab && (a.source_type === "email" || a.source_type === "minutes") && (
+                        <div style={{ marginTop: 8 }}>
+                          <button className="btn" onClick={() => { closePanel(); onNavigateTab(a.source_type === "email" ? "emails" : "minutes"); }}
+                            style={{ fontSize: 11, color: "#2a6496", background: "none", border: "1px solid #b8d0e8", padding: "4px 12px", borderRadius: 3, fontWeight: 500, cursor: "pointer" }}>
+                            {a.source_type === "email" ? "📧 Open source email" : "📝 Open in Minutes"}
+                            {a.source_label ? ` — ${a.source_label}` : ""}
+                          </button>
+                        </div>
+                      )}
                       {prevEntries.length > 0 && (
                         <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #e8e4e0" }}>
                           <div style={{ fontSize: 10, fontWeight: 600, color: "#b0a8a0", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 4 }}>Previous versions</div>
