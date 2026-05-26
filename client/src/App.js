@@ -1301,7 +1301,7 @@ export default function App() {
         {appSection === "library" && <DatasheetsLibrarySection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
         {appSection === "projects" && <ProjectsSection key={sectionKey} isAdmin={isAdmin} />}
         {appSection === "timesheets" && <TimesheetsSection key={sectionKey} isAdmin={isAdmin} />}
-        {appSection === "schedule" && <ScheduleSection />}
+        {appSection === "schedule" && <ScheduleSection key={sectionKey} />}
         {appSection === "admin" && isAdmin && <AdminSection key={sectionKey} />}
 
         {/* ── VAULT ─────────────────────────────────────────────────────── */}
