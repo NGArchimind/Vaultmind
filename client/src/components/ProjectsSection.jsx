@@ -1488,7 +1488,7 @@ function base64ToBlob(base64, mimeType) {
 }
 
 // ── QA Bar ────────────────────────────────────────────────────────────────────
-function QABar({ project, consultants, uvalues, notes, drawings, projectId, onNavigateTab }) {
+function QABar({ project, consultants, uvalues, notes, drawings, projectId, onNavigateTab, activeTab }) {
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState(null);
   const [matchedDrawings, setMatchedDrawings] = useState([]);
@@ -1510,6 +1510,7 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId, onNa
   const [transmittal, setTransmittal] = useState(null);
   const [matchedTasks, setMatchedTasks] = useState([]);
   const [matchedAgreements, setMatchedAgreements] = useState([]);
+  const [scope, setScope] = useState("all");
 
   useEffect(() => {
     async function loadProducts() {
@@ -1530,6 +1531,11 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId, onNa
     }
     loadProducts();
   }, [projectId]);
+
+  useEffect(() => {
+    const TAB_SCOPE = { agreements: "agreements", drawings: "drawings", tasks: "tasks", products: "products" };
+    setScope(TAB_SCOPE[activeTab] || "all");
+  }, [activeTab]);
 
   async function handleDownload(drawing) {
     setDownloadingId(drawing.id);
@@ -1580,7 +1586,11 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId, onNa
     if (!question.trim() || running) return;
     const q = question.trim();
     setLastQuestion(q);
-    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setMatchedTasks([]); setMatchedAgreements([]); setExpandedProductId(null); setExpanded(true); setStatus("Searching drawings…");
+    const includeDrawings = scope === "all" || scope === "drawings";
+    const includeAgreements = scope === "all" || scope === "agreements";
+    const includeTasks = scope === "all" || scope === "tasks";
+    const includeProducts = scope === "all" || scope === "products";
+    setQuestion(""); setRunning(true); setAnswer(null); setMatchedDrawings([]); setMatchedProducts([]); setMatchedTasks([]); setMatchedAgreements([]); setExpandedProductId(null); setExpanded(true); setStatus(includeDrawings ? "Searching drawings…" : "Thinking…");
 
     const drawingContext = drawings.length === 0
       ? "No drawings in register."
@@ -1588,22 +1598,24 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId, onNa
           `ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} | Rev:${d.revision || "—"} | Status:${d.status || "—"} | Scale:${d.scale || "—"} | Type:${d.drawing_type || "—"} | Level:${d.level || "—"} | Volume:${d.volume || "—"}`
         ).join("\n");
 
-    // Search indexed drawing content for anything relevant to the question
+    // Search indexed drawing content — only when scope includes drawings
     let drawingContentContext = "";
     let contentMatches = [];
-    try {
-      const { results } = await api(`/api/projects/${projectId}/drawings/search`, {
-        method: "POST",
-        body: { query: q },
-      });
-      contentMatches = results || [];
-      if (contentMatches.length > 0) {
-        drawingContentContext = "\n\nINDEXED DRAWING CONTENT (drawings whose content is relevant to this question):\n" +
-          contentMatches.map(d =>
-            `--- ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} ---\n${(d.content_text || "").slice(0, 3000)}`
-          ).join("\n\n");
-      }
-    } catch (e) { /* non-fatal — QA continues without drawing content */ }
+    if (includeDrawings) {
+      try {
+        const { results } = await api(`/api/projects/${projectId}/drawings/search`, {
+          method: "POST",
+          body: { query: q },
+        });
+        contentMatches = results || [];
+        if (contentMatches.length > 0) {
+          drawingContentContext = "\n\nINDEXED DRAWING CONTENT (drawings whose content is relevant to this question):\n" +
+            contentMatches.map(d =>
+              `--- ID:${d.id} | ${d.drawing_number || "—"} | ${d.title || "Untitled"} ---\n${(d.content_text || "").slice(0, 3000)}`
+            ).join("\n\n");
+        }
+      } catch (e) { /* non-fatal — QA continues without drawing content */ }
+    }
     setStatus("Thinking…");
 
     const productsContext = assignedProducts.length === 0
@@ -1644,10 +1656,12 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId, onNa
     }
 
     let freshAgreements = [];
-    try {
-      const agreementsRes = await api(`/api/projects/${projectId}/agreements`);
-      freshAgreements = agreementsRes.agreements || [];
-    } catch (e) { /* non-fatal — QA continues without agreements */ }
+    if (includeAgreements) {
+      try {
+        const agreementsRes = await api(`/api/projects/${projectId}/agreements`);
+        freshAgreements = agreementsRes.agreements || [];
+      } catch (e) { /* non-fatal — QA continues without agreements */ }
+    }
 
     const agreementsContext = freshAgreements.length === 0
       ? "No client instructions, agreements, or confirmations recorded."
@@ -1658,38 +1672,32 @@ function QABar({ project, consultants, uvalues, notes, drawings, projectId, onNa
           return `ID:${a.id} | "${a.current_text}" — confirmed by ${a.confirmed_by || "unknown"} on ${a.date_agreed}${a.others_present ? `, others: ${a.others_present}` : ""}${history}`;
         }).join("\n");
 
-    const ctx = `PROJECT: ${project.name}
+    const ctx = [
+      `PROJECT: ${project.name}
 Job Number: ${project.job_number || "—"}
 Client: ${project.client || "—"}
 Location: ${project.location || "—"}
 Project Lead: ${project.project_lead || "—"}
 RIBA Stage: ${project.stage || "—"}
 Status: ${project.status || "active"}
-Description: ${project.description || "—"}
+Description: ${project.description || "—"}`,
 
-CONSULTANTS:
-${consultants.length === 0 ? "None recorded." : consultants.map(c => `${c.discipline || "Unknown"} — ${c.company || ""}${c.contact_name ? ` (${c.contact_name})` : ""}${c.email ? ` · ${c.email}` : ""}${c.phone ? ` · ${c.phone}` : ""}`).join("\n")}
+      `CONSULTANTS:\n${consultants.length === 0 ? "None recorded." : consultants.map(c => `${c.discipline || "Unknown"} — ${c.company || ""}${c.contact_name ? ` (${c.contact_name})` : ""}${c.email ? ` · ${c.email}` : ""}${c.phone ? ` · ${c.phone}` : ""}`).join("\n")}`,
 
-U-VALUE REQUIREMENTS:
-${uvalues.length === 0 ? "None recorded." : uvalues.map(u => `${u.element}: Target ${u.target !== null ? u.target + " W/m²K" : "not set"}, Achieved ${u.achieved !== null ? u.achieved + " W/m²K" : "not set"}${u.notes ? ` — ${u.notes}` : ""}`).join("\n")}
+      `U-VALUE REQUIREMENTS:\n${uvalues.length === 0 ? "None recorded." : uvalues.map(u => `${u.element}: Target ${u.target !== null ? u.target + " W/m²K" : "not set"}, Achieved ${u.achieved !== null ? u.achieved + " W/m²K" : "not set"}${u.notes ? ` — ${u.notes}` : ""}`).join("\n")}`,
 
-ADDITIONAL NOTES:
-${notes.length === 0 ? "None recorded." : notes.map(n => `${n.label}: ${n.value}`).join("\n")}
+      `ADDITIONAL NOTES:\n${notes.length === 0 ? "None recorded." : notes.map(n => `${n.label}: ${n.value}`).join("\n")}`,
 
-SPECIFIED PRODUCTS:
-${productsContext}
+      includeProducts ? `SPECIFIED PRODUCTS:\n${productsContext}` : null,
 
-TASKS (TO DO LIST):
-${tasksContext}
+      includeTasks ? `TASKS (TO DO LIST):\n${tasksContext}` : null,
 
-TRANSMITTAL / DRAWING ISSUE HISTORY:
-${transmittalContext}
+      (includeDrawings || includeAgreements) ? `TRANSMITTAL / DRAWING ISSUE HISTORY:\n${transmittalContext}` : null,
 
-AGREED DECISIONS, CLIENT INSTRUCTIONS & CONFIRMATIONS:
-${agreementsContext}
+      includeAgreements ? `AGREED DECISIONS, CLIENT INSTRUCTIONS & CONFIRMATIONS:\n${agreementsContext}` : null,
 
-DRAWING REGISTER (${drawings.length} drawings):
-${drawingContext}${drawingContentContext}`;
+      includeDrawings ? `DRAWING REGISTER (${drawings.length} drawings):\n${drawingContext}${drawingContentContext}` : null,
+    ].filter(Boolean).join("\n\n");
 
     const systemPrompt = `You are a project assistant for an architectural practice. You have full access to the project data provided — including project info, consultants, U-values, notes, specified products (with full technical attributes), the tasks/to-do list, transmittal issue history, client instructions and agreed decisions & confirmations (stored in the Agreements section), the drawing register, and extracted content from indexed drawings.
 
@@ -1742,9 +1750,12 @@ Rules:
       // Merge AI-referenced drawings with content search results — deduplicated
       const fromAI = drawings.filter(d => matchedDrawingIds.includes(d.id));
       const merged = [...fromAI];
-      for (const d of contentMatches) {
-        if (!merged.find(x => x.id === d.id)) {
-          merged.push(drawings.find(x => x.id === d.id) || d);
+      // Only surface content-search hits if the AI also cited drawings — prevents cross-contamination
+      if (matchedDrawingIds.length > 0) {
+        for (const d of contentMatches) {
+          if (!merged.find(x => x.id === d.id)) {
+            merged.push(drawings.find(x => x.id === d.id) || d);
+          }
         }
       }
       if (merged.length > 0) setMatchedDrawings(merged);
@@ -2038,7 +2049,14 @@ Rules:
       )}
 
       <div style={{ padding: "12px 32px", display: "flex", alignItems: "stretch" }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", letterSpacing: "0.08em", textTransform: "uppercase", display: "flex", alignItems: "center", paddingRight: 12, flexShrink: 0 }}>Ask</div>
+        <select value={scope} onChange={e => setScope(e.target.value)}
+          style={{ border: "1px solid #e4e4e8", borderRight: "none", padding: "0 10px", fontSize: 11, fontWeight: 600, color: PROJECTS_FULL, background: "#f8fdf9", outline: "none", fontFamily: "Inter, Arial, sans-serif", cursor: "pointer", flexShrink: 0, borderRadius: "3px 0 0 3px" }}>
+          <option value="all">Everything</option>
+          <option value="agreements">Agreements & Instructions</option>
+          <option value="drawings">Drawings</option>
+          <option value="tasks">Tasks</option>
+          <option value="products">Products</option>
+        </select>
         <input value={question} onChange={e => setQuestion(e.target.value)} onKeyDown={e => { if (e.key === "Enter") ask(); }}
           placeholder="Ask anything about this project, or find drawings — e.g. 'show me all 1:200 floor plans'"
           className="arc-input"
@@ -3857,7 +3875,7 @@ function ProjectDetail({ projectId, onBack, isAdmin }) {
 
       </div>
 
-      <QABar project={project} consultants={consultants} uvalues={uvalues} notes={notes} drawings={drawings} projectId={projectId} onNavigateTab={setActiveTab} />
+      <QABar project={project} consultants={consultants} uvalues={uvalues} notes={notes} drawings={drawings} projectId={projectId} onNavigateTab={setActiveTab} activeTab={activeTab} />
     </div>
   );
 }
