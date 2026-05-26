@@ -4451,6 +4451,50 @@ app.delete("/api/projects/:id/schedule-types/:tid", requireAuth, async (req, res
   res.json({ ok: true });
 });
 
+// ── Schedule Revisions ─────────────────────────────────────────────────────────
+
+app.get("/api/schedule-types/:tid/revisions", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("project_schedule_revisions")
+    .select("id, csv_key, row_count, uploaded_at")
+    .eq("schedule_type_id", req.params.tid)
+    .order("uploaded_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+app.delete("/api/schedule-revisions/:rid", requireAuth, async (req, res) => {
+  const { data: rev } = await supabase
+    .from("project_schedule_revisions")
+    .select("csv_key")
+    .eq("id", req.params.rid)
+    .single();
+  if (!rev) return res.status(404).json({ error: "not found" });
+  await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: rev.csv_key })).catch(() => {});
+  const { error } = await supabase
+    .from("project_schedule_revisions")
+    .delete()
+    .eq("id", req.params.rid);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+app.get("/api/schedule-revisions/:rid/csv", requireAuth, async (req, res) => {
+  const { data: rev } = await supabase
+    .from("project_schedule_revisions")
+    .select("csv_key")
+    .eq("id", req.params.rid)
+    .single();
+  if (!rev) return res.status(404).json({ error: "not found" });
+  const obj = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: rev.csv_key }));
+  const buffer = await streamToBuffer(obj.Body);
+  res.set({
+    "Content-Type": "text/csv",
+    "Content-Disposition": `attachment; filename="revision.csv"`,
+  });
+  res.send(buffer);
+});
+
 app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 
 const PORT = process.env.PORT || 3001;
