@@ -84,6 +84,30 @@ async function streamToBuffer(stream) {
   return Buffer.concat(chunks);
 }
 
+// ── CSV parser (handles quoted fields with embedded commas) ───────────────────
+function parseCsvText(text) {
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  return lines.filter(l => l.trim()).map(line => {
+    const fields = [];
+    let field = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { field += '"'; i++; }
+        else { inQuotes = !inQuotes; }
+      } else if (ch === ',' && !inQuotes) {
+        fields.push(field.trim());
+        field = "";
+      } else {
+        field += ch;
+      }
+    }
+    fields.push(field.trim());
+    return fields;
+  });
+}
+
 // ── helpers ────────────────────────────────────────────────────────────────────
 
 // List all keys under a prefix (handles pagination)
@@ -4367,6 +4391,66 @@ app.get("/api/shared-answers/:id", async (req, res) => {
 });
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));
+
+// ── Schedule Types ─────────────────────────────────────────────────────────────
+
+app.get("/api/projects/:id/schedule-types", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("project_schedule_types")
+    .select("id, name, created_at")
+    .eq("project_id", req.params.id)
+    .order("created_at", { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+app.post("/api/projects/:id/schedule-types", requireAuth, async (req, res) => {
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: "name required" });
+  const { data, error } = await supabase
+    .from("project_schedule_types")
+    .insert({ project_id: req.params.id, name: name.trim() })
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json(data);
+});
+
+app.patch("/api/projects/:id/schedule-types/:tid", requireAuth, async (req, res) => {
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: "name required" });
+  const { data, error } = await supabase
+    .from("project_schedule_types")
+    .update({ name: name.trim() })
+    .eq("id", req.params.tid)
+    .eq("project_id", req.params.id)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: "not found" });
+  res.json(data);
+});
+
+app.delete("/api/projects/:id/schedule-types/:tid", requireAuth, async (req, res) => {
+  // Fetch all revision CSV keys before cascade delete
+  const { data: revisions } = await supabase
+    .from("project_schedule_revisions")
+    .select("csv_key")
+    .eq("schedule_type_id", req.params.tid);
+  // Delete R2 objects (best-effort — don't fail if a key is missing)
+  for (const rev of (revisions || [])) {
+    await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: rev.csv_key })).catch(() => {});
+  }
+  // Delete from DB — cascades to project_schedule_revisions
+  const { error } = await supabase
+    .from("project_schedule_types")
+    .delete()
+    .eq("id", req.params.tid)
+    .eq("project_id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
 app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 
 const PORT = process.env.PORT || 3001;
