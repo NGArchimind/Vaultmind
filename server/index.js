@@ -4708,7 +4708,7 @@ Rules:
           { inline_data: { mime_type: "application/pdf", data: pdfBBase64 } },
           { text: prompt },
         ]}],
-        generationConfig: { temperature: 0 },
+        generationConfig: { temperature: 0, thinkingConfig: { thinkingBudget: 0 } },
       }),
     }
   );
