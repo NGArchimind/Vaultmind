@@ -17,7 +17,8 @@ const corsOptions = {
     "https://archimind-omega.vercel.app",
     "https://archimind-git-develop-nathan-greens-projects-192281d0.vercel.app"
   ],
-  credentials: true
+  credentials: true,
+  exposedHeaders: ["X-Schedule-Added", "X-Schedule-Changed", "X-Schedule-Removed", "X-Schedule-Rows"],
 };
 
 // CORS must run before Helmet so preflight OPTIONS requests are handled first
@@ -50,7 +51,8 @@ app.use(cors({
     "https://archimind-omega.vercel.app",
     "https://archimind-git-develop-nathan-greens-projects-192281d0.vercel.app"
   ],
-  credentials: true
+  credentials: true,
+  exposedHeaders: ["X-Schedule-Added", "X-Schedule-Changed", "X-Schedule-Removed", "X-Schedule-Rows"],
 }));
 app.use(express.json({ limit: "100mb" }));
 
