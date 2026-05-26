@@ -264,6 +264,52 @@ The `project_agreements` and `project_agreement_entries` tables must be created 
 
 ---
 
+## QA Bar scope selector + agreements cards (2026-05-26)
+
+**File:** `client/src/components/ProjectsSection.jsx` — QABar component only.
+
+### Scope selector pattern
+
+`activeTab` is passed as a prop from the parent component (which owns the tab state) into QABar alongside the existing `onNavigateTab` callback. A `useEffect` watches `activeTab` and updates a `scope` state accordingly:
+
+```js
+useEffect(() => {
+  const TAB_SCOPE = { agreements: "agreements", drawings: "drawings", tasks: "tasks", products: "products" };
+  setScope(TAB_SCOPE[activeTab] || "all");
+}, [activeTab]);
+```
+
+In `ask()`, four boolean flags gate what work is done and what context is sent:
+
+```js
+const includeDrawings = scope === "all" || scope === "drawings";
+const includeAgreements = scope === "all" || scope === "agreements";
+const includeTasks = scope === "all" || scope === "tasks";
+const includeProducts = scope === "all" || scope === "products";
+```
+
+The context is built as a filtered array rather than one monolithic template literal — sections are `null` when excluded, then `.filter(Boolean).join("\n\n")` assembles the final string. This is the pattern to follow if further sections are added.
+
+### Drawing content search contamination fix
+
+The content search (`POST /drawings/search`) always ran and its results were always merged into `matchedDrawings`. When asking non-drawing questions (e.g. "show me all instructions"), the semantic search found drawings containing the word "instructions" and surfaced them as results.
+
+**Fix:** content search results are only merged if the AI also explicitly cited at least one drawing via `drawing_ids`:
+
+```js
+if (matchedDrawingIds.length > 0) {
+  for (const d of contentMatches) { ... }
+}
+```
+
+Content search still runs when scope includes drawings (AI needs it for context), but the results only appear in the UI when the AI found them relevant enough to reference.
+
+### Navigation from QA panel to tabs
+
+Buttons that navigate to a tab must call `closePanel()` before `onNavigateTab(tabId)`. The QA result panel is `position: fixed` covering the whole viewport — setting the tab state underneath it has no visible effect until the overlay is removed. Pattern used in both the "View all in Agreements tab →" button and the per-card source buttons.
+
+---
+
 ## Deployment
 
 | Target | How |
