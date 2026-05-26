@@ -4719,7 +4719,10 @@ Rules:
   }
 
   const data = await response.json();
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  // Gemini 2.5 Flash returns multiple parts — first part(s) may be internal "thinking" tokens.
+  // Collect text from all non-thought parts to get the actual answer.
+  const parts = data.candidates?.[0]?.content?.parts || [];
+  const text = parts.filter(p => !p.thought).map(p => p.text || "").join("\n");
   const jsonMatch = text.match(/\[[\s\S]*\]/);
   if (!jsonMatch) return res.status(500).json({ error: "Gemini did not return a JSON array" });
 
