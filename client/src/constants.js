@@ -22,6 +22,8 @@ export const COMPARE_WASH    = "#a09090";
 export const LIBRARY_WASH    = "#7e94a8";
 export const PROJECTS_WASH   = "#8ea09a";
 export const TIMESHEETS_WASH = "#8898a8";
+export const SCHEDULE_FULL = "#5c4a80";
+export const SCHEDULE_WASH = "#9288a8";
 
 export const AD_GREEN = "#0d6478";
 export const AD_GREEN_LIGHT = "#f0f5f6";

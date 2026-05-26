@@ -11,6 +11,7 @@ import AdminSection from "./components/AdminSection";
 import QuizModal from "./components/QuizModal";
 import ShareModal from "./components/ShareModal";
 import TimesheetsSection from "./components/TimesheetsSection";
+import ScheduleSection from "./components/ScheduleSection";
 import { BOILERPLATE_HEADINGS, isBoilerplate, DESIGN_SHELL, DESIGN_GROUND, DESIGN_GOLD, DESIGN_TEXT, DESIGN_MUTED, VAULT_FULL, COMPARE_FULL } from "./constants";
 
 // ── Vault PDF Viewer Modal ────────────────────────────────────────────────────
@@ -1300,6 +1301,7 @@ export default function App() {
         {appSection === "library" && <DatasheetsLibrarySection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
         {appSection === "projects" && <ProjectsSection key={sectionKey} isAdmin={isAdmin} />}
         {appSection === "timesheets" && <TimesheetsSection key={sectionKey} isAdmin={isAdmin} />}
+        {appSection === "schedule" && <ScheduleSection />}
         {appSection === "admin" && isAdmin && <AdminSection key={sectionKey} />}
 
         {/* ── VAULT ─────────────────────────────────────────────────────── */}
