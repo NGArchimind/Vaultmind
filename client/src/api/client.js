@@ -84,3 +84,24 @@ export async function callClaude(messages, systemPrompt, maxTokens = 1000, retri
     usage: data.usage || { input_tokens: 0, output_tokens: 0 },
   };
 }
+
+// ── Binary download helper ────────────────────────────────────────────────────
+// Like api() but returns the raw Response instead of parsing JSON.
+// Use for endpoints that return binary files (Excel, CSV).
+// Pass body=null and method="GET" for GET requests.
+export async function apiBlob(path, body = null, method = "POST") {
+  const token = await getAuthToken();
+  const headers = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (body !== null) headers["Content-Type"] = "application/json";
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    body: body !== null ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `API error ${res.status}`);
+  }
+  return res; // caller reads .blob() and .headers
+}
