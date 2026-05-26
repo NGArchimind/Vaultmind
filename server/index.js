@@ -4668,6 +4668,132 @@ app.post("/api/schedule/csv-to-excel", requireAuth, async (req, res) => {
   res.send(Buffer.from(excelBuffer));
 });
 
+// ── PDF Schedule Compare ───────────────────────────────────────────────────────
+
+app.post("/api/schedule/compare-pdfs", requireAuth, async (req, res) => {
+  const { pdfABase64, pdfBBase64 } = req.body;
+  if (!pdfABase64 || !pdfBBase64) return res.status(400).json({ error: "pdfABase64 and pdfBBase64 required" });
+
+  const prompt = `You are comparing two architectural schedule PDFs. PDF A is the previous revision. PDF B is the current revision.
+
+Extract the schedule table from each PDF. Each row has a unique item Mark reference (e.g. W.01.01, D.02.03).
+
+Compare row by row, matching by Mark reference. Return ONLY a JSON array — no markdown, no explanation:
+
+[
+  { "mark": "W.01.02", "status": "changed", "fields": { "Width": { "old": "1248", "new": "1350" } } },
+  { "mark": "W.02.28", "status": "added",   "fields": { "Type": { "new": "A-WT-E3A" }, "Width": { "new": "2400" } } },
+  { "mark": "W.02.29", "status": "removed",  "fields": { "Type": { "old": "A-WT-C3" } } },
+  { "mark": "W.01.03", "status": "unchanged","fields": {} }
+]
+
+Rules:
+- "added" = mark in PDF B only
+- "removed" = mark in PDF A only
+- "changed" = mark in both, at least one field differs — include ONLY the changed fields
+- "unchanged" = mark in both, all values identical
+- Include ALL rows from both PDFs
+- Return ONLY the JSON array`;
+
+  const response = await fetch(
+    `${GEMINI_BASE}/gemini-2.5-flash:generateContent`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { inline_data: { mime_type: "application/pdf", data: pdfABase64 } },
+          { inline_data: { mime_type: "application/pdf", data: pdfBBase64 } },
+          { text: prompt },
+        ]}],
+        generationConfig: { temperature: 0 },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const err = await response.text();
+    return res.status(500).json({ error: `Gemini error: ${err.slice(0, 200)}` });
+  }
+
+  const data = await response.json();
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  const jsonMatch = text.match(/\[[\s\S]*\]/);
+  if (!jsonMatch) return res.status(500).json({ error: "Gemini did not return a JSON array" });
+
+  let diff;
+  try { diff = JSON.parse(jsonMatch[0]); }
+  catch { return res.status(500).json({ error: "Could not parse Gemini response as JSON" }); }
+
+  res.json({ diff });
+});
+
+app.post("/api/schedule/compare-pdfs/excel", requireAuth, async (req, res) => {
+  const { diff } = req.body;
+  if (!Array.isArray(diff)) return res.status(400).json({ error: "diff array required" });
+
+  // Collect all field names across the diff
+  const colSet = new Set();
+  diff.forEach(row => Object.keys(row.fields || {}).forEach(k => colSet.add(k)));
+  const fieldCols = Array.from(colSet);
+  const allCols = ["Mark", ...fieldCols, "Status"];
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Compare");
+
+  // Header row
+  allCols.forEach((col, i) => {
+    const cell = ws.getRow(1).getCell(i + 1);
+    cell.value = col;
+    cell.font = { bold: true, name: "Arial", size: 10 };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8E0F0" } };
+    cell.border = { bottom: { style: "thin" } };
+  });
+
+  const FILLS = {
+    added:     { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8F5E9" } },
+    changed:   { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF8E1" } },
+    removed:   { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFEBEE" } },
+    unchanged: null,
+  };
+
+  diff.forEach((row, idx) => {
+    const wsRow = ws.getRow(idx + 2);
+    const fill = FILLS[row.status];
+
+    allCols.forEach((col, i) => {
+      const cell = wsRow.getCell(i + 1);
+      cell.font = { name: "Arial", size: 9 };
+      if (fill) cell.fill = fill;
+
+      if (col === "Mark") {
+        cell.value = row.mark;
+      } else if (col === "Status") {
+        cell.value = row.status.charAt(0).toUpperCase() + row.status.slice(1);
+      } else {
+        const field = row.fields?.[col];
+        if (!field) { cell.value = ""; return; }
+        if (row.status === "changed" && field.old !== undefined && field.new !== undefined) {
+          cell.value = `${field.new} (was ${field.old})`;
+        } else {
+          cell.value = field.new ?? field.old ?? "";
+        }
+      }
+    });
+  });
+
+  allCols.forEach((col, i) => {
+    ws.getColumn(i + 1).width = col === "Mark" || col === "Status" ? 12 : 22;
+  });
+
+  const buf = await wb.xlsx.writeBuffer();
+  res.set({
+    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "Content-Disposition": 'attachment; filename="Schedule_Compare.xlsx"',
+  });
+  res.send(Buffer.from(buf));
+});
+
 app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 
 const PORT = process.env.PORT || 3001;
