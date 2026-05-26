@@ -4495,6 +4495,179 @@ app.get("/api/schedule-revisions/:rid/csv", requireAuth, async (req, res) => {
   res.send(buffer);
 });
 
+// ── CSV to Excel ───────────────────────────────────────────────────────────────
+
+app.post("/api/schedule/csv-to-excel", requireAuth, async (req, res) => {
+  const { projectId, scheduleTypeId, csvText } = req.body;
+  if (!projectId || !scheduleTypeId || !csvText) {
+    return res.status(400).json({ error: "projectId, scheduleTypeId and csvText required" });
+  }
+
+  const allRows = parseCsvText(csvText);
+  if (allRows.length < 2) return res.status(400).json({ error: "CSV must have a header row and at least one data row" });
+  const headers = allRows[0];
+  const dataRows = allRows.slice(1);
+
+  const [{ data: project }, { data: schedType }] = await Promise.all([
+    supabase.from("projects").select("name").eq("id", projectId).single(),
+    supabase.from("project_schedule_types").select("name").eq("id", scheduleTypeId).single(),
+  ]);
+
+  // Get most recent previous revision
+  const { data: prevRevisions } = await supabase
+    .from("project_schedule_revisions")
+    .select("id, csv_key")
+    .eq("schedule_type_id", scheduleTypeId)
+    .order("uploaded_at", { ascending: false })
+    .limit(1);
+
+  // Build diff map — mark → { status, changedCols: Set<colIndex> }
+  const diffMap = {};
+  let prevDataRows = [];
+
+  if (prevRevisions?.length > 0) {
+    const prevObj = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: prevRevisions[0].csv_key }));
+    const prevBuffer = await streamToBuffer(prevObj.Body);
+    const prevAllRows = parseCsvText(prevBuffer.toString("utf8"));
+    prevDataRows = prevAllRows.slice(1);
+
+    const prevByMark = {};
+    prevDataRows.forEach(row => { if (row[0]) prevByMark[row[0]] = row; });
+    const newByMark = {};
+    dataRows.forEach(row => { if (row[0]) newByMark[row[0]] = row; });
+
+    dataRows.forEach(row => {
+      const mark = row[0]; if (!mark) return;
+      if (!prevByMark[mark]) {
+        diffMap[mark] = { status: "added", changedCols: new Set() };
+      } else {
+        const changed = new Set();
+        headers.forEach((_, i) => {
+          if ((row[i] || "") !== (prevByMark[mark][i] || "")) changed.add(i);
+        });
+        if (changed.size > 0) diffMap[mark] = { status: "changed", changedCols: changed };
+      }
+    });
+    prevDataRows.forEach(row => {
+      const mark = row[0]; if (!mark) return;
+      if (!newByMark[mark]) diffMap[mark] = { status: "removed", changedCols: new Set() };
+    });
+  }
+
+  const added   = Object.values(diffMap).filter(d => d.status === "added").length;
+  const changed = Object.values(diffMap).filter(d => d.status === "changed").length;
+  const removed = Object.values(diffMap).filter(d => d.status === "removed").length;
+
+  // Generate Excel
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Schedule");
+  const colCount = headers.length;
+
+  // Header block (rows 1–6)
+  ws.mergeCells(1, 1, 1, colCount);
+  ws.getCell("A1").value = "Architectural Design and Technology";
+  ws.getCell("A1").font = { bold: true, size: 14, name: "Arial" };
+
+  ws.getCell("A3").value = "Project:";      ws.getCell("A3").font = { bold: true, name: "Arial", size: 10 };
+  ws.getCell("B3").value = project?.name || "";
+  ws.mergeCells(3, 2, 3, colCount);
+
+  ws.getCell("A4").value = "Schedule Type:"; ws.getCell("A4").font = { bold: true, name: "Arial", size: 10 };
+  ws.getCell("B4").value = schedType?.name || "";
+  ws.mergeCells(4, 2, 4, colCount);
+
+  ws.getCell("A5").value = "Date:";          ws.getCell("A5").font = { bold: true, name: "Arial", size: 10 };
+  ws.getCell("B5").value = new Date().toLocaleDateString("en-GB");
+  ws.mergeCells(5, 2, 5, colCount);
+
+  ws.getCell("A6").value = prevRevisions?.length > 0 ? "Changes:" : "Note:";
+  ws.getCell("A6").font = { bold: true, name: "Arial", size: 10 };
+  ws.getCell("B6").value = prevRevisions?.length > 0
+    ? `${added} added, ${changed} changed, ${removed} removed`
+    : "First revision — saved as baseline";
+  ws.mergeCells(6, 2, 6, colCount);
+
+  // Column headers — row 9
+  const headerRow = ws.getRow(9);
+  headerRow.height = 20;
+  headers.forEach((h, i) => {
+    const cell = headerRow.getCell(i + 1);
+    cell.value = h;
+    cell.font = { bold: true, name: "Arial", size: 10 };
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8E0F0" } };
+    cell.alignment = { horizontal: "center", vertical: "middle", wrapText: true };
+    cell.border = { bottom: { style: "thin", color: { argb: "FF5C4A80" } } };
+  });
+
+  // Data rows
+  const FILL_ADDED   = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE8F5E9" } };
+  const FILL_CHANGED = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF8E1" } };
+  const FILL_REMOVED = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFEBEE" } };
+  let rowIdx = 10;
+
+  dataRows.forEach(row => {
+    const mark = row[0];
+    const diff = diffMap[mark];
+    const wsRow = ws.getRow(rowIdx++);
+    headers.forEach((_, i) => {
+      const cell = wsRow.getCell(i + 1);
+      cell.value = row[i] || "";
+      cell.font = { name: "Arial", size: 9 };
+      cell.alignment = { horizontal: "left", vertical: "middle" };
+      if (diff?.status === "added") cell.fill = FILL_ADDED;
+      else if (diff?.status === "changed" && diff.changedCols.has(i)) cell.fill = FILL_CHANGED;
+    });
+  });
+
+  // Removed rows appended at bottom
+  prevDataRows.forEach(row => {
+    if (diffMap[row[0]]?.status !== "removed") return;
+    const wsRow = ws.getRow(rowIdx++);
+    headers.forEach((_, i) => {
+      const cell = wsRow.getCell(i + 1);
+      cell.value = row[i] || "";
+      cell.font = { name: "Arial", size: 9, color: { argb: "FFC62828" }, italic: true };
+      cell.fill = FILL_REMOVED;
+      cell.alignment = { horizontal: "left", vertical: "middle" };
+    });
+  });
+
+  // Column widths — auto based on header text length
+  headers.forEach((h, i) => {
+    ws.getColumn(i + 1).width = Math.max((h || "").length + 4, 14);
+  });
+
+  const excelBuffer = await wb.xlsx.writeBuffer();
+
+  // Upload new CSV to R2
+  const csvKey = `schedules/${projectId}/${scheduleTypeId}/${Date.now()}.csv`;
+  await r2.send(new PutObjectCommand({
+    Bucket: BUCKET,
+    Key: csvKey,
+    Body: Buffer.from(csvText, "utf8"),
+    ContentType: "text/csv",
+  }));
+
+  // Record revision in DB
+  await supabase.from("project_schedule_revisions").insert({
+    schedule_type_id: scheduleTypeId,
+    project_id: projectId,
+    csv_key: csvKey,
+    row_count: dataRows.length,
+  });
+
+  const safeName = (schedType?.name || "Schedule").replace(/[^a-z0-9 .\-]/gi, "_");
+  res.set({
+    "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "Content-Disposition": `attachment; filename="${safeName}.xlsx"`,
+    "X-Schedule-Added":   String(added),
+    "X-Schedule-Changed": String(changed),
+    "X-Schedule-Removed": String(removed),
+    "X-Schedule-Rows":    String(dataRows.length),
+  });
+  res.send(Buffer.from(excelBuffer));
+});
+
 app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 
 const PORT = process.env.PORT || 3001;
