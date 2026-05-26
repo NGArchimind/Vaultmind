@@ -62,6 +62,7 @@ export default function ScheduleCsvExcel() {
     if (!file?.name?.endsWith(".csv")) return;
     const text = await file.text();
     setCsvFile({ name: file.name, text });
+    if (csvRef.current) csvRef.current.value = "";
   }
 
   async function addType() {
