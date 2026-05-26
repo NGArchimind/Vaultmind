@@ -2,10 +2,24 @@ import { useState, useRef } from "react";
 import { api, apiBlob, fileToBase64 } from "../api/client";
 import { SCHEDULE_FULL } from "../constants";
 
+// ── Component palette ─────────────────────────────────────────────────────────
+const STATUS_ADDED_BG    = "#e8f5e9";
+const STATUS_ADDED_TEXT  = "#2e7d32";
+const STATUS_CHANGED_BG  = "#fff8e1";
+const STATUS_CHANGED_TEXT= "#e65100";
+const STATUS_REMOVED_BG  = "#ffebee";
+const STATUS_REMOVED_TEXT= "#c62828";
+const MUTED_TEXT         = "#9a9aa0";
+const ZONE_BG            = "#faf8ff";
+const ZONE_BORDER_EMPTY  = "#c8b8e8";
+const TABLE_HEAD_BG      = "#f5f3fa";
+const TABLE_BORDER       = "#e8e0f0";
+const TABLE_ROW_BORDER   = "#f0ecf8";
+
 const STATUS_ROW_STYLE = {
-  added:     { background: "#e8f5e9" },
-  changed:   { background: "#fff8e1" },
-  removed:   { background: "#ffebee" },
+  added:     { background: STATUS_ADDED_BG },
+  changed:   { background: STATUS_CHANGED_BG },
+  removed:   { background: STATUS_REMOVED_BG },
   unchanged: { background: "#fff", opacity: 0.65 },
 };
 
@@ -102,10 +116,10 @@ export default function SchedulePdfCompare() {
                     onClick={() => ref.current.click()}
                     onDragOver={e => e.preventDefault()}
                     onDrop={e => { e.preventDefault(); handleFile(e.dataTransfer.files[0], set); }}
-                    style={{ border: `2px dashed ${val ? SCHEDULE_FULL : "#c8b8e8"}`, borderRadius: 4, padding: "18px 12px", textAlign: "center", background: "#faf8ff", cursor: "pointer" }}
+                    style={{ border: `2px dashed ${val ? SCHEDULE_FULL : ZONE_BORDER_EMPTY}`, borderRadius: 4, padding: "18px 12px", textAlign: "center", background: ZONE_BG, cursor: "pointer" }}
                   >
                     <div style={{ fontSize: 22, marginBottom: 4 }}>📄</div>
-                    <div style={{ fontSize: 9, color: val ? "#444" : "#9a9aa0", wordBreak: "break-all" }}>{val ? val.name : "Drop PDF or click to browse"}</div>
+                    <div style={{ fontSize: 9, color: val ? "#444" : MUTED_TEXT, wordBreak: "break-all" }}>{val ? val.name : "Drop PDF or click to browse"}</div>
                     {val && (
                       <div
                         style={{ fontSize: 8, color: SCHEDULE_FULL, marginTop: 4, cursor: "pointer" }}
@@ -119,7 +133,7 @@ export default function SchedulePdfCompare() {
               ))}
             </div>
 
-            {error && <div style={{ fontSize: 10, color: "#c62828", marginBottom: 8 }}>{error}</div>}
+            {error && <div style={{ fontSize: 10, color: STATUS_REMOVED_TEXT, marginBottom: 8 }}>{error}</div>}
 
             <div style={{ textAlign: "right" }}>
               <button
@@ -143,9 +157,9 @@ export default function SchedulePdfCompare() {
           <>
             {/* Summary + controls */}
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 10, flexWrap: "wrap" }}>
-              <span style={{ fontSize: 9, background: "#e8f5e9", color: "#2e7d32", padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{summary.added} added</span>
-              <span style={{ fontSize: 9, background: "#fff8e1", color: "#e65100", padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{summary.changed} changed</span>
-              <span style={{ fontSize: 9, background: "#ffebee", color: "#c62828", padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{summary.removed} removed</span>
+              <span style={{ fontSize: 9, background: STATUS_ADDED_BG, color: STATUS_ADDED_TEXT, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{summary.added} added</span>
+              <span style={{ fontSize: 9, background: STATUS_CHANGED_BG, color: STATUS_CHANGED_TEXT, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{summary.changed} changed</span>
+              <span style={{ fontSize: 9, background: STATUS_REMOVED_BG, color: STATUS_REMOVED_TEXT, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>{summary.removed} removed</span>
               <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
                 {["all", "changed"].map(f => (
                   <button key={f} onClick={() => setFilter(f)} style={{
@@ -168,29 +182,29 @@ export default function SchedulePdfCompare() {
               </div>
             </div>
 
-            {error && <div style={{ fontSize: 10, color: "#c62828", marginBottom: 8 }}>{error}</div>}
+            {error && <div style={{ fontSize: 10, color: STATUS_REMOVED_TEXT, marginBottom: 8 }}>{error}</div>}
 
             {/* Diff table */}
-            <div style={{ overflowX: "auto", border: "1px solid #e8e0f0", borderRadius: 3, maxHeight: 480, overflowY: "auto" }}>
+            <div style={{ overflowX: "auto", border: `1px solid ${TABLE_BORDER}`, borderRadius: 3, maxHeight: 480, overflowY: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 9 }}>
                 <thead style={{ position: "sticky", top: 0 }}>
-                  <tr style={{ background: "#f5f3fa" }}>
-                    <th style={{ padding: "6px 8px", textAlign: "left", color: SCHEDULE_FULL, fontWeight: 600, borderBottom: "1px solid #e8e0f0", whiteSpace: "nowrap" }}>Mark</th>
+                  <tr style={{ background: TABLE_HEAD_BG }}>
+                    <th style={{ padding: "6px 8px", textAlign: "left", color: SCHEDULE_FULL, fontWeight: 600, borderBottom: `1px solid ${TABLE_BORDER}`, whiteSpace: "nowrap" }}>Mark</th>
                     {fieldCols.map(col => (
-                      <th key={col} style={{ padding: "6px 8px", textAlign: "left", color: SCHEDULE_FULL, fontWeight: 600, borderBottom: "1px solid #e8e0f0", whiteSpace: "nowrap" }}>{col}</th>
+                      <th key={col} style={{ padding: "6px 8px", textAlign: "left", color: SCHEDULE_FULL, fontWeight: 600, borderBottom: `1px solid ${TABLE_BORDER}`, whiteSpace: "nowrap" }}>{col}</th>
                     ))}
-                    <th style={{ padding: "6px 8px", color: SCHEDULE_FULL, fontWeight: 600, borderBottom: "1px solid #e8e0f0" }}>Status</th>
+                    <th style={{ padding: "6px 8px", color: SCHEDULE_FULL, fontWeight: 600, borderBottom: `1px solid ${TABLE_BORDER}` }}>Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visible.map((row, i) => (
-                    <tr key={i} style={{ borderBottom: "1px solid #f0ecf8", ...STATUS_ROW_STYLE[row.status] }}>
-                      <td style={{ padding: "5px 8px", fontWeight: 600, color: row.status === "removed" ? "#c62828" : "#333" }}>{row.mark}</td>
+                    <tr key={i} style={{ borderBottom: `1px solid ${TABLE_ROW_BORDER}`, ...STATUS_ROW_STYLE[row.status] }}>
+                      <td style={{ padding: "5px 8px", fontWeight: 600, color: row.status === "removed" ? STATUS_REMOVED_TEXT : "#333" }}>{row.mark}</td>
                       {fieldCols.map(col => {
                         const field = row.fields?.[col];
                         const isChanged = row.status === "changed" && field?.old !== undefined && field?.new !== undefined;
                         return (
-                          <td key={col} style={{ padding: "5px 8px", color: row.status === "removed" ? "#c62828" : row.status === "unchanged" ? "#aaa" : "#333" }}>
+                          <td key={col} style={{ padding: "5px 8px", color: row.status === "removed" ? STATUS_REMOVED_TEXT : row.status === "unchanged" ? "#aaa" : "#333" }}>
                             {field ? (field.new ?? field.old ?? "") : ""}
                             {isChanged && <span style={{ color: "#888", marginLeft: 4 }}>(was {field.old})</span>}
                           </td>
@@ -199,7 +213,7 @@ export default function SchedulePdfCompare() {
                       <td style={{ padding: "5px 8px" }}>
                         <span style={{
                           fontSize: 8, padding: "1px 6px", borderRadius: 2, fontWeight: 600,
-                          background: row.status === "added" ? "#2e7d32" : row.status === "changed" ? "#e65100" : row.status === "removed" ? "#c62828" : "#e0e0e0",
+                          background: row.status === "added" ? STATUS_ADDED_TEXT : row.status === "changed" ? STATUS_CHANGED_TEXT : row.status === "removed" ? STATUS_REMOVED_TEXT : "#e0e0e0",
                           color: row.status === "unchanged" ? "#888" : "#fff",
                         }}>
                           {row.status.charAt(0).toUpperCase() + row.status.slice(1)}
