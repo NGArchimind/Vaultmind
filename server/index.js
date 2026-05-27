@@ -4751,14 +4751,17 @@ ${textB}`;
     // Collect text from all non-thought parts to get the actual answer.
     const parts = data.candidates?.[0]?.content?.parts || [];
     const rawText = parts.filter(p => !p.thought).map(p => p.text || "").join("\n");
-    // Gemini sometimes wraps JSON in markdown code fences despite being told not to — strip them
-    const text = rawText.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return res.status(500).json({ error: `Could not find JSON in response: ${rawText.slice(0, 400)}` });
+    // Extract JSON array by finding the first [ and last ] — handles code fences and any wrapping
+    const start = rawText.indexOf("[");
+    const end = rawText.lastIndexOf("]");
+    if (start === -1 || end === -1 || end < start) {
+      return res.status(500).json({ error: `No JSON array found in response: ${rawText.slice(0, 400)}` });
+    }
+    const jsonStr = rawText.slice(start, end + 1);
 
     let diff;
-    try { diff = JSON.parse(jsonMatch[0]); }
-    catch { return res.status(500).json({ error: "Could not parse Gemini response as JSON" }); }
+    try { diff = JSON.parse(jsonStr); }
+    catch (e) { return res.status(500).json({ error: `JSON parse failed: ${e.message}` }); }
 
     res.json({ diff });
   } catch (err) {
