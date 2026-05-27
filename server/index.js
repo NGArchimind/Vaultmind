@@ -4736,7 +4736,8 @@ ${textB}`;
         headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0, thinkingConfig: { thinkingBudget: 0 } },
+          // responseMimeType forces Gemini to return raw JSON with no markdown fences or extra text
+          generationConfig: { temperature: 0, responseMimeType: "application/json" },
         }),
       }
     );
@@ -4747,21 +4748,12 @@ ${textB}`;
     }
 
     const data = await response.json();
-    // Gemini 2.5 Flash returns multiple parts — first part(s) may be internal "thinking" tokens.
-    // Collect text from all non-thought parts to get the actual answer.
     const parts = data.candidates?.[0]?.content?.parts || [];
-    const rawText = parts.filter(p => !p.thought).map(p => p.text || "").join("\n");
-    // Extract JSON array by finding the first [ and last ] — handles code fences and any wrapping
-    const start = rawText.indexOf("[");
-    const end = rawText.lastIndexOf("]");
-    if (start === -1 || end === -1 || end < start) {
-      return res.status(500).json({ error: `No JSON array found in response: ${rawText.slice(0, 400)}` });
-    }
-    const jsonStr = rawText.slice(start, end + 1);
+    const rawText = parts.map(p => p.text || "").join("");
 
     let diff;
-    try { diff = JSON.parse(jsonStr); }
-    catch (e) { return res.status(500).json({ error: `JSON parse failed: ${e.message}` }); }
+    try { diff = JSON.parse(rawText); }
+    catch (e) { return res.status(500).json({ error: `JSON parse failed: ${e.message}. Preview: ${rawText.slice(0, 300)}` }); }
 
     res.json({ diff });
   } catch (err) {
