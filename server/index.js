@@ -4750,9 +4750,11 @@ ${textB}`;
     // Gemini 2.5 Flash returns multiple parts — first part(s) may be internal "thinking" tokens.
     // Collect text from all non-thought parts to get the actual answer.
     const parts = data.candidates?.[0]?.content?.parts || [];
-    const text = parts.filter(p => !p.thought).map(p => p.text || "").join("\n");
+    const rawText = parts.filter(p => !p.thought).map(p => p.text || "").join("\n");
+    // Gemini sometimes wraps JSON in markdown code fences despite being told not to — strip them
+    const text = rawText.replace(/```json\s*/gi, "").replace(/```/g, "").trim();
     const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return res.status(500).json({ error: `Gemini response: ${text.slice(0, 600)}` });
+    if (!jsonMatch) return res.status(500).json({ error: `Could not find JSON in response: ${rawText.slice(0, 400)}` });
 
     let diff;
     try { diff = JSON.parse(jsonMatch[0]); }
