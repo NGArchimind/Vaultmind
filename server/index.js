@@ -4752,7 +4752,7 @@ ${textB}`;
     const parts = data.candidates?.[0]?.content?.parts || [];
     const text = parts.filter(p => !p.thought).map(p => p.text || "").join("\n");
     const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return res.status(500).json({ error: "Gemini did not return a JSON array" });
+    if (!jsonMatch) return res.status(500).json({ error: `Gemini response: ${text.slice(0, 600)}` });
 
     let diff;
     try { diff = JSON.parse(jsonMatch[0]); }
