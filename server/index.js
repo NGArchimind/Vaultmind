@@ -4677,7 +4677,7 @@ app.post("/api/schedule/compare-pdfs", requireAuth, async (req, res) => {
   if (!pdfABase64 || !pdfBBase64) return res.status(400).json({ error: "pdfABase64 and pdfBBase64 required" });
 
   try {
-    // Extract text from both PDFs using mupdf — much faster than sending raw PDF binary to Gemini
+    // ── Step 1: extract text from both PDFs via mupdf ──────────────────────────
     const mupdf = await import("mupdf");
 
     function extractPdfText(base64) {
@@ -4690,86 +4690,121 @@ app.post("/api/schedule/compare-pdfs", requireAuth, async (req, res) => {
         try {
           const text = page.toStructuredText("preserve-whitespace").asText();
           if (text.trim()) {
-            // Replace embedded newlines with spaces so Gemini doesn't write literal
-            // newlines inside JSON string values (which would make the JSON invalid)
-            const cleaned = text.replace(/\r/g, "").replace(/\n/g, " ").replace(/\s+/g, " ").trim();
-            pages.push(cleaned);
+            // Flatten to single line per page so no newlines bleed into JSON strings
+            pages.push(text.replace(/\r/g, "").replace(/\n/g, " ").replace(/\s+/g, " ").trim());
           }
         } catch (_) {}
       }
       return pages.join("\n");
     }
 
-    const textA = extractPdfText(pdfABase64);
-    const textB = extractPdfText(pdfBBase64);
-
+    const [textA, textB] = [extractPdfText(pdfABase64), extractPdfText(pdfBBase64)];
     if (!textA || !textB) {
-      return res.status(400).json({ error: "Could not extract text from one or both PDFs. Make sure they are text-based PDFs, not scanned images." });
+      return res.status(400).json({ error: "Could not extract text from one or both PDFs. Make sure they are text-based (Revit export), not scanned images." });
     }
 
-    const prompt = `You are comparing two architectural schedule PDFs. PDF A is the previous revision. PDF B is the current revision.
+    // ── Step 2: ask Gemini to extract each schedule as a compact table ─────────
+    // Output is {columns:[...], rows:[[...],[...]]} — column names appear once,
+    // rows are arrays of values. This is the most compact possible representation
+    // and keeps each Gemini call small regardless of schedule size.
+    async function extractTable(pdfText, label) {
+      const prompt = `Extract the schedule table from this architectural PDF text. The text may be poorly spaced due to PDF extraction — use your understanding to identify the column headers and data rows.
 
-Each row in a schedule has a unique item Mark reference (e.g. W.01.01, D.02.03). Compare row by row, matching by Mark reference.
-
-Return ONLY a JSON array of rows that changed — skip unchanged rows entirely. No markdown, no explanation:
-
-[
-  { "mark": "W.01.02", "status": "changed", "fields": { "Width": { "old": "1248", "new": "1350" } } },
-  { "mark": "W.02.28", "status": "added",   "fields": { "Type": { "new": "A-WT-E3A" }, "Width": { "new": "2400" } } },
-  { "mark": "W.02.29", "status": "removed",  "fields": { "Type": { "old": "A-WT-C3" } } }
-]
+Return ONLY this JSON (no explanation, no markdown):
+{"columns":["Mark","Type","Width"],"rows":[["W.01.01","A-WT-E1","1247"],["W.01.02","A-WT-E2","900"]]}
 
 Rules:
-- "added" = mark in PDF B only. Include all its fields with "new" values.
-- "removed" = mark in PDF A only. Include all its fields with "old" values.
-- "changed" = mark in both, at least one field differs. Include ONLY the fields that changed, with "old" and "new" values.
-- Skip rows where all fields are identical.
-- Return ONLY the JSON array.
+- "columns": the column header names. First column must be the unique Mark/item reference (e.g. W.01.01, D.02, etc.).
+- "rows": each row is an array of string values in the same order as columns.
+- Include ALL rows from the schedule.
+- Use "" for any blank/missing cell value.
+- Return ONLY the JSON object.
 
---- PDF A (Previous Revision) ---
-${textA}
+PDF TEXT:
+${pdfText}`;
 
---- PDF B (Current Revision) ---
-${textB}`;
-
-    const response = await fetch(
-      `${GEMINI_BASE}/gemini-2.5-flash:generateContent`,
-      {
+      const response = await fetch(`${GEMINI_BASE}/gemini-2.5-flash:generateContent`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          // responseMimeType forces Gemini to return raw JSON with no markdown fences or extra text
-          generationConfig: { temperature: 0, responseMimeType: "application/json", maxOutputTokens: 65536, thinkingConfig: { thinkingBudget: 0 } },
+          generationConfig: { temperature: 0, responseMimeType: "application/json", maxOutputTokens: 32768, thinkingConfig: { thinkingBudget: 0 } },
         }),
+      });
+
+      if (!response.ok) throw new Error(`Gemini error extracting ${label}: ${(await response.text()).slice(0, 200)}`);
+
+      const data = await response.json();
+      const finishReason = data.candidates?.[0]?.finishReason;
+      if (finishReason === "MAX_TOKENS") throw new Error(`Schedule ${label} is too large to extract — too many rows or columns.`);
+
+      const rawText = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("");
+      try {
+        return JSON.parse(rawText);
+      } catch (e) {
+        throw new Error(`Could not parse extracted table for ${label}: ${e.message}`);
       }
-    );
-
-    if (!response.ok) {
-      const err = await response.text();
-      return res.status(500).json({ error: `Gemini error: ${err.slice(0, 300)}` });
     }
 
-    const data = await response.json();
-    const candidate = data.candidates?.[0];
-    const finishReason = candidate?.finishReason;
-    const parts = candidate?.content?.parts || [];
-    const rawText = parts.map(p => p.text || "").join("");
+    // Run both extractions in parallel
+    const [tableA, tableB] = await Promise.all([
+      extractTable(textA, "PDF A"),
+      extractTable(textB, "PDF B"),
+    ]);
 
-    if (finishReason === "MAX_TOKENS") {
-      return res.status(500).json({ error: `Schedule too large — Gemini hit its output limit (${rawText.length} chars before cut-off). This schedule has too many changed rows to compare in one request.` });
+    if (!Array.isArray(tableA.columns) || !Array.isArray(tableA.rows) ||
+        !Array.isArray(tableB.columns) || !Array.isArray(tableB.rows)) {
+      return res.status(500).json({ error: "Gemini returned an unexpected table format." });
     }
 
-    let diff;
-    try { diff = JSON.parse(rawText); }
-    catch (e) {
-      const posMatch = e.message.match(/position (\d+)/);
-      const pos = posMatch ? parseInt(posMatch[1]) : -1;
-      const context = pos >= 0
-        ? `near pos ${pos}: ${JSON.stringify(rawText.slice(Math.max(0, pos - 40), pos + 40))}`
-        : rawText.slice(0, 300);
-      return res.status(500).json({ error: `JSON parse failed (finishReason: ${finishReason}) — ${context}` });
-    }
+    // ── Step 3: diff the two tables in JavaScript — no AI, no size limits ──────
+    const colsA = tableA.columns;
+    const colsB = tableB.columns;
+    const allCols = [...new Set([...colsA, ...colsB])];
+
+    // Index rows by mark (first column value)
+    const byMarkA = {};
+    tableA.rows.forEach(row => { if (row[0]) byMarkA[String(row[0]).trim()] = row; });
+    const byMarkB = {};
+    tableB.rows.forEach(row => { if (row[0]) byMarkB[String(row[0]).trim()] = row; });
+
+    const diff = [];
+
+    // Added: in B, not in A
+    tableB.rows.forEach(rowB => {
+      const mark = String(rowB[0] || "").trim();
+      if (!mark || byMarkA[mark]) return;
+      const fields = {};
+      colsB.forEach((col, i) => { if (col !== colsB[0]) fields[col] = { new: String(rowB[i] || "") }; });
+      diff.push({ mark, status: "added", fields });
+    });
+
+    // Removed: in A, not in B
+    tableA.rows.forEach(rowA => {
+      const mark = String(rowA[0] || "").trim();
+      if (!mark || byMarkB[mark]) return;
+      const fields = {};
+      colsA.forEach((col, i) => { if (col !== colsA[0]) fields[col] = { old: String(rowA[i] || "") }; });
+      diff.push({ mark, status: "removed", fields });
+    });
+
+    // Changed: in both, at least one field differs
+    tableB.rows.forEach(rowB => {
+      const mark = String(rowB[0] || "").trim();
+      if (!mark || !byMarkA[mark]) return;
+      const rowA = byMarkA[mark];
+      const fields = {};
+      allCols.forEach(col => {
+        if (col === colsA[0] || col === colsB[0]) return; // skip the mark column
+        const valA = String(rowA[colsA.indexOf(col)] ?? "").trim();
+        const valB = String(rowB[colsB.indexOf(col)] ?? "").trim();
+        if (valA !== valB) fields[col] = { old: valA, new: valB };
+      });
+      if (Object.keys(fields).length > 0) diff.push({ mark, status: "changed", fields });
+    });
+
+    // Sort by mark for consistent display order
+    diff.sort((a, b) => a.mark.localeCompare(b.mark, undefined, { numeric: true }));
 
     res.json({ diff });
   } catch (err) {
