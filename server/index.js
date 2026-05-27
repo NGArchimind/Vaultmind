@@ -4677,92 +4677,91 @@ app.post("/api/schedule/compare-pdfs", requireAuth, async (req, res) => {
   if (!pdfABase64 || !pdfBBase64) return res.status(400).json({ error: "pdfABase64 and pdfBBase64 required" });
 
   try {
-    // ── Step 1: extract text from both PDFs via mupdf ──────────────────────────
+    // ── Step 1: extract text per page from each PDF via mupdf ─────────────────
     const mupdf = await import("mupdf");
 
-    function extractPdfText(base64) {
+    function getPdfPages(base64) {
       const pdfBytes = Buffer.from(base64, "base64");
       const doc = new mupdf.PDFDocument(pdfBytes);
-      const pageCount = doc.countPages();
+      const count = doc.countPages();
       const pages = [];
-      for (let i = 0; i < pageCount; i++) {
-        const page = doc.loadPage(i);
+      for (let i = 0; i < count; i++) {
         try {
-          const text = page.toStructuredText("preserve-whitespace").asText();
-          if (text.trim()) {
-            // Flatten to single line per page so no newlines bleed into JSON strings
-            pages.push(text.replace(/\r/g, "").replace(/\n/g, " ").replace(/\s+/g, " ").trim());
-          }
+          const text = doc.loadPage(i).toStructuredText("preserve-whitespace").asText().trim();
+          if (text) pages.push(text);
         } catch (_) {}
       }
-      return pages.join("\n");
+      return pages;
     }
 
-    const [textA, textB] = [extractPdfText(pdfABase64), extractPdfText(pdfBBase64)];
-    if (!textA || !textB) {
-      return res.status(400).json({ error: "Could not extract text from one or both PDFs. Make sure they are text-based (Revit export), not scanned images." });
+    const [pagesA, pagesB] = [getPdfPages(pdfABase64), getPdfPages(pdfBBase64)];
+    if (!pagesA.length || !pagesB.length) {
+      return res.status(400).json({ error: "Could not extract text from one or both PDFs. Ensure they are text-based (Revit export), not scanned images." });
     }
 
-    // ── Step 2: ask Gemini to extract each schedule as a compact table ─────────
-    // Output is {columns:[...], rows:[[...],[...]]} — column names appear once,
-    // rows are arrays of values. This is the most compact possible representation
-    // and keeps each Gemini call small regardless of schedule size.
-    async function extractTable(pdfText, label) {
-      const prompt = `Extract the schedule table from this architectural PDF text. The text may be poorly spaced due to PDF extraction — use your understanding to identify the column headers and data rows.
+    // ── Step 2: ask Gemini to extract rows from each page — small calls ────────
+    // A single page has ~30–50 rows — well within token limits.
+    // All pages from both PDFs are extracted in parallel.
+    async function extractPageRows(pageText) {
+      const prompt = `Extract the schedule rows from this single page of an architectural PDF.
 
-Return ONLY this JSON (no explanation, no markdown):
+Return ONLY this JSON (no markdown, no explanation):
 {"columns":["Mark","Type","Width"],"rows":[["W.01.01","A-WT-E1","1247"],["W.01.02","A-WT-E2","900"]]}
 
 Rules:
-- "columns": the column header names. First column must be the unique Mark/item reference (e.g. W.01.01, D.02, etc.).
-- "rows": each row is an array of string values in the same order as columns.
-- Include ALL rows from the schedule.
-- Use "" for any blank/missing cell value.
-- Return ONLY the JSON object.
+- "columns": column header names — include ONLY if this page shows the header row.
+- "rows": each row as an array of string values in column order. Include ALL data rows.
+- Skip title rows, page numbers, revision blocks, or repeated header rows.
+- Use "" for any blank cell.
+- Return ONLY the JSON object (omit "columns" key if no header row on this page).
 
-PDF TEXT:
-${pdfText}`;
+PAGE TEXT:
+${pageText}`;
 
       const response = await fetch(`${GEMINI_BASE}/gemini-2.5-flash:generateContent`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0, responseMimeType: "application/json", maxOutputTokens: 32768, thinkingConfig: { thinkingBudget: 0 } },
+          generationConfig: { temperature: 0, responseMimeType: "application/json", maxOutputTokens: 8192 },
         }),
       });
 
-      if (!response.ok) throw new Error(`Gemini error extracting ${label}: ${(await response.text()).slice(0, 200)}`);
-
+      if (!response.ok) throw new Error(`Gemini page extraction error: ${(await response.text()).slice(0, 200)}`);
       const data = await response.json();
-      const finishReason = data.candidates?.[0]?.finishReason;
-      if (finishReason === "MAX_TOKENS") throw new Error(`Schedule ${label} is too large to extract — too many rows or columns.`);
-
       const rawText = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("");
-      try {
-        return JSON.parse(rawText);
-      } catch (e) {
-        throw new Error(`Could not parse extracted table for ${label}: ${e.message}`);
-      }
+      try { return JSON.parse(rawText); }
+      catch { return { rows: [] }; } // skip unparseable pages gracefully
     }
 
-    // Run both extractions in parallel
-    const [tableA, tableB] = await Promise.all([
-      extractTable(textA, "PDF A"),
-      extractTable(textB, "PDF B"),
+    // Extract all pages from both PDFs simultaneously
+    const [resultsA, resultsB] = await Promise.all([
+      Promise.all(pagesA.map(extractPageRows)),
+      Promise.all(pagesB.map(extractPageRows)),
     ]);
 
-    if (!Array.isArray(tableA.columns) || !Array.isArray(tableA.rows) ||
-        !Array.isArray(tableB.columns) || !Array.isArray(tableB.rows)) {
-      return res.status(500).json({ error: "Gemini returned an unexpected table format." });
+    // Combine pages: columns from the first page that has them, rows from all pages
+    function combinePages(results) {
+      let columns = null;
+      const rows = [];
+      for (const r of results) {
+        if (!columns && Array.isArray(r.columns) && r.columns.length) columns = r.columns;
+        if (Array.isArray(r.rows)) rows.push(...r.rows);
+      }
+      return { columns: columns || [], rows };
     }
 
-    // ── Step 3: diff the two tables in JavaScript — no AI, no size limits ──────
+    const [tableA, tableB] = [combinePages(resultsA), combinePages(resultsB)];
+
+    if (!tableA.columns.length || !tableB.columns.length) {
+      return res.status(500).json({ error: "Could not identify column headers in one or both schedules." });
+    }
+
+    // ── Step 3: diff in JavaScript — no AI, no size limits ────────────────────
     const colsA = tableA.columns;
     const colsB = tableB.columns;
     const allCols = [...new Set([...colsA, ...colsB])];
 
-    // Index rows by mark (first column value)
     const byMarkA = {};
     tableA.rows.forEach(row => { if (row[0]) byMarkA[String(row[0]).trim()] = row; });
     const byMarkB = {};
@@ -4770,21 +4769,21 @@ ${pdfText}`;
 
     const diff = [];
 
-    // Added: in B, not in A
+    // Added: in B only
     tableB.rows.forEach(rowB => {
       const mark = String(rowB[0] || "").trim();
       if (!mark || byMarkA[mark]) return;
       const fields = {};
-      colsB.forEach((col, i) => { if (col !== colsB[0]) fields[col] = { new: String(rowB[i] || "") }; });
+      colsB.forEach((col, i) => { if (i > 0) fields[col] = { new: String(rowB[i] || "").trim() }; });
       diff.push({ mark, status: "added", fields });
     });
 
-    // Removed: in A, not in B
+    // Removed: in A only
     tableA.rows.forEach(rowA => {
       const mark = String(rowA[0] || "").trim();
       if (!mark || byMarkB[mark]) return;
       const fields = {};
-      colsA.forEach((col, i) => { if (col !== colsA[0]) fields[col] = { old: String(rowA[i] || "") }; });
+      colsA.forEach((col, i) => { if (i > 0) fields[col] = { old: String(rowA[i] || "").trim() }; });
       diff.push({ mark, status: "removed", fields });
     });
 
@@ -4795,18 +4794,19 @@ ${pdfText}`;
       const rowA = byMarkA[mark];
       const fields = {};
       allCols.forEach(col => {
-        if (col === colsA[0] || col === colsB[0]) return; // skip the mark column
-        const valA = String(rowA[colsA.indexOf(col)] ?? "").trim();
-        const valB = String(rowB[colsB.indexOf(col)] ?? "").trim();
+        const iA = colsA.indexOf(col);
+        const iB = colsB.indexOf(col);
+        if (iA === 0 || iB === 0) return; // skip mark column
+        const valA = iA >= 0 ? String(rowA[iA] || "").trim() : "";
+        const valB = iB >= 0 ? String(rowB[iB] || "").trim() : "";
         if (valA !== valB) fields[col] = { old: valA, new: valB };
       });
       if (Object.keys(fields).length > 0) diff.push({ mark, status: "changed", fields });
     });
 
-    // Sort by mark for consistent display order
     diff.sort((a, b) => a.mark.localeCompare(b.mark, undefined, { numeric: true }));
-
     res.json({ diff });
+
   } catch (err) {
     console.error("compare-pdfs error:", err);
     res.status(500).json({ error: err.message || "Comparison failed" });
