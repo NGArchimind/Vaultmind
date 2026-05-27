@@ -310,6 +310,78 @@ Buttons that navigate to a tab must call `closePanel()` before `onNavigateTab(ta
 
 ---
 
+## Schedule Tool (2026-05-27)
+
+**Spec:** `docs/superpowers/specs/2026-05-26-schedule-tool-design.md`
+
+### Gemini 2.5 Flash — multi-part response pattern
+
+Gemini 2.5 Flash is a **thinking model**. Its responses may include internal reasoning as one or more `parts` with `"thought": true` before the actual answer part. Code that reads only `parts[0].text` will get the thinking text, not the answer.
+
+**Always extract text like this for Gemini 2.5 Flash endpoints:**
+```js
+const parts = data.candidates?.[0]?.content?.parts || [];
+const text = parts.filter(p => !p.thought).map(p => p.text || "").join("\n");
+```
+
+The PDF Compare endpoint (`POST /api/schedule/compare-pdfs`) uses this pattern. Any new endpoints calling Gemini 2.5 Flash that need to parse structured output from the response should do the same.
+
+**Speed:** For tasks that don't need reasoning (structured extraction, table parsing), disable thinking with `thinkingBudget: 0`:
+```js
+generationConfig: { temperature: 0, thinkingConfig: { thinkingBudget: 0 } }
+```
+This is set on the PDF Compare endpoint. Other endpoints using Gemini for simpler extraction tasks should consider adding it too.
+
+### CORS — exposing custom response headers
+
+Browsers only expose 7 "CORS-safelisted" response headers to JavaScript by default. Any custom response headers (e.g. `X-Schedule-Added`, `X-Custom-*`) must be explicitly listed in the server's CORS config or `res.headers.get("X-Custom-*")` returns `null` in the browser.
+
+In `server/index.js`, both the `corsOptions` object and the duplicate `app.use(cors({...}))` block now include:
+```js
+exposedHeaders: ["X-Schedule-Added", "X-Schedule-Changed", "X-Schedule-Removed", "X-Schedule-Rows"],
+```
+
+**Pattern for future features:** If a server endpoint sets custom response headers that the client needs to read (e.g. diff counts, pagination metadata), add those header names to both CORS blocks.
+
+### apiBlob() — binary downloads with readable response headers
+
+The `api()` wrapper always parses JSON. For endpoints returning binary files (Excel, CSV) where you also need custom response headers:
+
+```js
+// client/src/api/client.js
+export async function apiBlob(path, body = null, method = "POST") { ... }
+```
+
+Usage:
+```js
+// Read headers first, then blob — calling .blob() consumes the Response body
+const res = await apiBlob("/api/schedule/csv-to-excel", { projectId, ... });
+const count = parseInt(res.headers.get("X-Schedule-Added") || "0");
+const blob = await res.blob();  // must come AFTER reading headers
+```
+
+For GET requests: `apiBlob("/api/path", null, "GET")`
+
+### CSV parsing
+
+`parseCsvText(text)` helper added to `server/index.js` (near line 88, after `streamToBuffer`). Handles:
+- `\r\n` / `\r` / `\n` line endings
+- Quoted fields with embedded commas
+- Escaped double-quotes (`""` within quoted fields)
+- Returns `string[][]` — array of rows, each row an array of trimmed field strings
+
+Revit schedule exports may contain quoted fields with commas (e.g. "Type A, Type B"). Standard `split(",")` breaks these — use `parseCsvText` instead.
+
+### Schedule types are per-project
+
+`project_schedule_types` rows have a `project_id` foreign key. Schedule types are NOT global — "Window & Door Schedule" for project A is a different row from "Window & Door Schedule" for project B. The client loads types fresh for each selected project via `GET /api/projects/:id/schedule-types`.
+
+### Revision comparison — always vs most recent
+
+The diff is always computed against the **most recent stored revision** (ordered by `uploaded_at DESC`, limit 1). There is no UI to compare against older revisions. First upload always saves as baseline (no diff colouring).
+
+---
+
 ## Deployment
 
 | Target | How |
