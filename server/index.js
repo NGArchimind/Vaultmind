@@ -4805,7 +4805,17 @@ ${pageText}`;
     });
 
     diff.sort((a, b) => a.mark.localeCompare(b.mark, undefined, { numeric: true }));
-    res.json({ diff });
+
+    // Debug info — tells us if marks are mismatching between PDFs
+    const _debug = {
+      colsA, colsB,
+      rowCountA: tableA.rows.length,
+      rowCountB: tableB.rows.length,
+      sampleMarksA: tableA.rows.slice(0, 5).map(r => r[0]),
+      sampleMarksB: tableB.rows.slice(0, 5).map(r => r[0]),
+    };
+
+    res.json({ diff, _debug });
 
   } catch (err) {
     console.error("compare-pdfs error:", err);
