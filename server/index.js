@@ -4740,7 +4740,7 @@ ${textB}`;
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           // responseMimeType forces Gemini to return raw JSON with no markdown fences or extra text
-          generationConfig: { temperature: 0, responseMimeType: "application/json", maxOutputTokens: 65536 },
+          generationConfig: { temperature: 0, responseMimeType: "application/json", maxOutputTokens: 65536, thinkingConfig: { thinkingBudget: 0 } },
         }),
       }
     );
@@ -4751,8 +4751,14 @@ ${textB}`;
     }
 
     const data = await response.json();
-    const parts = data.candidates?.[0]?.content?.parts || [];
+    const candidate = data.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+    const parts = candidate?.content?.parts || [];
     const rawText = parts.map(p => p.text || "").join("");
+
+    if (finishReason === "MAX_TOKENS") {
+      return res.status(500).json({ error: `Schedule too large — Gemini hit its output limit (${rawText.length} chars before cut-off). This schedule has too many changed rows to compare in one request.` });
+    }
 
     let diff;
     try { diff = JSON.parse(rawText); }
@@ -4762,7 +4768,7 @@ ${textB}`;
       const context = pos >= 0
         ? `near pos ${pos}: ${JSON.stringify(rawText.slice(Math.max(0, pos - 40), pos + 40))}`
         : rawText.slice(0, 300);
-      return res.status(500).json({ error: `JSON parse failed — ${context}` });
+      return res.status(500).json({ error: `JSON parse failed (finishReason: ${finishReason}) — ${context}` });
     }
 
     res.json({ diff });
