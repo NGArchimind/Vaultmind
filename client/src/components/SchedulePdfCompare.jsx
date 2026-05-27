@@ -78,7 +78,7 @@ export default function SchedulePdfCompare() {
   }
 
   const visible = diff
-    ? (filter === "changed" ? diff.filter(r => r.status !== "unchanged") : diff)
+    ? (filter === "changed" ? diff.filter(r => r.status === "changed") : diff)
     : [];
 
   const summary = diff && {
@@ -168,7 +168,7 @@ export default function SchedulePdfCompare() {
                     color: filter === f ? SCHEDULE_FULL : "#888",
                     borderRadius: 3, background: "#fff", cursor: "pointer",
                     fontWeight: filter === f ? 600 : 400,
-                  }}>{f === "all" ? "All" : "Changed only"}</button>
+                  }}>{f === "all" ? "All changes" : "Modified only"}</button>
                 ))}
                 <button
                   onClick={downloadExcel}

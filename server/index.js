@@ -4711,22 +4711,20 @@ app.post("/api/schedule/compare-pdfs", requireAuth, async (req, res) => {
 
 Each row in a schedule has a unique item Mark reference (e.g. W.01.01, D.02.03). Compare row by row, matching by Mark reference.
 
-Return ONLY a JSON array — no markdown, no explanation:
+Return ONLY a JSON array of rows that changed — skip unchanged rows entirely. No markdown, no explanation:
 
 [
   { "mark": "W.01.02", "status": "changed", "fields": { "Width": { "old": "1248", "new": "1350" } } },
   { "mark": "W.02.28", "status": "added",   "fields": { "Type": { "new": "A-WT-E3A" }, "Width": { "new": "2400" } } },
-  { "mark": "W.02.29", "status": "removed",  "fields": { "Type": { "old": "A-WT-C3" } } },
-  { "mark": "W.01.03", "status": "unchanged","fields": {} }
+  { "mark": "W.02.29", "status": "removed",  "fields": { "Type": { "old": "A-WT-C3" } } }
 ]
 
 Rules:
-- "added" = mark in PDF B only
-- "removed" = mark in PDF A only
-- "changed" = mark in both, at least one field differs — include ONLY the changed fields
-- "unchanged" = mark in both, all values identical
-- Include ALL rows from both PDFs
-- Return ONLY the JSON array
+- "added" = mark in PDF B only. Include all its fields with "new" values.
+- "removed" = mark in PDF A only. Include all its fields with "old" values.
+- "changed" = mark in both, at least one field differs. Include ONLY the fields that changed, with "old" and "new" values.
+- Skip rows where all fields are identical.
+- Return ONLY the JSON array.
 
 --- PDF A (Previous Revision) ---
 ${textA}
@@ -4742,7 +4740,7 @@ ${textB}`;
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           // responseMimeType forces Gemini to return raw JSON with no markdown fences or extra text
-          generationConfig: { temperature: 0, responseMimeType: "application/json" },
+          generationConfig: { temperature: 0, responseMimeType: "application/json", maxOutputTokens: 65536 },
         }),
       }
     );
