@@ -4677,61 +4677,70 @@ app.post("/api/schedule/compare-pdfs", requireAuth, async (req, res) => {
   if (!pdfABase64 || !pdfBBase64) return res.status(400).json({ error: "pdfABase64 and pdfBBase64 required" });
 
   try {
-    // ── Step 1: extract text per page from each PDF via mupdf ─────────────────
+    // ── Step 1: render each PDF page to a JPEG image using mupdf ──────────────
+    // Rendering to images preserves table column structure that text extraction loses.
     const mupdf = await import("mupdf");
 
-    function getPdfPages(base64) {
+    function renderPdfPages(base64) {
       const pdfBytes = Buffer.from(base64, "base64");
       const doc = new mupdf.PDFDocument(pdfBytes);
       const count = doc.countPages();
       const pages = [];
       for (let i = 0; i < count; i++) {
         try {
-          const text = doc.loadPage(i).toStructuredText("preserve-whitespace").asText().trim();
-          if (text) pages.push(text);
+          const page = doc.loadPage(i);
+          const pixmap = page.toPixmap(mupdf.Matrix.scale(1.5, 1.5), mupdf.ColorSpace.DeviceRGB, false);
+          pages.push(Buffer.from(pixmap.asJPEG(80)).toString("base64"));
         } catch (_) {}
       }
       return pages;
     }
 
-    const [pagesA, pagesB] = [getPdfPages(pdfABase64), getPdfPages(pdfBBase64)];
+    const [pagesA, pagesB] = [renderPdfPages(pdfABase64), renderPdfPages(pdfBBase64)];
     if (!pagesA.length || !pagesB.length) {
-      return res.status(400).json({ error: "Could not extract text from one or both PDFs. Ensure they are text-based (Revit export), not scanned images." });
+      return res.status(400).json({ error: "Could not render one or both PDFs. Ensure they are valid PDF files." });
     }
 
-    // ── Step 2: ask Gemini to extract rows from each page — small calls ────────
-    // A single page has ~30–50 rows — well within token limits.
-    // All pages from both PDFs are extracted in parallel.
-    async function extractPageRows(pageText) {
-      const prompt = `Extract the schedule rows from this single page of an architectural PDF.
+    // ── Step 2: ask Gemini vision to extract table rows from each page image ───
+    // Each page is sent as a JPEG — Gemini reads the visual table layout directly.
+    async function extractPageRows(pageBase64) {
+      const prompt = `This is a page from an architectural schedule PDF. Extract the table data.
 
-Return ONLY this JSON (no markdown, no explanation):
-{"columns":["Mark","Type","Width"],"rows":[["W.01.01","A-WT-E1","1247"],["W.01.02","A-WT-E2","900"]]}
+Always return this exact JSON structure:
+{"columns":["Mark","Type","Width (mm)"],"rows":[["W.01.01","A-WT-E1","1247"],["W.01.02","A-WT-E2","900"]]}
 
 Rules:
-- "columns": column header names — include ONLY if this page shows the header row.
-- "rows": each row as an array of string values in column order. Include ALL data rows.
-- Skip title rows, page numbers, revision blocks, or repeated header rows.
-- Use "" for any blank cell.
-- Return ONLY the JSON object (omit "columns" key if no header row on this page).
-
-PAGE TEXT:
-${pageText}`;
+- "columns": the header names exactly as shown in the table. Always include this field.
+- "rows": every data row as an array of string values matching the column order. Include ALL rows visible on this page.
+- The first column must be the unique item Mark (e.g. W.01.01, D.02, 101A).
+- Skip title rows, page numbers, revision blocks, company names.
+- Use "" for any blank or missing cell value.
+- Return ONLY the JSON — no markdown, no explanation.`;
 
       const response = await fetch(`${GEMINI_BASE}/gemini-2.5-flash:generateContent`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
+          contents: [{
+            parts: [
+              { inline_data: { mime_type: "image/jpeg", data: pageBase64 } },
+              { text: prompt },
+            ],
+          }],
           generationConfig: { temperature: 0, responseMimeType: "application/json", maxOutputTokens: 8192 },
         }),
       });
 
       if (!response.ok) throw new Error(`Gemini page extraction error: ${(await response.text()).slice(0, 200)}`);
       const data = await response.json();
+      const finishReason = data.candidates?.[0]?.finishReason;
       const rawText = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || "").join("");
+      console.log(`extractPageRows: finishReason=${finishReason} rawLen=${rawText.length} preview=${rawText.slice(0, 120)}`);
       try { return JSON.parse(rawText); }
-      catch { return { rows: [] }; } // skip unparseable pages gracefully
+      catch (e) {
+        console.log(`extractPageRows parse failed: ${e.message} raw=${rawText.slice(0, 200)}`);
+        return { columns: [], rows: [] };
+      }
     }
 
     // Extract all pages from both PDFs simultaneously
@@ -4741,20 +4750,27 @@ ${pageText}`;
     ]);
 
     // Combine pages: columns from the first page that has them, rows from all pages
-    function combinePages(results) {
+    function combinePages(results, label) {
       let columns = null;
       const rows = [];
       for (const r of results) {
         if (!columns && Array.isArray(r.columns) && r.columns.length) columns = r.columns;
         if (Array.isArray(r.rows)) rows.push(...r.rows);
       }
+      console.log(`combinePages ${label}: pages=${results.length} columns=${JSON.stringify(columns)} rows=${rows.length} sample=${JSON.stringify(rows.slice(0,3))}`);
       return { columns: columns || [], rows };
     }
 
-    const [tableA, tableB] = [combinePages(resultsA), combinePages(resultsB)];
+    const [tableA, tableB] = [combinePages(resultsA, "A"), combinePages(resultsB, "B")];
 
     if (!tableA.columns.length || !tableB.columns.length) {
-      return res.status(500).json({ error: "Could not identify column headers in one or both schedules." });
+      return res.status(500).json({
+        error: "Could not identify column headers in one or both schedules.",
+        _debug: {
+          colsA: tableA.columns, rowsA: tableA.rows.length, sampleA: tableA.rows.slice(0, 3),
+          colsB: tableB.columns, rowsB: tableB.rows.length, sampleB: tableB.rows.slice(0, 3),
+        }
+      });
     }
 
     // ── Step 3: diff in JavaScript — no AI, no size limits ────────────────────
@@ -4806,7 +4822,6 @@ ${pageText}`;
 
     diff.sort((a, b) => a.mark.localeCompare(b.mark, undefined, { numeric: true }));
 
-    // Debug info — tells us if marks are mismatching between PDFs
     const _debug = {
       colsA, colsB,
       rowCountA: tableA.rows.length,
