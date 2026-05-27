@@ -4756,7 +4756,14 @@ ${textB}`;
 
     let diff;
     try { diff = JSON.parse(rawText); }
-    catch (e) { return res.status(500).json({ error: `JSON parse failed: ${e.message}. Preview: ${rawText.slice(0, 300)}` }); }
+    catch (e) {
+      const posMatch = e.message.match(/position (\d+)/);
+      const pos = posMatch ? parseInt(posMatch[1]) : -1;
+      const context = pos >= 0
+        ? `near pos ${pos}: ${JSON.stringify(rawText.slice(Math.max(0, pos - 40), pos + 40))}`
+        : rawText.slice(0, 300);
+      return res.status(500).json({ error: `JSON parse failed — ${context}` });
+    }
 
     res.json({ diff });
   } catch (err) {
