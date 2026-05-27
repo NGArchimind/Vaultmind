@@ -4689,10 +4689,15 @@ app.post("/api/schedule/compare-pdfs", requireAuth, async (req, res) => {
         const page = doc.loadPage(i);
         try {
           const text = page.toStructuredText("preserve-whitespace").asText();
-          if (text.trim()) pages.push(text.trim());
+          if (text.trim()) {
+            // Replace embedded newlines with spaces so Gemini doesn't write literal
+            // newlines inside JSON string values (which would make the JSON invalid)
+            const cleaned = text.replace(/\r/g, "").replace(/\n/g, " ").replace(/\s+/g, " ").trim();
+            pages.push(cleaned);
+          }
         } catch (_) {}
       }
-      return pages.join("\n\n");
+      return pages.join("\n");
     }
 
     const textA = extractPdfText(pdfABase64);
