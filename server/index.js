@@ -4676,11 +4676,37 @@ app.post("/api/schedule/compare-pdfs", requireAuth, async (req, res) => {
   const { pdfABase64, pdfBBase64 } = req.body;
   if (!pdfABase64 || !pdfBBase64) return res.status(400).json({ error: "pdfABase64 and pdfBBase64 required" });
 
-  const prompt = `You are comparing two architectural schedule PDFs. PDF A is the previous revision. PDF B is the current revision.
+  try {
+    // Extract text from both PDFs using mupdf — much faster than sending raw PDF binary to Gemini
+    const mupdf = await import("mupdf");
 
-Extract the schedule table from each PDF. Each row has a unique item Mark reference (e.g. W.01.01, D.02.03).
+    function extractPdfText(base64) {
+      const pdfBytes = Buffer.from(base64, "base64");
+      const doc = new mupdf.PDFDocument(pdfBytes);
+      const pageCount = doc.countPages();
+      const pages = [];
+      for (let i = 0; i < pageCount; i++) {
+        const page = doc.loadPage(i);
+        try {
+          const text = page.toStructuredText("preserve-whitespace").asText();
+          if (text.trim()) pages.push(text.trim());
+        } catch (_) {}
+      }
+      return pages.join("\n\n");
+    }
 
-Compare row by row, matching by Mark reference. Return ONLY a JSON array — no markdown, no explanation:
+    const textA = extractPdfText(pdfABase64);
+    const textB = extractPdfText(pdfBBase64);
+
+    if (!textA || !textB) {
+      return res.status(400).json({ error: "Could not extract text from one or both PDFs. Make sure they are text-based PDFs, not scanned images." });
+    }
+
+    const prompt = `You are comparing two architectural schedule PDFs. PDF A is the previous revision. PDF B is the current revision.
+
+Each row in a schedule has a unique item Mark reference (e.g. W.01.01, D.02.03). Compare row by row, matching by Mark reference.
+
+Return ONLY a JSON array — no markdown, no explanation:
 
 [
   { "mark": "W.01.02", "status": "changed", "fields": { "Width": { "old": "1248", "new": "1350" } } },
@@ -4695,42 +4721,48 @@ Rules:
 - "changed" = mark in both, at least one field differs — include ONLY the changed fields
 - "unchanged" = mark in both, all values identical
 - Include ALL rows from both PDFs
-- Return ONLY the JSON array`;
+- Return ONLY the JSON array
 
-  const response = await fetch(
-    `${GEMINI_BASE}/gemini-2.5-flash:generateContent`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
-      body: JSON.stringify({
-        contents: [{ parts: [
-          { inline_data: { mime_type: "application/pdf", data: pdfABase64 } },
-          { inline_data: { mime_type: "application/pdf", data: pdfBBase64 } },
-          { text: prompt },
-        ]}],
-        generationConfig: { temperature: 0, thinkingConfig: { thinkingBudget: 0 } },
-      }),
+--- PDF A (Previous Revision) ---
+${textA}
+
+--- PDF B (Current Revision) ---
+${textB}`;
+
+    const response = await fetch(
+      `${GEMINI_BASE}/gemini-2.5-flash:generateContent`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0, thinkingConfig: { thinkingBudget: 0 } },
+        }),
+      }
+    );
+
+    if (!response.ok) {
+      const err = await response.text();
+      return res.status(500).json({ error: `Gemini error: ${err.slice(0, 300)}` });
     }
-  );
 
-  if (!response.ok) {
-    const err = await response.text();
-    return res.status(500).json({ error: `Gemini error: ${err.slice(0, 200)}` });
+    const data = await response.json();
+    // Gemini 2.5 Flash returns multiple parts — first part(s) may be internal "thinking" tokens.
+    // Collect text from all non-thought parts to get the actual answer.
+    const parts = data.candidates?.[0]?.content?.parts || [];
+    const text = parts.filter(p => !p.thought).map(p => p.text || "").join("\n");
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) return res.status(500).json({ error: "Gemini did not return a JSON array" });
+
+    let diff;
+    try { diff = JSON.parse(jsonMatch[0]); }
+    catch { return res.status(500).json({ error: "Could not parse Gemini response as JSON" }); }
+
+    res.json({ diff });
+  } catch (err) {
+    console.error("compare-pdfs error:", err);
+    res.status(500).json({ error: err.message || "Comparison failed" });
   }
-
-  const data = await response.json();
-  // Gemini 2.5 Flash returns multiple parts — first part(s) may be internal "thinking" tokens.
-  // Collect text from all non-thought parts to get the actual answer.
-  const parts = data.candidates?.[0]?.content?.parts || [];
-  const text = parts.filter(p => !p.thought).map(p => p.text || "").join("\n");
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) return res.status(500).json({ error: "Gemini did not return a JSON array" });
-
-  let diff;
-  try { diff = JSON.parse(jsonMatch[0]); }
-  catch { return res.status(500).json({ error: "Could not parse Gemini response as JSON" }); }
-
-  res.json({ diff });
 });
 
 app.post("/api/schedule/compare-pdfs/excel", requireAuth, async (req, res) => {
