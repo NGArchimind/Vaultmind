@@ -118,9 +118,10 @@ const GROUP_LABEL = {
 
 export default function LandingPage({ onSelect, isAdmin = false }) {
   if (!isAdmin) {
+    const STAFF_IDS = ["vault", "timesheets"];
     const STAFF_TILES = [
-      { id: "vault",       label: "Vault",      category: "Document Intelligence", washColor: VAULT_WASH,      fullColor: VAULT_FULL,      cta: "Open Vault →",        description: "Query your building regulations documents with natural language. Get precise answers with clause references." },
-      { id: "timesheets",  label: "Timesheets", category: "Practice Management",  washColor: TIMESHEETS_WASH, fullColor: TIMESHEETS_FULL, cta: "Open Timesheets →",   description: "Log time against projects, track fees, and monitor budget against programme across the practice." },
+      ...DOCUMENT_TILES.filter(t => STAFF_IDS.includes(t.id)),
+      ...PRACTICE_TILES.filter(t => STAFF_IDS.includes(t.id)),
     ];
     return (
       <div
