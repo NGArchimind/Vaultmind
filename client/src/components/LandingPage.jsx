@@ -116,7 +116,32 @@ const GROUP_LABEL = {
   fontFamily: "Inter, Arial, sans-serif",
 };
 
-export default function LandingPage({ onSelect }) {
+export default function LandingPage({ onSelect, isAdmin = false }) {
+  if (!isAdmin) {
+    const STAFF_TILES = [
+      { id: "vault",       label: "Vault",      category: "Document Intelligence", washColor: VAULT_WASH,      fullColor: VAULT_FULL,      cta: "Open Vault →",        description: "Query your building regulations documents with natural language. Get precise answers with clause references." },
+      { id: "timesheets",  label: "Timesheets", category: "Practice Management",  washColor: TIMESHEETS_WASH, fullColor: TIMESHEETS_FULL, cta: "Open Timesheets →",   description: "Log time against projects, track fees, and monitor budget against programme across the practice." },
+    ];
+    return (
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          background: DESIGN_GROUND,
+          padding: "40px",
+          fontFamily: "Inter, Arial, sans-serif",
+        }}
+      >
+        <div style={{ display: "flex", gap: 20, width: "100%", maxWidth: 760 }}>
+          {STAFF_TILES.map(t => <Tile key={t.id} {...t} onSelect={onSelect} />)}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
