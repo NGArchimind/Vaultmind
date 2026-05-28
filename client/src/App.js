@@ -1230,6 +1230,10 @@ export default function App() {
     timesheets: "Timesheets",
   };
 
+  const NAV_SECTIONS = isAdmin
+    ? ["vault", "compare", "library", "projects", "timesheets"]
+    : ["vault", "timesheets"];
+
   return (
     <div style={{ fontFamily: "Arial, sans-serif", background: DESIGN_GROUND, minHeight: "100vh", color: "#0b0c0c", display: "flex", flexDirection: "column" }}>
       <style>{globalStyles}</style>
@@ -1264,7 +1268,7 @@ export default function App() {
           </button>
           <div style={{ width: 1, height: 20, background: "#3a3c40" }} />
           <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
-            {["vault", "compare", "library", "projects", "timesheets"].map(section => (
+            {NAV_SECTIONS.map(section => (
               <button key={section} className="btn" onClick={() => navigate(section)}
                 style={appSection === section
                   ? { color: "#fff", fontSize: 9, fontWeight: 500, letterSpacing: ".18em", textTransform: "uppercase", background: "transparent", border: "none", padding: "0", cursor: "pointer", borderBottom: "1px solid " + DESIGN_GOLD, paddingBottom: 3 }
@@ -1296,12 +1300,12 @@ export default function App() {
 
       <div style={{ flex: 1, display: "flex", overflow: "hidden", maxHeight: "calc(100vh - 56px)" }}>
 
-        {appSection === "home" && <LandingPage onSelect={navigate} />}
-        {appSection === "compare" && <CompareSection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
-        {appSection === "library" && <DatasheetsLibrarySection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
-        {appSection === "projects" && <ProjectsSection key={sectionKey} isAdmin={isAdmin} />}
+        {appSection === "home" && <LandingPage onSelect={navigate} isAdmin={isAdmin} />}
+        {appSection === "compare"  && isAdmin && <CompareSection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
+        {appSection === "library"  && isAdmin && <DatasheetsLibrarySection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
+        {appSection === "projects" && isAdmin && <ProjectsSection key={sectionKey} isAdmin={isAdmin} />}
         {appSection === "timesheets" && <TimesheetsSection key={sectionKey} isAdmin={isAdmin} />}
-        {appSection === "schedule" && <ScheduleSection key={sectionKey} />}
+        {appSection === "schedule" && isAdmin && <ScheduleSection key={sectionKey} />}
         {appSection === "admin" && isAdmin && <AdminSection key={sectionKey} />}
 
         {/* ── VAULT ─────────────────────────────────────────────────────── */}
