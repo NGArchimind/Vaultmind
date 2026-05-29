@@ -9,7 +9,6 @@ const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
 const { Resend } = require("resend");
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 async function sendEmail({ to, subject, html, text }) {
   if (!process.env.RESEND_API_KEY) {
@@ -17,6 +16,7 @@ async function sendEmail({ to, subject, html, text }) {
     return;
   }
   try {
+    const resend = new Resend(process.env.RESEND_API_KEY);
     await resend.emails.send({
       from: process.env.RESEND_FROM || "Archimind <noreply@example.com>",
       to: Array.isArray(to) ? to : [to],
