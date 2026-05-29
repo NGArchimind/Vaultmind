@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { api } from "../api/client";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import { api, apiBlob } from "../api/client";
 import { DESIGN_GROUND, DESIGN_TEXT, TIMESHEETS_FULL, COMPARE_FULL } from "../constants";
 import TimesheetHistory from "./TimesheetHistory";
 import TimesheetReport from "./TimesheetReport";
 import FeeReview from "./FeeReview";
+import ExpensesTab from "./ExpensesTab";
 
 const CATEGORIES = [
   { value: "holiday",      label: "Holiday" },
@@ -141,15 +142,19 @@ function DraftRow({ projects, onCreate }) {
   const [minutes, setMinutes] = useState(0);
   const [notes,   setNotes]   = useState("");
   const [saving,  setSaving]  = useState(false);
+  const saveTimerRef = useRef(null);
 
-  const save = useCallback(async (selVal, h, m, n) => {
-    if (saving) return;
+  const save = useCallback((selVal, h, m, n) => {
     const isDefault = !selVal && h === 0 && m === 0;
     if (isDefault) return;
-    setSaving(true);
-    const project_id = selVal && !selVal.startsWith("cat:") ? selVal : null;
-    const category   = selVal && selVal.startsWith("cat:") ? selVal.replace("cat:", "") : (!selVal ? "internal" : null);
-    await onCreate({ project_id, category, hours: h, minutes: m, notes: n || null });
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(async () => {
+      if (saving) return;
+      setSaving(true);
+      const project_id = selVal && !selVal.startsWith("cat:") ? selVal : null;
+      const category   = selVal && selVal.startsWith("cat:") ? selVal.replace("cat:", "") : (!selVal ? "internal" : null);
+      await onCreate({ project_id, category, hours: h, minutes: m, notes: n || null });
+    }, 300);
   }, [saving, onCreate]);
 
   const ss = selStyle(false);
@@ -298,6 +303,175 @@ function DayCard({ dayLabel, date, entries, projects, locked, onAdd, onUpdate, o
   );
 }
 
+// ── Admin expenses panel ──────────────────────────────────────────────────────
+
+function AdminExpensesPanel({ users }) {
+  const [expenses,      setExpenses]      = useState([]);
+  const [loading,       setLoading]       = useState(false);
+  const [mileageRate,   setMileageRate]   = useState(45);
+  const [editingRate,   setEditingRate]   = useState(false);
+  const [newRate,       setNewRate]       = useState("");
+  const [filterStatus,  setFilterStatus]  = useState("pending");
+  const [rejectingId,   setRejectingId]   = useState(null);
+  const [rejectReason,  setRejectReason]  = useState("");
+  const [toast,         setToast]         = useState(null);
+
+  const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
+
+  const userEmail = (uid) => users.find(u => u.id === uid)?.email || uid.slice(0, 8) + "…";
+
+  useEffect(() => {
+    setLoading(true);
+    Promise.all([
+      api(`/api/admin/expenses?status=${filterStatus}`),
+      api("/api/admin/expenses/settings"),
+    ]).then(([exp, settings]) => {
+      setExpenses(exp || []);
+      setMileageRate(settings?.mileage_rate_ppm || 45);
+      setNewRate(String(settings?.mileage_rate_ppm || 45));
+    }).catch(() => {}).finally(() => setLoading(false));
+  }, [filterStatus]);
+
+  const handleApprove = async (exp) => {
+    await api(`/api/admin/expenses/${exp.id}/approve`, { method: "POST" });
+    setExpenses(prev => prev.map(e => e.id === exp.id ? { ...e, status: "approved" } : e));
+    showToast("Expense approved.");
+  };
+
+  const handleReject = async (exp) => {
+    if (!rejectReason.trim()) return;
+    await api(`/api/admin/expenses/${exp.id}/reject`, { method: "POST", body: { reason: rejectReason.trim() } });
+    setExpenses(prev => prev.map(e => e.id === exp.id ? { ...e, status: "rejected", rejection_reason: rejectReason.trim() } : e));
+    setRejectingId(null);
+    setRejectReason("");
+    showToast("Expense rejected.");
+  };
+
+  const handleSaveRate = async () => {
+    const rate = parseInt(newRate);
+    if (!rate || rate < 1) return;
+    await api("/api/admin/expenses/settings", { method: "PUT", body: { mileage_rate_ppm: rate } });
+    setMileageRate(rate);
+    setEditingRate(false);
+    showToast("Mileage rate updated.");
+  };
+
+  const openReceipt = async (expId) => {
+    try {
+      const res = await apiBlob(`/api/expenses/${expId}/receipt`, null, "GET");
+      const blob = await res.blob();
+      window.open(URL.createObjectURL(blob), "_blank");
+    } catch {}
+  };
+
+  const formatAmt = (exp) => {
+    const p = `£${(exp.amount_pence / 100).toFixed(2)}`;
+    return exp.expense_type === "mileage" ? `${p} (${exp.miles} mi)` : p;
+  };
+  const fmtDate = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+  const typeLbl = { train:"Train", mileage:"Car Mileage", meals:"Meals", taxi:"Taxi", parking:"Parking" };
+
+  const ss = { padding: "5px 10px", fontSize: 12, border: "1px solid #d0d8de", background: "#fff", color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" };
+
+  return (
+    <div style={{ padding: "0 32px 32px" }}>
+      {toast && <div style={{ position: "fixed", bottom: 24, right: 24, background: DESIGN_TEXT, color: "#fff", padding: "10px 20px", fontSize: 13, zIndex: 9999 }}>{toast}</div>}
+
+      {/* Mileage rate setting */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", background: DESIGN_GROUND, border: "1px solid #dde4e8", marginBottom: 16 }}>
+        <span style={{ fontSize: 12, color: "#6a8a9a", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em" }}>Mileage Rate</span>
+        {!editingRate ? (
+          <>
+            <span style={{ fontSize: 13, color: DESIGN_TEXT, fontWeight: 600 }}>{mileageRate}p / mile (£{(mileageRate / 100).toFixed(2)})</span>
+            <button onClick={() => setEditingRate(true)} style={{ background: "none", border: "none", color: TIMESHEETS_FULL, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Edit</button>
+          </>
+        ) : (
+          <>
+            <input type="number" value={newRate} onChange={e => setNewRate(e.target.value)} min="1" max="200"
+              style={{ ...ss, width: 80 }} />
+            <span style={{ fontSize: 12, color: "#6a8a9a" }}>p/mile</span>
+            <button onClick={handleSaveRate} style={{ background: TIMESHEETS_FULL, color: "#fff", border: "none", padding: "4px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>Save</button>
+            <button onClick={() => setEditingRate(false)} style={{ background: "none", border: "none", color: "#aaa", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+          </>
+        )}
+      </div>
+
+      {/* Filter */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
+        <span style={{ fontSize: 12, color: "#6a8a9a", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em" }}>Filter:</span>
+        {["pending", "approved", "rejected", "all"].map(s => (
+          <button key={s} onClick={() => setFilterStatus(s)}
+            style={{ fontSize: 11, padding: "3px 12px", border: `1px solid ${filterStatus === s ? TIMESHEETS_FULL : "#d0d8de"}`, background: filterStatus === s ? TIMESHEETS_FULL : "#fff", color: filterStatus === s ? "#fff" : "#6a8a9a", cursor: "pointer", textTransform: "capitalize" }}>
+            {s}
+          </button>
+        ))}
+      </div>
+
+      {loading && <p style={{ color: "#6a8a9a", fontSize: 13 }}>Loading…</p>}
+      {!loading && expenses.length === 0 && <p style={{ color: "#6a8a9a", fontSize: 13 }}>No expenses found.</p>}
+
+      {expenses.map(exp => (
+        <div key={exp.id} style={{ background: "#fff", border: "1px solid #dde4e8", marginBottom: 8, padding: "10px 16px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, minWidth: 120 }}>{userEmail(exp.user_id)}</span>
+            <span style={{ fontSize: 12, color: "#6a8a9a" }}>{typeLbl[exp.expense_type] || exp.expense_type}</span>
+            <span style={{ fontSize: 12, color: "#6a8a9a" }}>{fmtDate(exp.expense_date)}</span>
+            <span style={{ fontSize: 12, color: TIMESHEETS_FULL, fontWeight: 600 }}>{formatAmt(exp)}</span>
+            <span style={{ fontSize: 12, color: "#6a8a9a", flex: 1 }}>
+              {exp.projects?.job_number ? `${exp.projects.job_number} — ${exp.projects.name}` : exp.projects?.name}
+            </span>
+            <span style={{ fontSize: 12, color: "#6a8a9a", fontStyle: "italic" }}>{exp.description}</span>
+            {exp.receipt_key && (
+              <button onClick={() => openReceipt(exp.id)}
+                style={{ fontSize: 12, color: TIMESHEETS_FULL, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                📎 receipt
+              </button>
+            )}
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+              {exp.status === "pending" && rejectingId !== exp.id && (
+                <>
+                  <button onClick={() => handleApprove(exp)}
+                    style={{ background: TIMESHEETS_FULL, color: "#fff", border: "none", padding: "4px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+                    Approve
+                  </button>
+                  <button onClick={() => { setRejectingId(exp.id); setRejectReason(""); }}
+                    style={{ background: "#fff", border: `1px solid ${COMPARE_FULL}`, color: COMPARE_FULL, padding: "4px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+                    Reject
+                  </button>
+                </>
+              )}
+              {exp.status === "pending" && rejectingId === exp.id && (
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <input autoFocus value={rejectReason} onChange={e => setRejectReason(e.target.value)}
+                    placeholder="Reason…"
+                    style={{ fontSize: 11, padding: "3px 8px", border: "1px solid #d0d8de", width: 180 }}
+                  />
+                  <button onClick={() => handleReject(exp)} disabled={!rejectReason.trim()}
+                    style={{ background: rejectReason.trim() ? COMPARE_FULL : "#ccc", color: "#fff", border: "none", padding: "3px 10px", fontSize: 11, cursor: rejectReason.trim() ? "pointer" : "default", fontWeight: 600 }}>
+                    Send
+                  </button>
+                  <button onClick={() => setRejectingId(null)}
+                    style={{ background: "none", border: "none", color: "#aaa", fontSize: 16, cursor: "pointer" }}>×</button>
+                </div>
+              )}
+              {exp.status !== "pending" && (
+                <span style={{ fontSize: 11, fontWeight: 600, color: exp.status === "approved" ? "#2e7d32" : "#9e4a3a", textTransform: "uppercase" }}>
+                  {exp.status}
+                </span>
+              )}
+            </div>
+          </div>
+          {exp.rejection_reason && (
+            <div style={{ marginTop: 6, padding: "5px 10px", background: "#fdf0ee", borderLeft: "3px solid #9e4a3a", fontSize: 11, color: "#9e4a3a" }}>
+              <strong>Reason: </strong>{exp.rejection_reason}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── Admin review panel ────────────────────────────────────────────────────────
 
 function AdminPanel({ projects }) {
@@ -310,6 +484,9 @@ function AdminPanel({ projects }) {
   const [filterTo,        setFilterTo]        = useState("");
   const [loading,         setLoading]         = useState(false);
   const [toast,           setToast]           = useState(null);
+  const [rejectingKey,    setRejectingKey]    = useState(null);
+  const [rejectReason,    setRejectReason]    = useState("");
+  const [adminView,       setAdminView]       = useState("timesheets"); // "timesheets" | "expenses"
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
@@ -355,90 +532,173 @@ function AdminPanel({ projects }) {
     showToast("Timesheet approved.");
   };
 
+  const handleReject = async (sub) => {
+    if (!rejectReason.trim()) return;
+    await api("/api/admin/timesheets/reject", { method: "POST", body: { week: sub.week_start, user_id: sub.user_id, reason: rejectReason.trim() } });
+    setSubmissions(prev => prev.map(s =>
+      s.user_id === sub.user_id && s.week_start === sub.week_start ? { ...s, status: "draft" } : s
+    ));
+    setRejectingKey(null);
+    setRejectReason("");
+    showToast("Timesheet returned to staff for correction.");
+  };
+
+  const handleUnlock = async (sub) => {
+    await api("/api/admin/timesheets/unlock", { method: "POST", body: { week: sub.week_start, user_id: sub.user_id } });
+    setSubmissions(prev => prev.map(s =>
+      s.user_id === sub.user_id && s.week_start === sub.week_start
+        ? { ...s, status: "draft", unlock_requested: false, unlock_reason: null }
+        : s
+    ));
+    showToast("Timesheet unlocked for editing.");
+  };
+
   const ss = { padding: "5px 10px", fontSize: 12, border: "1px solid #d0d8de", background: "#fff", color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" };
 
   return (
     <div style={{ padding: "0 32px 32px" }}>
       {toast && <div style={{ position: "fixed", bottom: 24, right: 24, background: DESIGN_TEXT, color: "#fff", padding: "10px 20px", fontSize: 13, zIndex: 9999 }}>{toast}</div>}
 
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 20, padding: "14px 16px", background: DESIGN_GROUND, border: "1px solid #dde4e8" }}>
-        <span style={{ fontSize: 12, color: "#6a8a9a", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Filter</span>
-        <select value={filterUser} onChange={e => setFilterUser(e.target.value)} style={ss}>
-          <option value="">All staff</option>
-          {users.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
-        </select>
-        <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} style={ss} />
-        <span style={{ fontSize: 12, color: "#8a9aa8" }}>to</span>
-        <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} style={ss} />
-        {(filterUser || filterFrom || filterTo) && (
-          <button onClick={() => { setFilterUser(""); setFilterFrom(""); setFilterTo(""); }}
-            style={{ background: "none", border: "none", color: COMPARE_FULL, fontSize: 12, cursor: "pointer" }}>Clear</button>
-        )}
+      {/* Admin view toggle */}
+      <div style={{ padding: "16px 0 0", display: "flex", gap: 0, marginBottom: 16 }}>
+        {["timesheets", "expenses"].map(v => (
+          <button key={v} onClick={() => setAdminView(v)}
+            style={{
+              fontSize: 12, padding: "7px 20px", border: `1px solid ${TIMESHEETS_FULL}`,
+              background: adminView === v ? TIMESHEETS_FULL : "#fff",
+              color: adminView === v ? "#fff" : TIMESHEETS_FULL,
+              cursor: "pointer", fontWeight: 600, textTransform: "capitalize",
+              marginRight: v === "timesheets" ? -1 : 0,
+            }}>
+            {v}
+          </button>
+        ))}
       </div>
 
-      {loading && <p style={{ color: "#6a8a9a", fontSize: 13 }}>Loading…</p>}
-      {!loading && filtered.length === 0 && <p style={{ color: "#6a8a9a", fontSize: 13 }}>No submissions found.</p>}
-
-      {filtered.map(sub => {
-        const key     = `${sub.user_id}|${sub.week_start}`;
-        const isOpen  = expanded === key;
-        const entries = expandedEntries[key] || [];
-        const wTotal  = totalMins(entries);
-        const mon     = new Date(sub.week_start);
-        const fri     = new Date(mon); fri.setDate(fri.getDate() + 4);
-        const o       = { day: "numeric", month: "short" };
-        const weekStr = `${mon.toLocaleDateString("en-GB", o)} – ${fri.toLocaleDateString("en-GB", { ...o, year: "numeric" })}`;
-
-        return (
-          <div key={key} style={{ border: "1px solid #dde4e8", marginBottom: 8, background: "#fff" }}>
-            <div onClick={() => toggleExpand(key, sub.user_id, sub.week_start)}
-              style={{ display: "flex", alignItems: "center", gap: 16, padding: "10px 16px", cursor: "pointer", background: isOpen ? DESIGN_GROUND : "#fff" }}>
-              <span style={{ fontSize: 13, color: DESIGN_TEXT, fontWeight: 600, minWidth: 200 }}>{userEmail(sub.user_id)}</span>
-              <span style={{ fontSize: 13, color: "#6a8a9a", minWidth: 180 }}>{weekStr}</span>
-              {isOpen && entries.length > 0 && (
-                <span style={{ fontSize: 12, color: TIMESHEETS_FULL, fontWeight: 500 }}>{formatMins(wTotal)}</span>
-              )}
-              <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
-                <StatusBadge status={sub.status} />
-                {sub.status === "submitted" && (
-                  <button onClick={e => { e.stopPropagation(); handleApprove(sub); }}
-                    style={{ background: TIMESHEETS_FULL, color: "#fff", border: "none", padding: "4px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
-                    Approve
-                  </button>
-                )}
-                <span style={{ color: "#aaa", fontSize: 14 }}>{isOpen ? "▲" : "▼"}</span>
-              </div>
-            </div>
-
-            {isOpen && (
-              <div style={{ padding: "12px 16px", borderTop: "1px solid #eef2f4" }}>
-                {entries.length === 0 && <p style={{ color: "#aaa", fontSize: 13 }}>No entries.</p>}
-                {DAYS.map((day, di) => {
-                  const date   = dateForDay(new Date(sub.week_start), di);
-                  const dEntries = entries.filter(e => e.entry_date === date);
-                  if (!dEntries.length) return null;
-                  const dTotal = totalMins(dEntries);
-                  return (
-                    <div key={day} style={{ marginBottom: 12 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                          {formatDayLabel(new Date(sub.week_start), di)}
-                        </span>
-                        <span style={{ fontSize: 12, color: TIMESHEETS_FULL }}>{formatMins(dTotal)}</span>
-                      </div>
-                      {dEntries.map(e => (
-                        <EntryRow key={e.id} entry={e} projects={projects} locked={false}
-                          onUpdate={(id, changes) => handleAdminUpdate(key, id, changes)}
-                          onDelete={() => {}} />
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
+      {adminView === "timesheets" && (
+        <>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 20, padding: "14px 16px", background: DESIGN_GROUND, border: "1px solid #dde4e8" }}>
+            <span style={{ fontSize: 12, color: "#6a8a9a", fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase" }}>Filter</span>
+            <select value={filterUser} onChange={e => setFilterUser(e.target.value)} style={ss}>
+              <option value="">All staff</option>
+              {users.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
+            </select>
+            <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} style={ss} />
+            <span style={{ fontSize: 12, color: "#8a9aa8" }}>to</span>
+            <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} style={ss} />
+            {(filterUser || filterFrom || filterTo) && (
+              <button onClick={() => { setFilterUser(""); setFilterFrom(""); setFilterTo(""); }}
+                style={{ background: "none", border: "none", color: COMPARE_FULL, fontSize: 12, cursor: "pointer" }}>Clear</button>
             )}
           </div>
-        );
-      })}
+
+          {loading && <p style={{ color: "#6a8a9a", fontSize: 13 }}>Loading…</p>}
+          {!loading && filtered.length === 0 && <p style={{ color: "#6a8a9a", fontSize: 13 }}>No submissions found.</p>}
+
+          {filtered.map(sub => {
+            const key     = `${sub.user_id}|${sub.week_start}`;
+            const isOpen  = expanded === key;
+            const entries = expandedEntries[key] || [];
+            const wTotal  = totalMins(entries);
+            const mon     = new Date(sub.week_start);
+            const fri     = new Date(mon); fri.setDate(fri.getDate() + 4);
+            const o       = { day: "numeric", month: "short" };
+            const weekStr = `${mon.toLocaleDateString("en-GB", o)} – ${fri.toLocaleDateString("en-GB", { ...o, year: "numeric" })}`;
+
+            return (
+              <div key={key} style={{ border: "1px solid #dde4e8", marginBottom: 8, background: "#fff" }}>
+                <div onClick={() => toggleExpand(key, sub.user_id, sub.week_start)}
+                  style={{ display: "flex", alignItems: "center", gap: 16, padding: "10px 16px", cursor: "pointer", background: isOpen ? DESIGN_GROUND : "#fff" }}>
+                  <span style={{ fontSize: 13, color: DESIGN_TEXT, fontWeight: 600, minWidth: 200 }}>{userEmail(sub.user_id)}</span>
+                  <span style={{ fontSize: 13, color: "#6a8a9a", minWidth: 180 }}>{weekStr}</span>
+                  {isOpen && entries.length > 0 && (
+                    <span style={{ fontSize: 12, color: TIMESHEETS_FULL, fontWeight: 500 }}>{formatMins(wTotal)}</span>
+                  )}
+                  <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 12 }}>
+                    <StatusBadge status={sub.status} />
+                    {sub.status === "submitted" && rejectingKey !== key && (
+                      <>
+                        <button onClick={e => { e.stopPropagation(); handleApprove(sub); }}
+                          style={{ background: TIMESHEETS_FULL, color: "#fff", border: "none", padding: "4px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+                          Approve
+                        </button>
+                        <button onClick={e => { e.stopPropagation(); setRejectingKey(key); setRejectReason(""); }}
+                          style={{ background: "#fff", border: `1px solid ${COMPARE_FULL}`, color: COMPARE_FULL, padding: "4px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+                          Reject
+                        </button>
+                      </>
+                    )}
+                    {sub.status === "submitted" && rejectingKey === key && (
+                      <div onClick={e => e.stopPropagation()} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <input
+                          autoFocus
+                          value={rejectReason}
+                          onChange={e => setRejectReason(e.target.value)}
+                          placeholder="Reason for rejection…"
+                          style={{ fontSize: 12, padding: "3px 8px", border: "1px solid #d0d8de", width: 200 }}
+                        />
+                        <button onClick={() => handleReject(sub)} disabled={!rejectReason.trim()}
+                          style={{ background: rejectReason.trim() ? COMPARE_FULL : "#ccc", color: "#fff", border: "none", padding: "4px 10px", fontSize: 12, cursor: rejectReason.trim() ? "pointer" : "default", fontWeight: 600 }}>
+                          Send
+                        </button>
+                        <button onClick={() => setRejectingKey(null)}
+                          style={{ background: "none", border: "none", color: "#aaa", fontSize: 16, cursor: "pointer", padding: "0 4px" }}>×</button>
+                      </div>
+                    )}
+                    {sub.unlock_requested && (
+                      <>
+                        <span style={{ fontSize: 10, background: "#fff8e1", color: "#b07800", border: "1px solid #b0780044", padding: "2px 8px", letterSpacing: ".05em", fontWeight: 600 }}>
+                          EDIT REQUESTED
+                        </span>
+                        <button onClick={e => { e.stopPropagation(); handleUnlock(sub); }}
+                          style={{ background: TIMESHEETS_FULL, color: "#fff", border: "none", padding: "4px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
+                          Unlock
+                        </button>
+                      </>
+                    )}
+                    <span style={{ color: "#aaa", fontSize: 14 }}>{isOpen ? "▲" : "▼"}</span>
+                  </div>
+                </div>
+
+                {isOpen && (
+                  <div style={{ padding: "12px 16px", borderTop: "1px solid #eef2f4" }}>
+                    {sub.unlock_reason && (
+                      <div style={{ marginBottom: 10, padding: "8px 12px", background: "#fff8e1", borderLeft: "3px solid #b07800", fontSize: 12 }}>
+                        <strong style={{ color: "#b07800" }}>Edit request: </strong>
+                        <span style={{ color: "#4a5a6a" }}>{sub.unlock_reason}</span>
+                      </div>
+                    )}
+                    {entries.length === 0 && <p style={{ color: "#aaa", fontSize: 13 }}>No entries.</p>}
+                    {DAYS.map((day, di) => {
+                      const date   = dateForDay(new Date(sub.week_start), di);
+                      const dEntries = entries.filter(e => e.entry_date === date);
+                      if (!dEntries.length) return null;
+                      const dTotal = totalMins(dEntries);
+                      return (
+                        <div key={day} style={{ marginBottom: 12 }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                              {formatDayLabel(new Date(sub.week_start), di)}
+                            </span>
+                            <span style={{ fontSize: 12, color: TIMESHEETS_FULL }}>{formatMins(dTotal)}</span>
+                          </div>
+                          {dEntries.map(e => (
+                            <EntryRow key={e.id} entry={e} projects={projects} locked={false}
+                              onUpdate={(id, changes) => handleAdminUpdate(key, id, changes)}
+                              onDelete={() => {}} />
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {adminView === "expenses" && <AdminExpensesPanel users={users} />}
     </div>
   );
 }
@@ -459,6 +719,10 @@ export default function TimesheetsSection({ isAdmin }) {
   const [fillProject,   setFillProject]   = useState("");
   const [fillOpen,      setFillOpen]      = useState(false);
   const [filling,       setFilling]       = useState(false);
+  const [showUnlockDialog, setShowUnlockDialog] = useState(false);
+  const [unlockReason,     setUnlockReason]     = useState("");
+  const [unlocking,        setUnlocking]        = useState(false);
+  const [activeTab,        setActiveTab]        = useState("timesheet"); // "timesheet" | "expenses"
 
   const weekKey  = isoDate(monday);
   const isLocked = submission?.status === "submitted" || submission?.status === "approved";
@@ -520,6 +784,16 @@ export default function TimesheetsSection({ isAdmin }) {
     catch { showToast("Could not delete entry."); }
   }, [showToast]);
 
+  // Delete with confirmation dialog
+  const handleDeleteWithConfirm = useCallback((id) => {
+    setDialog({
+      title: "Remove entry?",
+      message: "This entry will be permanently deleted and cannot be undone.",
+      confirmLabel: "Remove",
+      onConfirm: () => { setDialog(null); handleDelete(id); },
+    });
+  }, [handleDelete]);
+
   // Quick fill full/half day
   const handleQuickFill = useCallback(async (date, { hours, minutes }) => {
     const existing = entries.filter(e => e.entry_date === date);
@@ -567,6 +841,22 @@ export default function TimesheetsSection({ isAdmin }) {
     finally { setSubmitting(false); }
   }, [weekKey, showToast]);
 
+  const handleUnlockRequest = useCallback(async () => {
+    if (!unlockReason.trim()) return;
+    setUnlocking(true);
+    try {
+      await api("/api/timesheets/unlock-request", { method: "POST", body: { week: weekKey, reason: unlockReason.trim() } });
+      setSubmission(prev => ({ ...prev, unlock_requested: true }));
+      setShowUnlockDialog(false);
+      setUnlockReason("");
+      showToast("Edit request sent to admin.");
+    } catch {
+      showToast("Could not send request.");
+    } finally {
+      setUnlocking(false);
+    }
+  }, [unlockReason, weekKey, showToast]);
+
   const handleSubmitClick = () => {
     const total = totalMins(entries);
     if (total > OVER_WEEK_MINS) {
@@ -608,9 +898,35 @@ export default function TimesheetsSection({ isAdmin }) {
         <ConfirmDialog
           title={dialog.title}
           message={dialog.message}
+          confirmLabel={dialog.confirmLabel}
           onConfirm={dialog.onConfirm}
           onCancel={() => setDialog(null)}
         />
+      )}
+      {showUnlockDialog && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9998 }}>
+          <div style={{ background: "#fff", padding: 28, maxWidth: 440, width: "90%", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
+            <h3 style={{ margin: "0 0 10px", fontSize: 16, fontWeight: 600, color: DESIGN_TEXT }}>Request to Edit Timesheet</h3>
+            <p style={{ margin: "0 0 12px", fontSize: 13, color: "#4a5a6a", lineHeight: 1.6 }}>
+              Explain why you need to edit this week. Your request will be sent to the admin for approval.
+            </p>
+            <textarea value={unlockReason} onChange={e => setUnlockReason(e.target.value)}
+              placeholder="e.g. I put the wrong project on Tuesday"
+              rows={3}
+              style={{ width: "100%", padding: "8px 10px", fontSize: 13, border: "1px solid #d0d8de", resize: "vertical", fontFamily: "Inter, Arial, sans-serif", boxSizing: "border-box" }}
+            />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
+              <button onClick={() => { setShowUnlockDialog(false); setUnlockReason(""); }}
+                style={{ background: "#fff", border: "1px solid #e4e4e8", color: "#666", padding: "7px 18px", fontSize: 13, cursor: "pointer" }}>
+                Cancel
+              </button>
+              <button onClick={handleUnlockRequest} disabled={!unlockReason.trim() || unlocking}
+                style={{ background: unlockReason.trim() ? TIMESHEETS_FULL : "#ccc", border: "none", color: "#fff", padding: "7px 18px", fontSize: 13, cursor: unlockReason.trim() ? "pointer" : "default", fontWeight: 600 }}>
+                {unlocking ? "Sending…" : "Send Request"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Header */}
@@ -648,6 +964,23 @@ export default function TimesheetsSection({ isAdmin }) {
         </div>
       </div>
 
+      {view === "mine" && (
+        <div style={{ background: "#fff", display: "flex", borderBottom: "2px solid #e0e4e8", flexShrink: 0 }}>
+          {[{ key: "timesheet", label: "My Timesheet" }, { key: "expenses", label: "My Expenses" }].map(tab => (
+            <button key={tab.key} onClick={() => setActiveTab(tab.key)}
+              style={{
+                fontSize: 12, padding: "9px 20px", border: "none", background: "none", cursor: "pointer",
+                color: activeTab === tab.key ? TIMESHEETS_FULL : "#8a9aa8",
+                fontWeight: activeTab === tab.key ? 700 : 500,
+                borderBottom: activeTab === tab.key ? `2px solid ${TIMESHEETS_FULL}` : "2px solid transparent",
+                marginBottom: -2, fontFamily: "Inter, Arial, sans-serif",
+              }}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div style={{ flex: 1, overflow: "auto" }}>
         {view === "admin" ? (
           <>
@@ -658,7 +991,16 @@ export default function TimesheetsSection({ isAdmin }) {
             <AdminPanel projects={projects} />
           </>
         ) : (
+          <>
+          {activeTab === "timesheet" && (
           <div style={{ padding: "24px 32px" }}>
+
+            {submission?.status === "draft" && submission?.rejection_reason && (
+              <div style={{ marginBottom: 16, padding: "10px 16px", background: "#fdf0ee", borderLeft: `4px solid ${COMPARE_FULL}` }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: COMPARE_FULL }}>Timesheet returned for correction — </span>
+                <span style={{ fontSize: 13, color: "#4a5a6a" }}>{submission.rejection_reason}</span>
+              </div>
+            )}
 
             {/* Week navigator */}
             <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 20 }}>
@@ -721,7 +1063,7 @@ export default function TimesheetsSection({ isAdmin }) {
                       locked={isLocked}
                       onAdd={handleAdd}
                       onUpdate={handleUpdate}
-                      onDelete={handleDelete}
+                      onDelete={handleDeleteWithConfirm}
                       onQuickFill={handleQuickFill}
                       onDraftCreate={handleDraftCreate}
                     />
@@ -750,6 +1092,13 @@ export default function TimesheetsSection({ isAdmin }) {
                     {submission?.status === "submitted" && (
                       <>
                         <span style={{ fontSize: 13, color: "#b07800" }}>Awaiting approval</span>
+                        {!submission?.unlock_requested
+                          ? <button onClick={() => setShowUnlockDialog(true)}
+                              style={{ background: "#fff", color: "#8a9aa8", border: "1px solid #dde4e8", padding: "5px 12px", fontSize: 11, cursor: "pointer" }}>
+                              Request to Edit
+                            </button>
+                          : <span style={{ fontSize: 12, color: "#8a9aa8", fontStyle: "italic" }}>Edit request pending…</span>
+                        }
                         <button onClick={nextWeek}
                           style={{ ...btnBase, background: "#fff", color: TIMESHEETS_FULL, border: `1px solid ${TIMESHEETS_FULL}`, padding: "6px 16px", fontSize: 12 }}>
                           Next week →
@@ -759,6 +1108,13 @@ export default function TimesheetsSection({ isAdmin }) {
                     {submission?.status === "approved" && (
                       <>
                         <span style={{ fontSize: 13, color: "#2e7d32", fontWeight: 600 }}>✓ Approved</span>
+                        {!submission?.unlock_requested
+                          ? <button onClick={() => setShowUnlockDialog(true)}
+                              style={{ background: "#fff", color: "#8a9aa8", border: "1px solid #dde4e8", padding: "5px 12px", fontSize: 11, cursor: "pointer" }}>
+                              Request to Edit
+                            </button>
+                          : <span style={{ fontSize: 12, color: "#8a9aa8", fontStyle: "italic" }}>Edit request pending…</span>
+                        }
                         <button onClick={nextWeek}
                           style={{ ...btnBase, background: "#fff", color: TIMESHEETS_FULL, border: `1px solid ${TIMESHEETS_FULL}`, padding: "6px 16px", fontSize: 12 }}>
                           Next week →
@@ -770,6 +1126,11 @@ export default function TimesheetsSection({ isAdmin }) {
               </>
             )}
           </div>
+          )}
+          {activeTab === "expenses" && (
+            <ExpensesTab projects={projects} />
+          )}
+          </>
         )}
       </div>
     </div>

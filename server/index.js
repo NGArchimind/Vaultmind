@@ -8,6 +8,34 @@ const { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, Dele
 const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
+const { Resend } = require("resend");
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+async function sendEmail({ to, subject, html, text }) {
+  if (!process.env.RESEND_API_KEY) {
+    console.warn("[email] RESEND_API_KEY not set — skipping:", subject);
+    return;
+  }
+  try {
+    await resend.emails.send({
+      from: process.env.RESEND_FROM || "Archimind <noreply@example.com>",
+      to: Array.isArray(to) ? to : [to],
+      subject,
+      html,
+      text,
+    });
+  } catch (err) {
+    console.error("[email] Send failed:", err.message);
+  }
+}
+
+async function getAdminEmails() {
+  const { data } = await supabase.auth.admin.listUsers();
+  return (data?.users || [])
+    .filter(u => u.user_metadata?.role === "admin")
+    .map(u => u.email)
+    .filter(Boolean);
+}
 
 const app = express();
 
@@ -3761,6 +3789,45 @@ app.delete("/api/tasks/:id", requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── Timesheet helpers ─────────────────────────────────────────────────────────
+
+function getWeekStart(dateStr) {
+  const d = new Date(dateStr + "T12:00:00Z");
+  const day = d.getUTCDay();
+  d.setUTCDate(d.getUTCDate() - (day === 0 ? 6 : day - 1));
+  return d.toISOString().split("T")[0];
+}
+
+async function getWeekLockStatus(userId, weekStart) {
+  const { data } = await supabase
+    .from("timesheet_submissions")
+    .select("status")
+    .eq("user_id", userId)
+    .eq("week_start", weekStart)
+    .maybeSingle();
+  if (data?.status === "submitted" || data?.status === "approved") return data.status;
+  return null;
+}
+
+function validateTimesheetFields({ hours, minutes, entry_date } = {}) {
+  if (entry_date !== undefined) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entry_date)) return "entry_date must be YYYY-MM-DD";
+    const d = new Date(entry_date + "T12:00:00Z");
+    if (isNaN(d.getTime())) return "entry_date is not a valid date";
+    const day = d.getUTCDay();
+    if (day === 0 || day === 6) return "entry_date must be a weekday (Monday–Friday)";
+  }
+  if (hours !== undefined) {
+    const h = Number(hours);
+    if (!Number.isInteger(h) || h < 0 || h > 16) return "hours must be an integer between 0 and 16";
+  }
+  if (minutes !== undefined) {
+    const m = Number(minutes);
+    if (![0, 15, 30, 45].includes(m)) return "minutes must be 0, 15, 30, or 45";
+  }
+  return null;
+}
+
 // ── Timesheets ────────────────────────────────────────────────────────────────
 
 // GET /api/timesheets?week=YYYY-MM-DD  (Monday of the week)
@@ -3782,22 +3849,28 @@ app.get("/api/timesheets", requireAuth, async (req, res) => {
   res.json(data);
 });
 
-// GET /api/timesheets/history  — all entries for the current user, newest first
+// GET /api/timesheets/history  — paginated entries for the current user, 6 weeks at a time
 app.get("/api/timesheets/history", requireAuth, async (req, res) => {
-  const { data, error } = await supabase
-    .from("timesheets")
-    .select("*, projects(id, name, job_number)")
-    .eq("user_id", req.user.id)
-    .order("entry_date", { ascending: false });
+  const weeks = Math.min(parseInt(req.query.weeks) || 6, 52);
+  const endDate = req.query.before
+    ? new Date(req.query.before + "T12:00:00Z")
+    : new Date();
+  const startDate = new Date(endDate);
+  startDate.setUTCDate(startDate.getUTCDate() - weeks * 7);
+  const endStr   = endDate.toISOString().split("T")[0];
+  const startStr = startDate.toISOString().split("T")[0];
+
+  const [{ data: entries, error }, { data: subs }] = await Promise.all([
+    supabase.from("timesheets").select("*, projects(id, name, job_number)")
+      .eq("user_id", req.user.id)
+      .gte("entry_date", startStr).lte("entry_date", endStr)
+      .order("entry_date", { ascending: false }),
+    supabase.from("timesheet_submissions").select("week_start, status, rejection_reason")
+      .eq("user_id", req.user.id)
+      .gte("week_start", startStr).lte("week_start", endStr),
+  ]);
   if (error) return res.status(500).json({ error: error.message });
-
-  // Also fetch all submission statuses for this user
-  const { data: subs } = await supabase
-    .from("timesheet_submissions")
-    .select("week_start, status")
-    .eq("user_id", req.user.id);
-
-  res.json({ entries: data, submissions: subs || [] });
+  res.json({ entries: entries || [], submissions: subs || [], startStr });
 });
 
 // GET /api/timesheets/submission?week=YYYY-MM-DD  — must be before /:id
@@ -3815,9 +3888,17 @@ app.get("/api/timesheets/submission", requireAuth, async (req, res) => {
 
 // POST /api/timesheets
 app.post("/api/timesheets", requireAuth, async (req, res) => {
-  const { project_id, category, entry_date, hours, minutes, notes } = req.body;
+  const { project_id, category, entry_date, hours = 0, minutes = 0, notes } = req.body;
   if (!entry_date) return res.status(400).json({ error: "entry_date required" });
   if (!project_id && !category) return res.status(400).json({ error: "project_id or category required" });
+
+  const validErr = validateTimesheetFields({ entry_date, hours, minutes });
+  if (validErr) return res.status(400).json({ error: validErr });
+
+  const weekStart = getWeekStart(entry_date);
+  const lockStatus = await getWeekLockStatus(req.user.id, weekStart);
+  if (lockStatus) return res.status(403).json({ error: `Week is ${lockStatus} — entries cannot be added` });
+
   const { data, error } = await supabase
     .from("timesheets")
     .insert({
@@ -3825,8 +3906,8 @@ app.post("/api/timesheets", requireAuth, async (req, res) => {
       project_id: project_id || null,
       category: category || null,
       entry_date,
-      hours: hours || 0,
-      minutes: minutes || 0,
+      hours: Number(hours),
+      minutes: Number(minutes),
       notes: notes || null,
     })
     .select("*, projects(id, name, job_number)")
@@ -3839,10 +3920,21 @@ app.post("/api/timesheets", requireAuth, async (req, res) => {
 app.post("/api/timesheets/submit", requireAuth, async (req, res) => {
   const { week } = req.body;
   if (!week) return res.status(400).json({ error: "week required" });
+
+  const { data: existing } = await supabase
+    .from("timesheet_submissions")
+    .select("status")
+    .eq("user_id", req.user.id)
+    .eq("week_start", week)
+    .maybeSingle();
+  if (existing?.status === "approved") {
+    return res.status(403).json({ error: "This week has already been approved and cannot be resubmitted" });
+  }
+
   const { data, error } = await supabase
     .from("timesheet_submissions")
     .upsert(
-      { user_id: req.user.id, week_start: week, status: "submitted", submitted_at: new Date().toISOString() },
+      { user_id: req.user.id, week_start: week, status: "submitted", submitted_at: new Date().toISOString(), rejection_reason: null },
       { onConflict: "user_id,week_start" }
     )
     .select()
@@ -3853,15 +3945,34 @@ app.post("/api/timesheets/submit", requireAuth, async (req, res) => {
 
 // PUT /api/timesheets/:id
 app.put("/api/timesheets/:id", requireAuth, async (req, res) => {
-  const { data: existing } = await supabase.from("timesheets").select("user_id").eq("id", req.params.id).single();
+  const { data: existing } = await supabase
+    .from("timesheets")
+    .select("user_id, entry_date")
+    .eq("id", req.params.id)
+    .single();
   if (!existing) return res.status(404).json({ error: "Not found" });
   if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
+
+  const weekStart = getWeekStart(existing.entry_date);
+  const lockStatus = await getWeekLockStatus(req.user.id, weekStart);
+  if (lockStatus) return res.status(403).json({ error: `Week is ${lockStatus} — entries cannot be modified` });
+
+  if ("hours" in req.body) {
+    const err = validateTimesheetFields({ hours: req.body.hours });
+    if (err) return res.status(400).json({ error: err });
+  }
+  if ("minutes" in req.body) {
+    const err = validateTimesheetFields({ minutes: req.body.minutes });
+    if (err) return res.status(400).json({ error: err });
+  }
+
   const updates = { updated_at: new Date().toISOString() };
-  if ("hours"      in req.body) updates.hours      = req.body.hours;
-  if ("minutes"    in req.body) updates.minutes    = req.body.minutes;
+  if ("hours"      in req.body) updates.hours      = Number(req.body.hours);
+  if ("minutes"    in req.body) updates.minutes    = Number(req.body.minutes);
   if ("notes"      in req.body) updates.notes      = req.body.notes ?? null;
   if ("project_id" in req.body) updates.project_id = req.body.project_id || null;
   if ("category"   in req.body) updates.category   = req.body.category  || null;
+
   const { data, error } = await supabase
     .from("timesheets")
     .update(updates)
@@ -3874,9 +3985,18 @@ app.put("/api/timesheets/:id", requireAuth, async (req, res) => {
 
 // DELETE /api/timesheets/:id
 app.delete("/api/timesheets/:id", requireAuth, async (req, res) => {
-  const { data: existing } = await supabase.from("timesheets").select("user_id").eq("id", req.params.id).single();
+  const { data: existing } = await supabase
+    .from("timesheets")
+    .select("user_id, entry_date")
+    .eq("id", req.params.id)
+    .single();
   if (!existing) return res.status(404).json({ error: "Not found" });
   if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
+
+  const weekStart = getWeekStart(existing.entry_date);
+  const lockStatus = await getWeekLockStatus(req.user.id, weekStart);
+  if (lockStatus) return res.status(403).json({ error: `Week is ${lockStatus} — entries cannot be deleted` });
+
   const { error } = await supabase.from("timesheets").delete().eq("id", req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true });
@@ -3907,6 +4027,79 @@ app.post("/api/admin/timesheets/approve", requireAuth, requireAdmin, async (req,
     .single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
+});
+
+app.post("/api/admin/timesheets/reject", requireAuth, requireAdmin, async (req, res) => {
+  const { week, user_id, reason } = req.body;
+  if (!week || !user_id) return res.status(400).json({ error: "week and user_id required" });
+  if (!reason?.trim()) return res.status(400).json({ error: "rejection reason required" });
+  const { data, error } = await supabase
+    .from("timesheet_submissions")
+    .update({
+      status: "draft",
+      rejection_reason: reason.trim(),
+      reviewed_by: req.user.id,
+      reviewed_at: new Date().toISOString(),
+    })
+    .eq("user_id", user_id)
+    .eq("week_start", week)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST /api/timesheets/unlock-request  — must be before /:id route
+app.post("/api/timesheets/unlock-request", requireAuth, async (req, res) => {
+  const { week, reason } = req.body;
+  if (!week) return res.status(400).json({ error: "week required" });
+  if (!reason?.trim()) return res.status(400).json({ error: "reason required" });
+
+  const { data: sub } = await supabase
+    .from("timesheet_submissions")
+    .select("status")
+    .eq("user_id", req.user.id)
+    .eq("week_start", week)
+    .maybeSingle();
+  if (!sub || (sub.status !== "submitted" && sub.status !== "approved")) {
+    return res.status(400).json({ error: "No locked timesheet found for this week" });
+  }
+
+  const { error } = await supabase
+    .from("timesheet_submissions")
+    .update({ unlock_requested: true, unlock_reason: reason.trim() })
+    .eq("user_id", req.user.id)
+    .eq("week_start", week);
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Email admin
+  const adminEmails = await getAdminEmails();
+  if (adminEmails.length) {
+    const weekDate = new Date(week + "T12:00:00Z");
+    const fri = new Date(weekDate); fri.setUTCDate(fri.getUTCDate() + 4);
+    const o = { day: "numeric", month: "short" };
+    const weekStr = `${weekDate.toLocaleDateString("en-GB", o)} – ${fri.toLocaleDateString("en-GB", { ...o, year: "numeric" })}`;
+    await sendEmail({
+      to: adminEmails,
+      subject: `Timesheet edit request — ${req.user.email}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — Timesheets</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;"><p style="margin:0 0 16px;font-size:15px;color:#262830;"><strong>${req.user.email}</strong> has requested to edit their timesheet for <strong>${weekStr}</strong>.</p><p style="font-size:13px;color:#6a8a9a;margin:0 0 6px;">Reason:</p><p style="margin:0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${reason.trim()}</p></div></div>`,
+      text: `Timesheet edit request from ${req.user.email}\n\nWeek: ${weekStr}\nReason: ${reason.trim()}`,
+    });
+  }
+
+  res.json({ ok: true });
+});
+
+app.post("/api/admin/timesheets/unlock", requireAuth, requireAdmin, async (req, res) => {
+  const { week, user_id } = req.body;
+  if (!week || !user_id) return res.status(400).json({ error: "week and user_id required" });
+  const { error } = await supabase
+    .from("timesheet_submissions")
+    .update({ status: "draft", unlock_requested: false, unlock_reason: null, rejection_reason: null })
+    .eq("user_id", user_id)
+    .eq("week_start", week);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
 });
 
 // GET /api/admin/timesheets?user_id=&project_id=&week=&from=&to=
@@ -3944,6 +4137,232 @@ app.patch("/api/admin/timesheets/:id", requireAuth, requireAdmin, async (req, re
     .eq("id", req.params.id)
     .select("*, projects(id, name, job_number)")
     .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// ── Expenses ──────────────────────────────────────────────────────────────────
+
+const VALID_EXPENSE_TYPES = ["train", "mileage", "meals", "taxi", "parking"];
+
+async function getMileageRatePpm() {
+  const { data } = await supabase.from("app_settings").select("value").eq("key", "mileage_rate_ppm").maybeSingle();
+  return parseInt(data?.value) || 45;
+}
+
+// GET /api/expenses/settings  — must be before /api/expenses/:id
+app.get("/api/expenses/settings", requireAuth, async (req, res) => {
+  res.json({ mileage_rate_ppm: await getMileageRatePpm() });
+});
+
+// GET /api/expenses
+app.get("/api/expenses", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("project_expenses")
+    .select("*, projects(id, name, job_number)")
+    .eq("user_id", req.user.id)
+    .order("created_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST /api/expenses
+app.post("/api/expenses", requireAuth, async (req, res) => {
+  const { project_id, expense_type, expense_date, amount_pence, miles, description } = req.body;
+  if (!project_id) return res.status(400).json({ error: "project_id required" });
+  if (!VALID_EXPENSE_TYPES.includes(expense_type)) return res.status(400).json({ error: "Invalid expense_type" });
+  if (!expense_date || !/^\d{4}-\d{2}-\d{2}$/.test(expense_date)) return res.status(400).json({ error: "expense_date required (YYYY-MM-DD)" });
+  const expD = new Date(expense_date + "T12:00:00Z");
+  if (isNaN(expD.getTime())) return res.status(400).json({ error: "Invalid expense_date" });
+  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+  if (expD > tomorrow) return res.status(400).json({ error: "expense_date cannot be in the future" });
+  if (!description?.trim()) return res.status(400).json({ error: "description required" });
+
+  let computedPence;
+  let computedMiles = null;
+  if (expense_type === "mileage") {
+    const m = Number(miles);
+    if (!m || m <= 0) return res.status(400).json({ error: "miles required for mileage expenses" });
+    const rate = await getMileageRatePpm();
+    computedPence = Math.round(m * rate);
+    computedMiles = m;
+  } else {
+    const p = Number(amount_pence);
+    if (!p || p <= 0) return res.status(400).json({ error: "amount_pence required" });
+    computedPence = Math.round(p);
+  }
+
+  const { data, error } = await supabase
+    .from("project_expenses")
+    .insert({
+      user_id: req.user.id,
+      project_id,
+      expense_type,
+      expense_date,
+      amount_pence: computedPence,
+      miles: computedMiles,
+      description: description.trim(),
+      status: "pending",
+    })
+    .select("*, projects(id, name, job_number)")
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Notify admin
+  const adminEmails = await getAdminEmails();
+  if (adminEmails.length) {
+    const typeLbl = { train:"Train",mileage:"Car Mileage",meals:"Meals",taxi:"Taxi",parking:"Parking" }[expense_type] || expense_type;
+    const amtStr  = `£${(computedPence / 100).toFixed(2)}`;
+    const miStr   = computedMiles ? ` (${computedMiles} miles)` : "";
+    const projStr = data.projects?.job_number ? `${data.projects.job_number} — ${data.projects.name}` : data.projects?.name || "—";
+    const dateStr = expD.toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
+    await sendEmail({
+      to: adminEmails,
+      subject: `New expense — ${req.user.email.split("@")[0]} · ${typeLbl} · ${amtStr}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — Expenses</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;"><p style="margin:0 0 20px;font-size:15px;color:#262830;"><strong>${req.user.email}</strong> submitted an expense for review.</p><table style="width:100%;font-size:13px;border-collapse:collapse;"><tr><td style="padding:5px 0;color:#6a8a9a;width:110px;">Type</td><td style="padding:5px 0;color:#262830;font-weight:600;">${typeLbl}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Date</td><td style="padding:5px 0;color:#262830;">${dateStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Project</td><td style="padding:5px 0;color:#262830;">${projStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Amount</td><td style="padding:5px 0;color:#262830;font-weight:600;">${amtStr}${miStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Description</td><td style="padding:5px 0;color:#262830;">${data.description}</td></tr></table></div></div>`,
+      text: `New expense from ${req.user.email}\nType: ${typeLbl}\nDate: ${dateStr}\nProject: ${projStr}\nAmount: ${amtStr}${miStr}\nDescription: ${data.description}`,
+    });
+  }
+
+  res.json(data);
+});
+
+// PUT /api/expenses/:id
+app.put("/api/expenses/:id", requireAuth, async (req, res) => {
+  const { data: existing } = await supabase.from("project_expenses").select("user_id, status, expense_type, miles").eq("id", req.params.id).single();
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
+  if (existing.status !== "pending") return res.status(403).json({ error: "Only pending expenses can be edited" });
+
+  const newType = req.body.expense_type || existing.expense_type;
+  if ("expense_type" in req.body && !VALID_EXPENSE_TYPES.includes(req.body.expense_type)) {
+    return res.status(400).json({ error: "Invalid expense_type" });
+  }
+
+  const updates = { updated_at: new Date().toISOString() };
+  if ("expense_type"  in req.body) updates.expense_type  = req.body.expense_type;
+  if ("expense_date"  in req.body) updates.expense_date  = req.body.expense_date;
+  if ("description"   in req.body) updates.description   = req.body.description?.trim();
+  if ("project_id"    in req.body) updates.project_id    = req.body.project_id;
+
+  if (newType === "mileage") {
+    const newMiles = "miles" in req.body ? Number(req.body.miles) : existing.miles;
+    const rate = await getMileageRatePpm();
+    updates.amount_pence = Math.round(newMiles * rate);
+    updates.miles = newMiles;
+  } else if ("amount_pence" in req.body) {
+    updates.amount_pence = Math.round(Number(req.body.amount_pence));
+    updates.miles = null;
+  }
+
+  const { data, error } = await supabase.from("project_expenses").update(updates).eq("id", req.params.id).select("*, projects(id, name, job_number)").single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// DELETE /api/expenses/:id
+app.delete("/api/expenses/:id", requireAuth, async (req, res) => {
+  const { data: existing } = await supabase.from("project_expenses").select("user_id, status, receipt_key").eq("id", req.params.id).single();
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
+  if (existing.status !== "pending") return res.status(403).json({ error: "Only pending expenses can be deleted" });
+
+  if (existing.receipt_key) {
+    try { await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: existing.receipt_key })); }
+    catch (e) { console.error("R2 receipt delete error:", e.message); }
+  }
+  const { error } = await supabase.from("project_expenses").delete().eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true });
+});
+
+// POST /api/expenses/:id/receipt
+app.post("/api/expenses/:id/receipt", requireAuth, async (req, res) => {
+  const { content, filename, mimeType } = req.body;
+  if (!content || !filename) return res.status(400).json({ error: "content and filename required" });
+  const { data: existing } = await supabase.from("project_expenses").select("user_id, status").eq("id", req.params.id).single();
+  if (!existing) return res.status(404).json({ error: "Not found" });
+  if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
+  if (existing.status !== "pending") return res.status(403).json({ error: "Only pending expenses can have receipts updated" });
+
+  const buffer = Buffer.from(content.replace(/^data:[^;]+;base64,/, ""), "base64");
+  const key = `expenses/${req.user.id}/${req.params.id}/${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+  await r2.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: buffer, ContentType: mimeType || "application/octet-stream" }));
+  const { error } = await supabase.from("project_expenses").update({ receipt_key: key, updated_at: new Date().toISOString() }).eq("id", req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true, key });
+});
+
+// GET /api/expenses/:id/receipt
+app.get("/api/expenses/:id/receipt", requireAuth, async (req, res) => {
+  const { data: existing } = await supabase.from("project_expenses").select("user_id, receipt_key").eq("id", req.params.id).single();
+  if (!existing?.receipt_key) return res.status(404).json({ error: "No receipt" });
+  const isOwner = existing.user_id === req.user.id;
+  const isAdm   = req.user?.user_metadata?.role === "admin";
+  if (!isOwner && !isAdm) return res.status(403).json({ error: "Not authorised" });
+  try {
+    const obj = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: existing.receipt_key }));
+    const chunks = []; for await (const c of obj.Body) chunks.push(c);
+    res.set("Content-Type", obj.ContentType || "application/octet-stream");
+    res.set("Content-Disposition", `inline; filename="${existing.receipt_key.split("/").pop()}"`);
+    res.send(Buffer.concat(chunks));
+  } catch (e) {
+    res.status(500).json({ error: "Could not retrieve receipt" });
+  }
+});
+
+// ── Admin expenses ─────────────────────────────────────────────────────────────
+
+// GET /api/admin/expenses/settings  — must be before /api/admin/expenses/:id
+app.get("/api/admin/expenses/settings", requireAuth, requireAdmin, async (req, res) => {
+  res.json({ mileage_rate_ppm: await getMileageRatePpm() });
+});
+
+// PUT /api/admin/expenses/settings
+app.put("/api/admin/expenses/settings", requireAuth, requireAdmin, async (req, res) => {
+  const rate = parseInt(req.body.mileage_rate_ppm);
+  if (!Number.isInteger(rate) || rate < 1 || rate > 200) {
+    return res.status(400).json({ error: "mileage_rate_ppm must be an integer between 1 and 200" });
+  }
+  const { error } = await supabase.from("app_settings").upsert(
+    { key: "mileage_rate_ppm", value: String(rate), updated_at: new Date().toISOString() },
+    { onConflict: "key" }
+  );
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ ok: true, mileage_rate_ppm: rate });
+});
+
+// GET /api/admin/expenses
+app.get("/api/admin/expenses", requireAuth, requireAdmin, async (req, res) => {
+  const { status, user_id, from, to } = req.query;
+  let query = supabase.from("project_expenses").select("*, projects(id, name, job_number)").order("created_at", { ascending: false });
+  if (status)  query = query.eq("status", status);
+  if (user_id) query = query.eq("user_id", user_id);
+  if (from)    query = query.gte("expense_date", from);
+  if (to)      query = query.lte("expense_date", to);
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST /api/admin/expenses/:id/approve
+app.post("/api/admin/expenses/:id/approve", requireAuth, requireAdmin, async (req, res) => {
+  const { data, error } = await supabase
+    .from("project_expenses")
+    .update({ status: "approved", reviewed_by: req.user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST /api/admin/expenses/:id/reject
+app.post("/api/admin/expenses/:id/reject", requireAuth, requireAdmin, async (req, res) => {
+  const { reason } = req.body;
+  if (!reason?.trim()) return res.status(400).json({ error: "reason required" });
+  const { data, error } = await supabase
+    .from("project_expenses")
+    .update({ status: "rejected", rejection_reason: reason.trim(), reviewed_by: req.user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });

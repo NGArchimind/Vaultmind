@@ -55,21 +55,24 @@ export default function TimesheetHistory({ onBack }) {
   const [weeks,     setWeeks]     = useState([]); // [{ mondayStr, entries, status, total }]
   const [loading,   setLoading]   = useState(true);
   const [expanded,  setExpanded]  = useState(null);
+  const [before,    setBefore]    = useState(null); // ISO date string cursor
 
   useEffect(() => {
-    api("/api/timesheets/history").then(({ entries, submissions }) => {
-      // Group entries by their Monday
+    setLoading(true);
+    const url = before
+      ? `/api/timesheets/history?weeks=6&before=${before}`
+      : `/api/timesheets/history?weeks=6`;
+    api(url).then(({ entries, submissions }) => {
       const byWeek = {};
       (entries || []).forEach(e => {
         const mon = isoDate(getMonday(e.entry_date));
         if (!byWeek[mon]) byWeek[mon] = [];
         byWeek[mon].push(e);
       });
-
       const subMap = {};
       (submissions || []).forEach(s => { subMap[s.week_start] = s.status; });
 
-      const sorted = Object.keys(byWeek)
+      const newWeeks = Object.keys(byWeek)
         .sort((a, b) => b.localeCompare(a))
         .map(mon => ({
           mondayStr: mon,
@@ -78,9 +81,13 @@ export default function TimesheetHistory({ onBack }) {
           total:     byWeek[mon].reduce((s, e) => s + entryMins(e), 0),
         }));
 
-      setWeeks(sorted);
+      setWeeks(prev => {
+        const existingKeys = new Set(prev.map(w => w.mondayStr));
+        const fresh = newWeeks.filter(w => !existingKeys.has(w.mondayStr));
+        return [...prev, ...fresh].sort((a, b) => b.mondayStr.localeCompare(a.mondayStr));
+      });
     }).catch(() => {}).finally(() => setLoading(false));
-  }, []);
+  }, [before]);
 
   const thStyle = { padding: "10px 14px", fontSize: 11, fontWeight: 700, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "left", borderBottom: "2px solid #dde4e8", whiteSpace: "nowrap" };
   const tdStyle = { padding: "11px 14px", fontSize: 13, color: DESIGN_TEXT, borderBottom: "1px solid #eef2f4", verticalAlign: "middle" };
@@ -107,7 +114,7 @@ export default function TimesheetHistory({ onBack }) {
           <p style={{ color: "#6a8a9a", fontSize: 13 }}>No timesheet history found.</p>
         )}
 
-        {!loading && weeks.length > 0 && (
+        {weeks.length > 0 && (
           <div style={{ background: "#fff", border: "1px solid #dde4e8" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
@@ -202,6 +209,17 @@ export default function TimesheetHistory({ onBack }) {
                 </tr>
               </tfoot>
             </table>
+            <div style={{ padding: "12px 16px", borderTop: "1px solid #eef2f4", display: "flex", justifyContent: "center" }}>
+              <button
+                onClick={() => {
+                  const oldest = weeks[weeks.length - 1]?.mondayStr;
+                  if (oldest) setBefore(oldest);
+                }}
+                disabled={loading}
+                style={{ fontSize: 12, padding: "5px 20px", border: `1px solid ${TIMESHEETS_FULL}`, color: TIMESHEETS_FULL, background: "#fff", cursor: "pointer" }}>
+                {loading ? "Loading…" : "Load more"}
+              </button>
+            </div>
           </div>
         )}
       </div>

@@ -382,6 +382,82 @@ The diff is always computed against the **most recent stored revision** (ordered
 
 ---
 
+## PDF Compare — image-based extraction (2026-05-29)
+
+**Endpoint:** `POST /api/schedule/compare-pdfs` in `server/index.js`
+
+### Why image-based (not text-based)
+
+mupdf text extraction linearises PDF content left-to-right. For schedule tables this means all columns are flattened into a single stream with no column boundaries. Gemini could not reliably attribute cell values to their correct columns, producing random additions/removals in the diff.
+
+The fix: render each PDF page to a JPEG using mupdf's pixel rendering API, then send the image to Gemini vision. Gemini reads the visual table layout directly — column assignment is correct regardless of PDF source (Revit, Excel, AutoCAD, external).
+
+### mupdf rendering API
+
+```js
+const mupdf = await import("mupdf");
+const page = doc.loadPage(i);
+const pixmap = page.toPixmap(mupdf.Matrix.scale(1.5, 1.5), mupdf.ColorSpace.DeviceRGB, false);
+const jpegBase64 = Buffer.from(pixmap.asJPEG(80)).toString("base64");
+```
+
+Scale 1.5 × quality 80 balances readability vs image size for typical A3/A1 schedule pages.
+
+### Gemini vision call format
+
+```js
+contents: [{
+  parts: [
+    { inline_data: { mime_type: "image/jpeg", data: pageBase64 } },
+    { text: prompt },
+  ],
+}],
+generationConfig: { temperature: 0, responseMimeType: "application/json", maxOutputTokens: 8192 },
+```
+
+`responseMimeType: "application/json"` forces bare JSON output — Gemini won't wrap it in code fences.
+
+### Architecture
+
+1. `renderPdfPages(base64)` — renders each page to JPEG, returns array of base64 strings
+2. `extractPageRows(pageBase64)` — sends one page image to Gemini, returns `{ columns: [...], rows: [[...], ...] }`
+3. `combinePages(results)` — merges all page results into one table (columns from first page, rows from all pages)
+4. JS diff — `byMarkA`/`byMarkB` lookup maps, O(n) comparison, no AI involvement
+
+Pages are processed in parallel via `Promise.all`. Each page has its own Gemini call so no single call is too large.
+
+---
+
+## Role-based UI — staff rollout (2026-05-29)
+
+**Spec:** `docs/superpowers/specs/2026-05-28-role-based-ui-design.md`
+**Branch:** `develop` (3 commits, not yet merged to main)
+
+### What was built
+
+Staff users (non-admin) see only Vault and Timesheets. Admin (Nathan) sees full interface unchanged.
+
+**How role is determined:** `session.user?.user_metadata?.role === "admin"` → `isAdmin` boolean, already computed at ~line 305 of `App.js`. Set in Supabase user metadata per account.
+
+**`App.js` changes:**
+- `NAV_SECTIONS` constant (right after `NAV_LABELS`, inside the main UI block): `isAdmin ? [all 5] : ["vault", "timesheets"]`
+- Nav `.map()` uses `NAV_SECTIONS` instead of hardcoded array
+- `isAdmin` prop passed to `<LandingPage>`
+- `isAdmin &&` guards on compare, library, projects, schedule section renders (not timesheets — staff can access it)
+
+**`LandingPage.jsx` changes:**
+- `isAdmin = false` default prop
+- Early-return for `!isAdmin`: two-tile centred layout (`maxWidth: 760`) using Vault + Timesheets tiles derived from existing `DOCUMENT_TILES`/`PRACTICE_TILES` arrays via `STAFF_IDS = ["vault", "timesheets"]` filter
+- Admin path falls through to unchanged six-tile layout
+
+### Extending staff access in future
+
+To grant staff access to an additional module (e.g. Schedule):
+1. `App.js`: add the section id to the `NAV_SECTIONS` non-admin array and remove its `isAdmin &&` guard
+2. `LandingPage.jsx`: add the id to `STAFF_IDS`
+
+---
+
 ## Deployment
 
 | Target | How |
