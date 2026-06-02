@@ -10,13 +10,20 @@ const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
 const { Resend } = require("resend");
 
+let _resend = null;
+function getResend() {
+  if (!process.env.RESEND_API_KEY) return null;
+  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
+  return _resend;
+}
+
 async function sendEmail({ to, subject, html, text }) {
-  if (!process.env.RESEND_API_KEY) {
+  const resend = getResend();
+  if (!resend) {
     console.warn("[email] RESEND_API_KEY not set — skipping:", subject);
     return;
   }
   try {
-    const resend = new Resend(process.env.RESEND_API_KEY);
     await resend.emails.send({
       from: process.env.RESEND_FROM || "Archimind <noreply@example.com>",
       to: Array.isArray(to) ? to : [to],
@@ -73,15 +80,6 @@ function rateLimit(maxRequests, windowMs) {
   };
 }
 
-app.use(cors({
-  origin: [
-    "https://archimind.vercel.app",
-    "https://archimind-omega.vercel.app",
-    "https://archimind-git-develop-nathan-greens-projects-192281d0.vercel.app"
-  ],
-  credentials: true,
-  exposedHeaders: ["X-Schedule-Added", "X-Schedule-Changed", "X-Schedule-Removed", "X-Schedule-Rows"],
-}));
 app.use(express.json({ limit: "100mb" }));
 
 // Extend timeout to 5 minutes to handle large Gemini requests
@@ -364,11 +362,15 @@ app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => 
       return res.status(504).json({ error: "Gemini request timed out — try a more specific question or reduce page count." });
     }
     console.error("Gemini proxy error:", err.message);
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
 // ── vault routes ──────────────────────────────────────────────────────────────
+
+function sanitizeVaultPath(raw) {
+  return String(raw).replace(/\\/g, "/").split("/").filter(seg => seg !== "" && seg !== "." && seg !== "..").join("/");
+}
 
 // GET /api/vaults — returns flat vaults and master vaults with their sub-vaults
 app.get("/api/vaults", requireAuth, async (req, res) => {
@@ -453,10 +455,6 @@ app.post("/api/vaults", requireAuth, async (req, res) => {
   }
 });
 
-function sanitizeVaultPath(raw) {
-  return String(raw).replace(/\\/g, "/").split("/").filter(seg => seg !== "" && seg !== "." && seg !== "..").join("/");
-}
-
 // PATCH /api/vaults/:vault — rename a vault
 app.patch("/api/vaults/*", requireAuth, async (req, res) => {
   const vaultPath = sanitizeVaultPath(req.params[0]);
@@ -523,7 +521,7 @@ app.post("/api/vaults/*/adopt", requireAuth, async (req, res) => {
 
     res.json({ id: `${masterPath}/${sourceVault}`, name: sourceVault });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -537,7 +535,7 @@ app.get("/api/vaults/*/pdfs", requireAuth, async (req, res) => {
       .map(f => ({ id: f.Key, name: f.Key.replace(`${vaultPath}/`, ""), size: f.Size, key: f.Key }));
     res.json({ pdfs });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -556,7 +554,7 @@ app.post("/api/vaults/*/pdfs", requireAuth, async (req, res) => {
     }));
     res.json({ key: `${vaultPath}/${name}`, name, size: buffer.length });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -569,7 +567,7 @@ app.get("/api/vaults/*/pdfs/:filename", requireAuth, async (req, res) => {
     const buffer = await streamToBuffer(result.Body);
     res.json({ base64: buffer.toString("base64"), name: filename });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -581,7 +579,7 @@ app.delete("/api/vaults/*/pdfs/:filename", requireAuth, async (req, res) => {
     await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: `${vaultPath}/${filename}` }));
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -597,7 +595,7 @@ app.post("/api/vaults/*/index", requireAuth, async (req, res) => {
     }));
     res.json({ saved: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -610,7 +608,7 @@ app.get("/api/vaults/*/index", requireAuth, async (req, res) => {
     res.json(JSON.parse(buffer.toString()));
   } catch (err) {
     if (err.name === "NoSuchKey") return res.json(null);
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -718,7 +716,7 @@ app.post("/api/products/upload-pdf", requireAuth, async (req, res) => {
     }));
     res.json({ key });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -731,7 +729,7 @@ app.get("/api/products", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ products: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -753,7 +751,7 @@ app.get("/api/products/:id", requireAuth, async (req, res) => {
 
     res.json({ product, attributes });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -769,7 +767,7 @@ app.patch("/api/products/:id", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ product: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -793,7 +791,7 @@ app.post("/api/products", requireAuth, async (req, res) => {
 
     res.json({ product });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -811,7 +809,7 @@ app.get("/api/products/:id/pdf", requireAuth, async (req, res) => {
     const buffer = await streamToBuffer(result.Body);
     res.json({ base64: buffer.toString("base64"), name: product.name });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -838,7 +836,7 @@ app.delete("/api/products/:id", requireAuth, async (req, res) => {
 
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -853,7 +851,7 @@ app.get("/api/projects", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ projects: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -888,7 +886,7 @@ app.get("/api/projects/:id", requireAuth, async (req, res) => {
 
     res.json({ project, consultants, uvalues, notes });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -918,7 +916,7 @@ app.post("/api/projects", requireAuth, async (req, res) => {
 
     res.json({ project });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -934,7 +932,7 @@ app.patch("/api/projects/:id", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ project: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -947,7 +945,7 @@ app.delete("/api/projects/:id", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -964,7 +962,7 @@ app.post("/api/projects/:id/consultants", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ consultant: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -981,7 +979,7 @@ app.patch("/api/projects/:id/consultants/:cid", requireAuth, async (req, res) =>
     if (error) throw error;
     res.json({ consultant: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -995,7 +993,7 @@ app.delete("/api/projects/:id/consultants/:cid", requireAuth, async (req, res) =
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1014,7 +1012,7 @@ app.patch("/api/projects/:id/uvalues/:uid", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ uvalue: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1030,7 +1028,7 @@ app.post("/api/projects/:id/uvalues", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ uvalue: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1044,7 +1042,7 @@ app.delete("/api/projects/:id/uvalues/:uid", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1061,7 +1059,7 @@ app.post("/api/projects/:id/notes", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ note: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1078,7 +1076,7 @@ app.patch("/api/projects/:id/notes/:nid", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ note: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1092,7 +1090,7 @@ app.delete("/api/projects/:id/notes/:nid", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1110,7 +1108,7 @@ app.get("/api/projects/:id/drawings", requireAuth, async (req, res) => {
     const drawings = (data || []).map(({ embedding, ...d }) => ({ ...d, is_indexed: embedding !== null }));
     res.json({ drawings });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1155,7 +1153,7 @@ app.post("/api/projects/:id/drawings", requireAuth, async (req, res) => {
 
     res.json({ drawing: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1172,7 +1170,7 @@ app.patch("/api/projects/:id/drawings/:did", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ drawing: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1191,7 +1189,7 @@ app.get("/api/projects/:id/drawings/:did/file", requireAuth, async (req, res) =>
     const buffer = await streamToBuffer(result.Body);
     res.json({ base64: buffer.toString("base64"), file_name: drawing.file_name });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1220,7 +1218,7 @@ app.delete("/api/projects/:id/drawings/:did", requireAuth, async (req, res) => {
 
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1239,7 +1237,7 @@ app.post("/api/projects/:id/drawings/upload-url", requireAuth, async (req, res) 
     const upload_url = await getSignedUrl(r2, command, { expiresIn: 3600 });
     res.json({ upload_url, file_key });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1415,7 +1413,7 @@ app.post("/api/projects/:id/drawings/search", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ results: data || [], terms });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1433,7 +1431,7 @@ app.post("/api/projects/:id/drawings/reindex-all", requireAuth, rateLimit(3, 60_
       indexDrawing(drawing).catch(() => {});
     }
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1451,7 +1449,7 @@ app.post("/api/projects/:id/drawings/:did/reindex", requireAuth, async (req, res
     res.json({ ok: true });
     indexDrawing(drawing).catch(() => {});
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1467,7 +1465,7 @@ app.get("/api/projects/:id/todos", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ todos: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1483,7 +1481,7 @@ app.post("/api/projects/:id/todos", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ todo: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1500,7 +1498,7 @@ app.patch("/api/projects/:id/todos/:tid", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ todo: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1514,7 +1512,7 @@ app.delete("/api/projects/:id/todos/:tid", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1534,7 +1532,7 @@ app.get("/api/projects/:id/agreements", requireAuth, async (req, res) => {
     }));
     res.json({ agreements });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1558,7 +1556,7 @@ app.post("/api/projects/:id/agreements", requireAuth, async (req, res) => {
     }
     res.json({ agreement });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1621,7 +1619,7 @@ ${text.slice(0, 12000)}
 
     res.json({ candidates: withMatches, source_label, source_type });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1667,7 +1665,7 @@ QUESTION: ${safeQuestion}`;
     const answer = geminiRes?.candidates?.[0]?.content?.parts?.[0]?.text || "No answer could be generated.";
     res.json({ answer });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1702,7 +1700,7 @@ app.post("/api/projects/:id/agreements/:aid/entries", requireAuth, async (req, r
     }
     res.json({ agreement });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1716,7 +1714,7 @@ app.delete("/api/projects/:id/agreements/:aid", requireAuth, async (req, res) =>
     if (error) throw error;
     res.json({ ok: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1939,7 +1937,7 @@ app.get("/api/projects/:id/emails/synced-ids", requireAuth, async (req, res) => 
     if (error) throw error;
     res.json({ message_ids: (data || []).map(r => r.message_id) });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -1988,7 +1986,7 @@ app.get("/api/projects/:id/emails", requireAuth, async (req, res) => {
 
     res.json({ emails: data || [], total: count || 0, page: pageNum, limit: limitNum });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2120,7 +2118,7 @@ ${emailsText}`;
 
     res.json({ summary, supportingEmailIds: emailIds });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2199,7 +2197,7 @@ app.post("/api/projects/:id/emails/search", requireAuth, async (req, res) => {
     res.json({ emails: data || [] });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2218,7 +2216,7 @@ app.get("/api/projects/:id/emails/:eid", requireAuth, async (req, res) => {
     const { embedding, ...emailData } = data;
     res.json({ email: emailData });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2232,7 +2230,7 @@ app.delete("/api/projects/:id/emails", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2247,7 +2245,7 @@ app.delete("/api/projects/:id/emails/:eid", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2336,7 +2334,7 @@ app.post("/api/projects/:id/emails/reembed", requireAuth, rateLimit(3, 60_000), 
 
     res.json({ total: emails.length, updated, errors });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2438,7 +2436,7 @@ app.post("/api/revision-check", requireAuth, async (req, res) => {
     const result = checkRevisionSequence(currentRev, new_revision);
     res.json({ current_revision: currentRev, new_revision, ...result });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2571,7 +2569,7 @@ app.get("/api/projects/:id/transmittal", requireAuth, async (req, res) => {
       notes: settings?.notes || "",
     });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2598,7 +2596,7 @@ app.post("/api/projects/:id/transmittal/issue", requireAuth, async (req, res) =>
     }));
     res.json({ saved: true, key });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2630,7 +2628,7 @@ app.patch("/api/projects/:id/transmittal/revisions", requireAuth, async (req, re
     if (error) throw error;
     res.json({ revision: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2653,7 +2651,7 @@ app.patch("/api/projects/:id/transmittal/settings", requireAuth, async (req, res
     if (error) throw error;
     res.json({ settings: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2932,7 +2930,7 @@ app.get("/api/projects/:id/transmittal/export/excel", requireAuth, async (req, r
     });
 
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2948,7 +2946,7 @@ app.get("/api/projects/:id/transmittals", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ transmittals: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -2972,7 +2970,7 @@ app.post("/api/projects/:id/transmittals", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ transmittal: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3004,7 +3002,7 @@ app.delete("/api/projects/:id/transmittal/issues/:issueId", requireAuth, require
 
     res.json({ deleted: true, issue_date: issue.issue_date });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3024,7 +3022,7 @@ app.delete("/api/projects/:id/transmittals/files", requireAuth, requireAdmin, as
     }
     res.json({ deleted: keys.length });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3038,7 +3036,7 @@ app.delete("/api/projects/:id/transmittals/:tid", requireAuth, async (req, res) 
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3078,7 +3076,7 @@ app.get("/api/projects/:id/categories", requireAuth, async (req, res) => {
 
     res.json({ categories: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3094,7 +3092,7 @@ app.post("/api/projects/:id/categories", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ category: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3137,7 +3135,7 @@ app.delete("/api/projects/:id/categories/:cid", requireAuth, async (req, res) =>
 
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3191,7 +3189,7 @@ app.get("/api/projects/:id/products", requireAuth, async (req, res) => {
 
     res.json({ products: enriched });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3213,7 +3211,7 @@ app.post("/api/projects/:id/products", requireAuth, async (req, res) => {
     }
     res.json({ product: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3233,7 +3231,7 @@ app.patch("/api/projects/:id/products/:pid", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ product: data });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3247,7 +3245,7 @@ app.delete("/api/projects/:id/products/:pid", requireAuth, async (req, res) => {
     if (error) throw error;
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3339,7 +3337,7 @@ app.get("/api/admin/logo", requireAuth, requireAdmin, async (req, res) => {
     if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
       return res.json({ logo: null });
     }
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3355,7 +3353,7 @@ app.post("/api/admin/logo", requireAuth, requireAdmin, async (req, res) => {
     }));
     res.json({ saved: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3364,7 +3362,7 @@ app.delete("/api/admin/logo", requireAuth, requireAdmin, async (req, res) => {
     await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: "settings/practice_logo.json" }));
     res.json({ deleted: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3378,7 +3376,7 @@ app.get("/api/logo", requireAuth, async (req, res) => {
     if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
       return res.json({ logo: null });
     }
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3406,7 +3404,7 @@ app.get("/api/admin/colours", requireAuth, requireAdmin, async (req, res) => {
     if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
       return res.json(DEFAULT_COLOURS);
     }
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3422,7 +3420,7 @@ app.post("/api/admin/colours", requireAuth, requireAdmin, async (req, res) => {
     }));
     res.json({ saved: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3436,7 +3434,7 @@ app.get("/api/colours", requireAuth, async (req, res) => {
     if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
       return res.json(DEFAULT_COLOURS);
     }
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3466,7 +3464,7 @@ app.get("/api/projects/:id/transmittals/files", requireAuth, async (req, res) =>
       .sort((a, b) => b.name.localeCompare(a.name));
     res.json({ files });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3482,7 +3480,7 @@ app.get("/api/projects/:id/transmittals/download", requireAuth, async (req, res)
     const name = key.split("/").pop();
     res.json({ base64: buffer.toString("base64"), name, contentType: "text/html" });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 
@@ -3602,7 +3600,7 @@ app.get("/api/review-rounds/:id/pdf", requireAuth, async (req, res) => {
     const buffer = await streamToBuffer(result.Body);
     res.json({ base64: buffer.toString("base64") });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    return serverError(res, err, req.path);
   }
 });
 

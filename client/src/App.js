@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { api, callClaude, fileToBase64, supabase } from "./api/client";
 import AnswerRenderer from "./components/common/AnswerRenderer";
 import { Spinner, ProgressBar } from "./components/common/Spinner";
@@ -37,6 +37,9 @@ function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
   }, [onClose]);
 
   // Build a self-contained viewer page using PDF.js from cdnjs
+  const safeFileName = (fileName || "Document")
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
   const viewerHtml = blobUrl ? `<!DOCTYPE html>
 <html>
 <head>
@@ -57,7 +60,7 @@ function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
 </head>
 <body>
 <div id="toolbar">
-  <strong id="filename">${fileName || "Document"}</strong>
+  <strong id="filename">${safeFileName}</strong>
   <div id="page-controls">
     <button id="prev">‹</button>
     <input id="page-input" type="number" min="1" value="${page || 1}" />
@@ -304,7 +307,7 @@ export default function App() {
 
   const isAdmin = userRole === "admin";
 
-  const vault = (() => {
+  const vault = useMemo(() => {
     for (const v of vaults) {
       if (v.id === selectedVault) return v;
       if (v.type === "master") {
@@ -313,7 +316,7 @@ export default function App() {
       }
     }
     return null;
-  })();
+  }, [vaults, selectedVault]);
 
   const parentMaster = vaults.find(v => v.type === "master" && (v.subVaults || []).some(sv => sv.id === selectedVault));
   const vaultHistory = history.filter(h => h.vaultId === selectedVault);
@@ -332,7 +335,7 @@ export default function App() {
     if (session) loadVaults();
   }, [session]);
 
-  const loadVaults = async () => {
+  const loadVaults = useCallback(async () => {
     setLoadingVaults(true);
     try {
       const data = await api("/api/vaults");
@@ -341,7 +344,7 @@ export default function App() {
       console.error("Failed to load vaults:", e);
     }
     setLoadingVaults(false);
-  };
+  }, []);
 
   useEffect(() => {
     if (!selectedVault) return;
@@ -360,7 +363,7 @@ export default function App() {
 
   useEffect(() => { setShareId(null); }, [answer]);
 
-  const loadVaultContents = async (vaultId) => {
+  const loadVaultContents = useCallback(async (vaultId) => {
     setAnswer(null);
     setStage(null);
     setStatusMsg("Loading vault…");
@@ -384,7 +387,7 @@ export default function App() {
     } catch (e) {
       setStatusMsg("Error loading vault: " + e.message);
     }
-  };
+  }, []);
 
   const createVault = async () => {
     if (!newVaultName.trim()) return;
