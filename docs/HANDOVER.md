@@ -458,6 +458,154 @@ To grant staff access to an additional module (e.g. Schedule):
 
 ---
 
+## Timesheets hardening + Expenses feature (2026-06-01)
+
+**Spec:** `docs/superpowers/specs/2026-05-29-timesheets-review-expenses-design.md`
+
+### Resend — lazy instantiation (CRITICAL — prevents Railway crash)
+
+The `resend` npm package throws at constructor time if `RESEND_API_KEY` is not set. **Never** instantiate it at module level. Use the lazy pattern:
+
+```js
+async function sendEmail({ to, subject, html, text }) {
+  if (!process.env.RESEND_API_KEY) {
+    console.warn("[email] RESEND_API_KEY not set — skipping:", subject);
+    return;
+  }
+  const resend = new Resend(process.env.RESEND_API_KEY); // lazy — inside function
+  await resend.emails.send({ from: process.env.RESEND_FROM, to: Array.isArray(to) ? to : [to], subject, html, text });
+}
+```
+
+If `new Resend(...)` is placed at module level, Railway crashes on startup whenever the env var is absent. The guard + lazy construction keeps the server alive.
+
+Required env vars on Railway: `RESEND_API_KEY`, `RESEND_FROM`.
+
+This pattern applies to **any** npm dependency that validates its config in the constructor — never instantiate at module load time if the env var might be absent.
+
+### Receipt downloads — always use apiBlob()
+
+Expense receipts are served via an auth-gated endpoint (`GET /api/expenses/:id/receipt`). Never link to them with `<a href="/api/expenses/...">` because:
+1. A bare anchor hits the Vercel origin, not the Railway backend
+2. It carries no Bearer token, so `requireAuth` returns 401
+
+Correct pattern (used in both `ExpensesTab.jsx` and `AdminExpensesPanel` in `TimesheetsSection.jsx`):
+
+```js
+async function openReceipt(expId) {
+  const res = await apiBlob(`/api/expenses/${expId}/receipt`, null, "GET");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, "_blank");
+}
+```
+
+This applies to any auth-gated binary endpoint — not just expenses. See the existing `apiBlob()` notes in the Schedule Tool section above.
+
+### Expenses feature architecture
+
+**DB table:** `project_expenses` — see SQL at the bottom of this section.
+
+- **R2 key pattern:** `expenses/{userId}/{expenseId}/{filename}`
+- **`amount_pence`** — integer pence. Mileage: calculated from miles × rate and frozen at submission time so rate changes don't affect historical records.
+- **`miles`** — `numeric(6,1)` — only set for `expense_type = 'mileage'`
+- **Mileage rate:** stored as integer pence-per-mile in `app_settings` table, key `mileage_rate_ppm`. Default 45 (= 45p/mi). Admin can update via `PUT /api/admin/expenses/settings`.
+- **Expense types (VALID_EXPENSE_TYPES in `server/index.js`):** `train | mileage | meals | taxi | parking`
+
+### Route ordering — CRITICAL
+
+Express matches routes in registration order. These must be registered in this exact order in `server/index.js`:
+
+```
+GET    /api/expenses/settings        ← MUST be before /api/expenses/:id
+POST   /api/expenses
+GET    /api/expenses
+GET    /api/expenses/:id/receipt
+POST   /api/expenses/:id/receipt
+PUT    /api/expenses/:id
+DELETE /api/expenses/:id
+GET    /api/expenses/:id             ← after /settings and /receipt
+
+POST   /api/admin/expenses/settings  ← MUST be before /api/admin/expenses/:id
+GET    /api/admin/expenses
+POST   /api/admin/expenses/:id/approve
+POST   /api/admin/expenses/:id/reject
+GET    /api/admin/expenses/:id       ← after /settings
+```
+
+If `/settings` is placed below `/:id`, Express matches `GET /api/expenses/settings` as `id = "settings"` in the wrong handler. The same principle applies to any route that has a literal segment (`/settings`, `/extract`, `/ask`) that could collide with a `:param` segment at the same position.
+
+### Timesheets hardening — what changed
+
+**New helpers in `server/index.js`** (inserted just before the `// ── Timesheets ──` comment block):
+
+- `getWeekStart(dateStr)` — returns the ISO Monday for any date string (UTC-safe, handles Sunday correctly)
+- `getWeekLockStatus(userId, weekStart)` — returns `"submitted"`, `"approved"`, or `null`
+- `validateTimesheetFields({ hours, minutes, entry_date })` — returns an error string or `null`
+
+**Validation rules:**
+- `entry_date`: YYYY-MM-DD format, valid calendar date, weekday only (Mon–Fri, rejects weekends)
+- `hours`: integer 0–16
+- `minutes`: exactly 0, 15, 30, or 45
+
+**Lock enforcement:** POST/PUT/DELETE timesheet entries all call `getWeekLockStatus` and return `403 { error: "Week is locked for editing", locked: true }` if the week is submitted or approved.
+
+**Submit hardening:** `POST /api/timesheets/submit` returns 403 if status is already `"approved"` — prevents re-submitting an already-approved week.
+
+**Rejection flow:**
+1. Admin sends `POST /api/admin/timesheets/reject` — sets status `"draft"`, stores `rejection_reason`, records `reviewed_by`/`reviewed_at`
+2. Staff see a red banner when `submission.status === "draft" && submission.rejection_reason`
+3. Staff can resubmit; resubmit clears `rejection_reason` to null
+
+**Unlock request flow:**
+1. Staff sends `POST /api/timesheets/unlock-request` with `{ weekStart, reason }` — sets `unlock_requested = true`, `unlock_reason`
+2. Server emails all admin users via Resend
+3. Admin sees "EDIT REQUESTED" badge + reason in the admin timesheet panel
+4. Admin sends `POST /api/admin/timesheets/unlock` — resets status to `"draft"`, clears `unlock_requested`/`unlock_reason`/`rejection_reason`
+
+**Paginated history:** `GET /api/timesheets/history?weeks=6[&before=YYYY-MM-DD]` — returns up to `weeks` weeks of entries + submissions ending at `before`. Client's "Load more" sets `before` to the oldest Monday in the current view.
+
+### Client changes summary
+
+**`TimesheetsSection.jsx`** — tab bar (My Timesheet / My Expenses); `ExpensesTab` imported; `AdminExpensesPanel` component added for admin expense review (mileage rate edit, filter by status, approve/reject per expense, receipt open via `apiBlob`); unlock request dialog; red rejection banner; `ConfirmDialog` now receives `confirmLabel` prop for delete confirmation.
+
+**`ExpensesTab.jsx`** — new file (`client/src/components/ExpensesTab.jsx`). Staff expense list + form. Mileage type shows "Miles" field, auto-calculates amount with helper text `= £X.XX @ Yp/mi`. Receipt upload on create/edit. `apiBlob` for receipt download. Delete gated by confirm dialog. `StatusBadge` component for pending/approved/rejected. Rejected items show `rejection_reason` in a red left-bordered panel.
+
+**`TimesheetHistory.jsx`** — paginated "Load more" via `before` query param; table stays visible during subsequent page loads (condition is `{weeks.length > 0 &&` not `{!loading && weeks.length > 0 &&`).
+
+### New DB migrations (applied 2026-06-01)
+
+```sql
+-- New columns on timesheet_submissions
+ALTER TABLE timesheet_submissions
+  ADD COLUMN IF NOT EXISTS rejection_reason text,
+  ADD COLUMN IF NOT EXISTS unlock_requested boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS unlock_reason text;
+
+-- New expenses table
+CREATE TABLE IF NOT EXISTS project_expenses (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  project_id uuid NOT NULL REFERENCES projects(id) ON DELETE RESTRICT,
+  expense_type text NOT NULL CHECK (expense_type IN ('train','mileage','meals','taxi','parking')),
+  expense_date date NOT NULL,
+  amount_pence integer,
+  miles numeric(6,1),
+  description text NOT NULL,
+  receipt_key text,
+  status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected')),
+  rejection_reason text,
+  reviewed_by uuid REFERENCES auth.users(id) ON DELETE SET NULL,
+  reviewed_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE project_expenses ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Auth access" ON project_expenses USING (true) WITH CHECK (true);
+```
+
+---
+
 ## Deployment
 
 | Target | How |

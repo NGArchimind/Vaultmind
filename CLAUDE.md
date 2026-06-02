@@ -135,13 +135,14 @@ PDF viewer: inline iframe, PDF.js CDN v3.11.174.
 
 ---
 
-## Outstanding issues (as of 2026-05-29)
+## Outstanding issues (as of 2026-06-01)
 
 1. **Multi-clause blocks not combining** (LOW) — AD K 1.38, 1.39, 1.40 etc. still get separate citation blocks. Prompt rule covers same-section but not same-subject across sections.
 2. **Wide table column extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column boundaries for wide tables in the QA pipeline. Not fixable without a different extraction approach for the vault.
 3. **Email work** (PARKED) — email structured summaries not stored in DB; Q&A relevance threshold (0.35) and limit (20) need tuning. Deferred to dedicated email session.
 4. **PDF Compare** (NEEDS TESTING) — rewritten to image-based approach (mupdf renders pages → JPEG → Gemini vision). Server deployed; awaiting first test on real schedules. See `HANDOVER.md` for full technical notes.
-5. **Role-based UI** (READY TO DEPLOY) — staff see Vault + Timesheets only; admin sees full interface. 3 commits on `develop` branch, not yet pushed to Vercel. Client-only change.
-6. **Excel template upload for CSV-to-Excel** (DEFERRED) — per schedule type, upload a `.xlsx` template stored in R2; CSV data populates it on generation. Scoped but not started.
+5. **Excel template upload for CSV-to-Excel** (DEFERRED) — per schedule type, upload a `.xlsx` template stored in R2; CSV data populates it on generation. Scoped but not started.
+6. **Timesheets hardening + Expenses** (ON DEVELOP BRANCH — needs Railway env vars + deploy) — Timesheets security hardening (field validation, lock enforcement, rejection/unlock flow) + new Expenses tab. Requires `RESEND_API_KEY` and `RESEND_FROM` set on Railway before pushing. See `HANDOVER.md` for Resend lazy instantiation pattern (critical) and full technical notes.
+7. **Custom domain** (TODO — blocks proper email sending) — Nathan does not own a domain; app runs on `archimind-omega.vercel.app`. Need to: (1) buy `archimind.co.uk` on Namecheap ~£10/yr, (2) point it to Vercel so the app gets a proper URL, (3) add Resend DNS records to the domain so `RESEND_FROM` can use a real address. Until then, use `onboarding@resend.dev` as a temporary `RESEND_FROM` workaround.
 
 See `HANDOVER.md` for full feature backlog.
