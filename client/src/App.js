@@ -1027,6 +1027,19 @@ export default function App() {
             source: { type: "base64", media_type: "application/pdf", data: result.base64 },
             title: `${docName} — pages ${result.pageNumbers.join(", ")}`,
           });
+          // Update citation map: replace Pass 1 pageHint estimate with actual first extracted page.
+          // The heading-level keys (docName||heading) are left untouched — they stay accurate for
+          // headings that do match. Only the docName-level fallback key is updated, so a failed
+          // heading lookup opens at the start of the real extracted section rather than somewhere
+          // unrelated in the document.
+          if (result.pageNumbers && result.pageNumbers.length > 0) {
+            const firstExtractedPage = result.pageNumbers[0];
+            Object.keys(newCitationPageMap).forEach(k => {
+              if (!k.includes("||") && newCitationPageMap[k].fileName === docName) {
+                newCitationPageMap[k].page = firstExtractedPage;
+              }
+            });
+          }
         } catch (e) {
           console.warn(`Page extraction failed for ${docName}, skipping:`, e.message);
         }
