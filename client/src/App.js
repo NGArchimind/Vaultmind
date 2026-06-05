@@ -804,6 +804,44 @@ export default function App() {
         console.warn("Scoring returned empty — raw response:", scoringText.slice(0, 500));
       }
 
+      // ── Inject General Provisions headings missed by scoring ─────────────────────
+      // Gemini reliably scores sub-category clauses (e.g. 3.41, 3.43) but frequently
+      // misses the General provisions heading that opens the same section (e.g. 3.36).
+      // This post-processing step is code-enforced: for every section prefix scored
+      // (e.g. "3" from "3.41"), scan the actual index for any heading in that section
+      // labelled "General provisions" or "General requirements" and inject it at 0.9
+      // probability if not already present. No prompt rule required.
+      (scoring.selectedDocs || []).forEach(selectedDoc => {
+        const indexDoc = (activeIndex.documents || []).find(d =>
+          d.name === selectedDoc.docName ||
+          d.name.includes(selectedDoc.docName) ||
+          selectedDoc.docName.includes(d.name)
+        );
+        if (!indexDoc) return;
+
+        // Collect section number prefixes from already-selected headings (e.g. "3" from "3.41")
+        const sectionPrefixes = new Set();
+        (selectedDoc.sections || []).forEach(s => {
+          const m = (s.heading || "").match(/^(\d+)\./);
+          if (m) sectionPrefixes.add(m[1]);
+        });
+        if (sectionPrefixes.size === 0) return;
+
+        const alreadySelected = new Set(
+          (selectedDoc.sections || []).map(s => (s.heading || "").toLowerCase().trim())
+        );
+
+        (indexDoc.headings || []).forEach(h => {
+          const title = h.title || "";
+          const m = title.match(/^(\d+)\./);
+          if (!m || !sectionPrefixes.has(m[1])) return;
+          if (!/general\s+(provisions?|requirements?)/i.test(title)) return;
+          if (alreadySelected.has(title.toLowerCase().trim())) return;
+          selectedDoc.sections.push({ heading: title, pageHint: h.pageHint || 1, probability: 0.9 });
+          alreadySelected.add(title.toLowerCase().trim());
+        });
+      });
+
       // ── Build citation page map — docName → { page, vaultId, fileName } ────────
       // Built now so AnswerRenderer can link citations to their source PDF + page
       const newCitationPageMap = {};
