@@ -779,7 +779,7 @@ export default function App() {
         ? `\n\nCONVERSATION HISTORY (this is a continuing conversation — the current question may be a follow-up to earlier questions):\n${recentHistory.map((h, i) => `Q${i+1}: ${h.question}\nA${i+1}: ${h.answer.slice(0, 600)}…`).join("\n\n")}`
         : "";
 
-      const scoringPrompt = `You are an expert technical document analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain the answer to the question.\n\nDOCUMENT INDEX (headings, sections and page numbers extracted from vault documents):\n${indexSummary}\n${conversationContext}\n\nQUESTION: ${q}\n${recentHistory.length > 0 ? "NOTE: This may be a follow-up question. Use the conversation history above to understand the full context before scoring." : ""}\n\nAnalyse the index carefully. For every section that could possibly be relevant — even tangentially — assign a probability score. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections. Be CONSERVATIVE — it is better to include a borderline section than to miss critical information.\n\nNOTE: Select ALL sections that are relevant to the question — do not limit to just one section if multiple sections are relevant.\n\nTABLES AND FIGURES: If the question relates to a requirement that is likely defined or quantified in a table or figure (e.g. fire resistance ratings, dimensions, classifications), you MUST also select any table or figure entries in the index that are likely to contain that data. For example, if the index contains "Table 3 — Fire resistance of cavity barriers" or "Table 5 — Minimum fire resistance", select those entries with high probability. Never rely solely on clause text pages when the actual values are in a table.\n\nDUTY CLAUSES AND IMPLEMENTATION SECTIONS: Building regulations pair high-level duty clauses (e.g. K2 'Protection from falling', B3 'Internal fire spread') with practical implementation sections that follow later in the same document (e.g. 'Section 3: Protection from falling', 'Design of guarding', 'Siting of pedestrian guarding'). The duty clause states the legal obligation only — the specific heights, dimensions, and values are always in the implementation sections. For any question asking for a specific measurement, height, distance, or threshold, you MUST select BOTH the duty clause AND the implementation sections from the same document. Never select only the duty clause and assume it contains the values — it does not.\n\nSECTION GENERAL PROVISIONS: When you select any clause with a numbered prefix (e.g. 3.41, 3.43), search the index for any heading in the same section — same leading number (e.g. all 3.x clauses) — that is explicitly labelled 'General provisions', 'General requirements', or 'General'. These opening sub-sections introduce requirements that govern everything else in the section and must be read alongside any specific clause. Score them at 0.9 or higher even if they do not mention the specific sub-category or topic asked about. Example: if you select clauses 3.41 or 3.43, search for any 3.x heading in the index labelled 'General provisions' — if one exists (e.g. 3.36 General provisions), score it 0.9+. Do NOT apply this to document-level scope clauses or headings numbered 0.x.\n\nRespond ONLY as compact JSON — no other text, no explanations, no reasons:\n{\n  "selectedDocs": [\n    {\n      "docName": "exact filename from index",\n      "sections": [\n        {"heading": "exact heading from index", "pageHint": 42, "probability": 0.95}\n      ]\n    }\n  ]\n}\n\nRules:\n- Include sections with probability > 0.5\n- pageHint MUST be a plain integer. Never use "p.12" or "page 12". Use 1 if unknown.\n- Omit "styleNotes", "reason" and "crossRefs" fields entirely — keep JSON compact`;
+      const scoringPrompt = `You are an expert technical document analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain the answer to the question.\n\nDOCUMENT INDEX (headings, sections and page numbers extracted from vault documents):\n${indexSummary}\n${conversationContext}\n\nQUESTION: ${q}\n${recentHistory.length > 0 ? "NOTE: This may be a follow-up question. Use the conversation history above to understand the full context before scoring." : ""}\n\nAnalyse the index carefully. For every section that could possibly be relevant — even tangentially — assign a probability score. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections. Be CONSERVATIVE — it is better to include a borderline section than to miss critical information.\n\nNOTE: Select ALL sections that are relevant to the question — do not limit to just one section if multiple sections are relevant.\n\nTABLES AND FIGURES: If the question relates to a requirement that is likely defined or quantified in a table or figure (e.g. fire resistance ratings, dimensions, classifications), you MUST also select any table or figure entries in the index that are likely to contain that data. For example, if the index contains "Table 3 — Fire resistance of cavity barriers" or "Table 5 — Minimum fire resistance", select those entries with high probability. Never rely solely on clause text pages when the actual values are in a table.\n\nDUTY CLAUSES AND IMPLEMENTATION SECTIONS: Building regulations pair high-level duty clauses (e.g. K2 'Protection from falling', B3 'Internal fire spread') with practical implementation sections that follow later in the same document (e.g. 'Section 3: Protection from falling', 'Design of guarding', 'Siting of pedestrian guarding'). The duty clause states the legal obligation only — the specific heights, dimensions, and values are always in the implementation sections. For any question asking for a specific measurement, height, distance, or threshold, you MUST select BOTH the duty clause AND the implementation sections from the same document. Never select only the duty clause and assume it contains the values — it does not.\n\nSECTION GENERAL PROVISIONS: When you select any clause from a document, check whether the index for that same document contains a heading titled 'General provisions' or 'General requirements' (with or without a clause number — it may appear as just "General provisions" or as "3.36 General provisions"). If such a heading exists and your selected clauses come AFTER it in the document, you MUST include it with probability 0.9 or higher, no exceptions. These headings introduce requirements that govern every sub-category clause that follows them in the same section — M4(2), M4(3), wheelchair accessible, wheelchair adaptable, Category 1, or any other. They apply regardless of whether they explicitly mention the sub-category or topic asked about. Example: the index shows "General provisions" (page 38) followed by "3.41 M4(3)..." (page 43) and "3.43 wheelchair accessible..." (page 45). You select 3.41 and 3.43. You MUST also include "General provisions" at page 38 with probability 0.9+. Do NOT apply this to headings in the very first pages of the document (document introduction, scope, or 0.x clauses).\n\nRespond ONLY as compact JSON — no other text, no explanations, no reasons:\n{\n  "selectedDocs": [\n    {\n      "docName": "exact filename from index",\n      "sections": [\n        {"heading": "exact heading from index", "pageHint": 42, "probability": 0.95}\n      ]\n    }\n  ]\n}\n\nRules:\n- Include sections with probability > 0.5\n- pageHint MUST be a plain integer. Never use "p.12" or "page 12". Use 1 if unknown.\n- Omit "styleNotes", "reason" and "crossRefs" fields entirely — keep JSON compact`;
 
       const { text: scoringText, usage: scoringUsage } = await withRetry(
         () => callClaude(
@@ -803,44 +803,6 @@ export default function App() {
       if (!scoring.selectedDocs || scoring.selectedDocs.length === 0) {
         console.warn("Scoring returned empty — raw response:", scoringText.slice(0, 500));
       }
-
-      // ── Inject General Provisions headings missed by scoring ─────────────────────
-      // Gemini reliably scores sub-category clauses (e.g. 3.41, 3.43) but frequently
-      // misses the General provisions heading that opens the same section (e.g. 3.36).
-      // This post-processing step is code-enforced: for every section prefix scored
-      // (e.g. "3" from "3.41"), scan the actual index for any heading in that section
-      // labelled "General provisions" or "General requirements" and inject it at 0.9
-      // probability if not already present. No prompt rule required.
-      (scoring.selectedDocs || []).forEach(selectedDoc => {
-        const indexDoc = (activeIndex.documents || []).find(d =>
-          d.name === selectedDoc.docName ||
-          d.name.includes(selectedDoc.docName) ||
-          selectedDoc.docName.includes(d.name)
-        );
-        if (!indexDoc) return;
-
-        // Collect section number prefixes from already-selected headings (e.g. "3" from "3.41")
-        const sectionPrefixes = new Set();
-        (selectedDoc.sections || []).forEach(s => {
-          const m = (s.heading || "").match(/^(\d+)\./);
-          if (m) sectionPrefixes.add(m[1]);
-        });
-        if (sectionPrefixes.size === 0) return;
-
-        const alreadySelected = new Set(
-          (selectedDoc.sections || []).map(s => (s.heading || "").toLowerCase().trim())
-        );
-
-        (indexDoc.headings || []).forEach(h => {
-          const title = h.title || "";
-          const m = title.match(/^(\d+)\./);
-          if (!m || !sectionPrefixes.has(m[1])) return;
-          if (!/general\s+(provisions?|requirements?)/i.test(title)) return;
-          if (alreadySelected.has(title.toLowerCase().trim())) return;
-          selectedDoc.sections.push({ heading: title, pageHint: h.pageHint || 1, probability: 0.9 });
-          alreadySelected.add(title.toLowerCase().trim());
-        });
-      });
 
       // ── Build citation page map — docName → { page, vaultId, fileName } ────────
       // Built now so AnswerRenderer can link citations to their source PDF + page
