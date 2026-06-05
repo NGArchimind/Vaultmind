@@ -804,6 +804,29 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         console.warn("Scoring returned empty — raw response:", scoringText.slice(0, 500));
       }
 
+      // ── Inject "General provisions / General requirements" headings ──────────────
+      // Gemini cannot infer from heading titles alone that a "General provisions"
+      // section governs the sub-sections it scored. We add it unconditionally for
+      // every selected document that contains such a heading in the vault index.
+      (scoring.selectedDocs || []).forEach(selectedDoc => {
+        const indexDoc = (activeIndex.documents || []).find(d =>
+          d.name === selectedDoc.docName ||
+          d.name.includes(selectedDoc.docName) ||
+          selectedDoc.docName.includes(d.name)
+        );
+        if (!indexDoc) return;
+        const alreadySelected = new Set(
+          (selectedDoc.sections || []).map(s => (s.heading || "").toLowerCase().trim())
+        );
+        (indexDoc.headings || []).forEach(h => {
+          const title = (h.title || "").trim();
+          if (!/general\s+(provisions?|requirements?)/i.test(title)) return;
+          if (alreadySelected.has(title.toLowerCase().trim())) return;
+          selectedDoc.sections.push({ heading: title, pageHint: h.pageHint || 1, probability: 0.9 });
+          alreadySelected.add(title.toLowerCase().trim());
+        });
+      });
+
       // ── Build citation page map — docName → { page, vaultId, fileName } ────────
       // Built now so AnswerRenderer can link citations to their source PDF + page
       const newCitationPageMap = {};
