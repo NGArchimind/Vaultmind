@@ -820,10 +820,32 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         );
         (indexDoc.headings || []).forEach(h => {
           const title = (h.title || "").trim();
-          if (!/general\s+(provisions?|requirements?)/i.test(title)) return;
+          if (!/\bgeneral\b/i.test(title)) return;
+          if ((h.level || 1) > 2) return;
           if (alreadySelected.has(title.toLowerCase().trim())) return;
           selectedDoc.sections.push({ heading: title, pageHint: h.pageHint || 1, probability: 0.9 });
           alreadySelected.add(title.toLowerCase().trim());
+        });
+      });
+
+      // ── Replace Gemini page estimates with accurate vault-index page numbers ─────
+      // The vault index stores physical [Page X] numbers from mupdf — far more
+      // reliable than Gemini's Pass 1 guesses, which can be off by several pages.
+      const normalizeHeading = s => s.toLowerCase().replace(/[^a-z0-9\s]+/g, '').replace(/\s+/g, ' ').trim();
+      (scoring.selectedDocs || []).forEach(selectedDoc => {
+        const indexDoc = (activeIndex.documents || []).find(d =>
+          d.name === selectedDoc.docName ||
+          d.name.includes(selectedDoc.docName) ||
+          selectedDoc.docName.includes(d.name)
+        );
+        if (!indexDoc) return;
+        const headingPageMap = {};
+        (indexDoc.headings || []).forEach(h => {
+          if (h.pageHint) headingPageMap[normalizeHeading(h.title)] = h.pageHint;
+        });
+        (selectedDoc.sections || []).forEach(section => {
+          const key = normalizeHeading(section.heading || "");
+          if (key && headingPageMap[key]) section.pageHint = headingPageMap[key];
         });
       });
 
