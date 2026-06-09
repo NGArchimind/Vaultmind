@@ -213,6 +213,7 @@ export default function App() {
   const [followUpQuestion, setFollowUpQuestion] = useState("");
   const [answerVaultName, setAnswerVaultName] = useState("");
   const [citationPageMap, setCitationPageMap] = useState({}); // { docName → { page, vaultId, fileName } }
+  const [lastAnswerIndex, setLastAnswerIndex] = useState(null); // vault index from most recent answer — used for accurate citation pages
   const [lastQuestion, setLastQuestion] = useState("");
   const [timedOut, setTimedOut] = useState(false);
   const [showManageModal, setShowManageModal] = useState(false);
@@ -855,7 +856,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
       // ── Replace Gemini page estimates with accurate vault-index page numbers ─────
       // The vault index stores physical [Page X] numbers from mupdf — far more
       // reliable than Gemini's Pass 1 guesses, which can be off by several pages.
-      const normalizeHeading = s => s.toLowerCase().replace(/[^a-z0-9\s]+/g, '').replace(/\s+/g, ' ').trim();
+      const normalizeHeading = s => s.toLowerCase().replace(/[^a-z0-9.\s]+/g, ' ').replace(/\s+/g, ' ').trim();
       (scoring.selectedDocs || []).forEach(selectedDoc => {
         const indexDoc = (activeIndex.documents || []).find(d =>
           d.name === selectedDoc.docName ||
@@ -1109,19 +1110,6 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
             source: { type: "base64", media_type: "application/pdf", data: result.base64 },
             title: `${docName} — pages ${result.pageNumbers.join(", ")}`,
           });
-          // Update citation map: replace Pass 1 pageHint estimate with actual first extracted page.
-          // The heading-level keys (docName||heading) are left untouched — they stay accurate for
-          // headings that do match. Only the docName-level fallback key is updated, so a failed
-          // heading lookup opens at the start of the real extracted section rather than somewhere
-          // unrelated in the document.
-          if (result.pageNumbers && result.pageNumbers.length > 0) {
-            const firstExtractedPage = result.pageNumbers[0];
-            Object.keys(newCitationPageMap).forEach(k => {
-              if (!k.includes("||") && newCitationPageMap[k].fileName === docName) {
-                newCitationPageMap[k].page = firstExtractedPage;
-              }
-            });
-          }
         } catch (e) {
           console.warn(`Page extraction failed for ${docName}, skipping:`, e.message);
         }
@@ -1151,17 +1139,18 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
         : "";
 
-      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer. Write for an architectural specialist who needs detailed, accurate legislative guidance — not a general audience. IMPORTANT: Answer ONLY what was specifically asked. If the question is about one particular requirement or detail, provide exactly that and nothing else from the surrounding pages. Do not include other requirements, dimensions, or tangential information unless they directly qualify or limit the specific requirement asked about. Actively exclude content that does not answer the question.${tempDoc ? `\n\nNOTE: A temporary document has been included: "${tempDoc.name}". Treat it as an additional reference document.` : ""}\n\n${contextBlock}QUESTION: ${q}\nPRIORITY SECTIONS: ${focusSections || "all sections"}\n\n---\n\nTABLES:\n1. Output the table title on its own line in bold: **Table X — Title**\n2. Reproduce EVERY row and EVERY column — no omissions. Every row starts and ends with | pipe characters.\n3. After the header row output a separator: | --- | --- | --- |\n4. Prefix each row that directly answers the question with >>: >> | cell | cell | cell |\n   The >> appears ONCE at the row start only — do NOT repeat before each cell.\n5. Do NOT wrap tables in > blockquote syntax.\n6. Place ONE citation on its own line IMMEDIATELY BEFORE the table title.\n7. If the table spans multiple pages, combine ALL parts into one complete table.\n8. Any notes relating to the table (e.g. footnotes, qualifications) must appear as plain italic text BELOW the table — never inside the table as rows.\n9. If multiple documents contain near-identical tables: reproduce only the most complete version, then note as plain italic text below: *Note: [Other Document] Table X contains equivalent data. [Note any meaningful differences.]*\n10. Remove all PDF artefacts from table cells: strip any notation like $^{1}$, $^{(1)}$, ^{1}, or similar superscript markers. Footnote references in cells should be omitted entirely.\n\n---\n\nRESPONSE FORMAT — always in this exact order:\n\n## Summary\n\nAnswer the question directly. Do not describe the regulatory framework, explain what factors determine the answer, or say 'it depends' — just state what the regulations require. Write as if summarising the answer for a colleague: the key requirements, the applicable standards, the most important facts. No preamble, no explanation of the question, no meta-commentary. No specific dimensions or thresholds — those go in the Practical Conclusion. No inline quotes, no citation headers, no verbatim extracts.\nIf a table would help summarise the answer, create a single synthesised summary table that collates the key figures (e.g. all applicable dimensions, heights, or classifications) from your full analysis into one clear table. Do NOT reproduce a source document table — this must be your own synthesised overview. No citation before or after it. No notes. Keep it simple and direct.\n\n## Detailed Analysis\n\nBefore writing any citation block, apply this test: does this clause contain a specific, actionable requirement directly relevant to the question — a dimension, gradient, tolerance, classification, or explicit rule? If the clause text is a generic duty statement (e.g. "shall be suitable for intended use", "shall be adequate for the location", "shall be designed in accordance with relevant codes") with no specific data, omit it entirely. Only cite clauses that would change or inform a specific design decision.\n\nGroup all citations by source document. For each document that has relevant content, output a document group header on its own line:\n### Document Name (use the exact filename as it appears in the source documents)\n\nAll citation blocks for that document must appear immediately under its group header. Do not interleave citations from different documents — complete all citations for one document before starting the next.\n\nFor each citation block within a group:\n\nPART 1 — Citation header (one line):\n*Document Name | Section title*\n\nPART 2 — Full verbatim text:\nReproduce the complete relevant paragraph(s) or clause(s) exactly as written in the source. If multiple paragraphs from the same section are relevant, reproduce them together here. Do not paraphrase, do not truncate, do not add speech marks.\n\nPART 3 — Explanation (only if needed):\n*Brief italic explanation if the relevance to the question is not immediately obvious.*\n\nPART 4 — Figure note (only if a diagram, figure, or image on this page directly illustrates the clause):\n*See Fig. X.X — [one phrase describing what the figure shows]*\n\nDo not repeat information already covered in the Summary or in a previous citation block. If a clause states the same dimension, height, or requirement already cited earlier, skip it — cite only the most specific or primary source for each requirement. Omit clauses that are purely cross-references to another document — i.e. clauses whose sole content is directing the reader elsewhere, with no specific dimensions, requirements, or guidance of their own. If a clause contains even one concrete requirement alongside a cross-reference, include only the concrete requirement. Also omit introductory and document-relationship clauses — e.g. clauses explaining which documents apply together, describing the scope or structure of the document, or stating how volumes relate to each other. These typically appear in introductory sections (numbered 0.x) and contain phrases like "should be read in conjunction with", "this volume covers", or "applies to new dwellings". They add no design guidance. The test: would omitting this clause change a specific design decision? If not, omit it. Treat all sub-clauses of the same parent section as one location — do not create separate blocks for 5.3.7 and 5.3.7.4, or for 9.3.4 and 9.3.4.1. Combine all relevant sub-clauses under the parent section heading.\n\n## Contradictions & Conflicts\n\nA critical analysis of apparent contradictions between the extracted documents. Where conflicts exist, examine them substantively: quote both sides with citations, explain the nature of the conflict, and give a practical resolution. If genuinely no conflicts: "No contradictions identified."\n\n## Practical Conclusion\n\nA short, condensed follow-on to the Summary — this is where the specific numbers go. List only the key dimensions, thresholds, and practical requirements an architect needs to apply this guidance. Keep it brief: a short paragraph or a tight list of the most critical specifics only. Do NOT reproduce or paraphrase the Detailed Analysis — this is a concise conclusion, not a summary of the evidence. No citations. No document names. No section references. No explanation.\n\n---\n\nCITATION RULES:\n- Format: *Document Name | Clause number and title [p.X]* — must start AND end with a single *, where X is the exact PDF page number this clause appears on (taken from the page numbers listed in the document block title, e.g. "pages 8, 9, 10, 11")\n- Document Name MUST be the exact filename as it appears in the document pages provided — do not paraphrase or invent a name\n- Always on its own line, never embedded within a sentence\n- Always placed BEFORE the content it supports\n- One citation block per unique source location — never repeat the same citation header\n- Treat parent sections and their sub-clauses as one location: combine them into a single block under the parent heading\n- If multiple clauses from the same document address the same requirement, combine them under one citation block — do not create a separate block per clause number\n- Draw from ALL provided documents — never rely on just one`;
+      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer. Write for an architectural specialist who needs detailed, accurate legislative guidance — not a general audience. IMPORTANT: Answer ONLY what was specifically asked. If the question is about one particular requirement or detail, provide exactly that and nothing else from the surrounding pages. Do not include other requirements, dimensions, or tangential information unless they directly qualify or limit the specific requirement asked about. Actively exclude content that does not answer the question.${tempDoc ? `\n\nNOTE: A temporary document has been included: "${tempDoc.name}". Treat it as an additional reference document.` : ""}\n\n${contextBlock}QUESTION: ${q}\nPRIORITY SECTIONS: ${focusSections || "all sections"}\n\n---\n\nTABLES:\n1. Output the table title on its own line in bold: **Table X — Title**\n2. Reproduce EVERY row and EVERY column — no omissions. Every row starts and ends with | pipe characters.\n3. After the header row output a separator: | --- | --- | --- |\n4. Prefix each row that directly answers the question with >>: >> | cell | cell | cell |\n   The >> appears ONCE at the row start only — do NOT repeat before each cell.\n5. Do NOT wrap tables in > blockquote syntax.\n6. Place ONE citation on its own line IMMEDIATELY BEFORE the table title.\n7. If the table spans multiple pages, combine ALL parts into one complete table.\n8. Any notes relating to the table (e.g. footnotes, qualifications) must appear as plain italic text BELOW the table — never inside the table as rows.\n9. If multiple documents contain near-identical tables: reproduce only the most complete version, then note as plain italic text below: *Note: [Other Document] Table X contains equivalent data. [Note any meaningful differences.]*\n10. Remove all PDF artefacts from table cells: strip any notation like $^{1}$, $^{(1)}$, ^{1}, or similar superscript markers. Footnote references in cells should be omitted entirely.\n\n---\n\nRESPONSE FORMAT — always in this exact order:\n\n## Summary\n\nAnswer the question directly. Do not describe the regulatory framework, explain what factors determine the answer, or say 'it depends' — just state what the regulations require. Write as if summarising the answer for a colleague: the key requirements, the applicable standards, the most important facts. No preamble, no explanation of the question, no meta-commentary. No specific dimensions or thresholds — those go in the Practical Conclusion. No inline quotes, no citation headers, no verbatim extracts.\nIf a table would help summarise the answer, create a single synthesised summary table that collates the key figures (e.g. all applicable dimensions, heights, or classifications) from your full analysis into one clear table. Do NOT reproduce a source document table — this must be your own synthesised overview. No citation before or after it. No notes. Keep it simple and direct.\n\n## Detailed Analysis\n\nBefore writing any citation block, apply this test: does this clause contain a specific, actionable requirement directly relevant to the question — a dimension, gradient, tolerance, classification, or explicit rule? If the clause text is a generic duty statement (e.g. "shall be suitable for intended use", "shall be adequate for the location", "shall be designed in accordance with relevant codes") with no specific data, omit it entirely. Only cite clauses that would change or inform a specific design decision.\n\nGroup all citations by source document. For each document that has relevant content, output a document group header on its own line:\n### Document Name (use the exact filename as it appears in the source documents)\n\nAll citation blocks for that document must appear immediately under its group header. Do not interleave citations from different documents — complete all citations for one document before starting the next.\n\nFor each citation block within a group:\n\nPART 1 — Citation header (one line):\n*Document Name | Section title*\n\nPART 2 — Full verbatim text:\nReproduce the complete relevant paragraph(s) or clause(s) exactly as written in the source. If multiple paragraphs from the same section are relevant, reproduce them together here. Do not paraphrase, do not truncate, do not add speech marks.\n\nPART 3 — Explanation (only if needed):\n*Brief italic explanation if the relevance to the question is not immediately obvious.*\n\nPART 4 — Figure note (only if a diagram, figure, or image on this page directly illustrates the clause):\n*See Fig. X.X — [one phrase describing what the figure shows]*\n\nDo not repeat information already covered in the Summary or in a previous citation block. If a clause states the same dimension, height, or requirement already cited earlier, skip it — cite only the most specific or primary source for each requirement. Omit clauses that are purely cross-references to another document — i.e. clauses whose sole content is directing the reader elsewhere, with no specific dimensions, requirements, or guidance of their own. If a clause contains even one concrete requirement alongside a cross-reference, include only the concrete requirement. Also omit introductory and document-relationship clauses — e.g. clauses explaining which documents apply together, describing the scope or structure of the document, or stating how volumes relate to each other. These typically appear in introductory sections (numbered 0.x) and contain phrases like "should be read in conjunction with", "this volume covers", or "applies to new dwellings". They add no design guidance. The test: would omitting this clause change a specific design decision? If not, omit it. Treat all sub-clauses of the same parent section as one location — do not create separate blocks for 5.3.7 and 5.3.7.4, or for 9.3.4 and 9.3.4.1. Combine all relevant sub-clauses under the parent section heading.\n\n## Contradictions & Conflicts\n\nA critical analysis of apparent contradictions between the extracted documents. Where conflicts exist, examine them substantively: quote both sides with citations, explain the nature of the conflict, and give a practical resolution. If genuinely no conflicts: "No contradictions identified."\n\n## Practical Conclusion\n\nA short, condensed follow-on to the Summary — this is where the specific numbers go. List only the key dimensions, thresholds, and practical requirements an architect needs to apply this guidance. Keep it brief: a short paragraph or a tight list of the most critical specifics only. Do NOT reproduce or paraphrase the Detailed Analysis — this is a concise conclusion, not a summary of the evidence. No citations. No document names. No section references. No explanation.\n\n---\n\nCITATION RULES:\n- Format: *Document Name | Clause number and title* — must start AND end with a single *\n- Document Name MUST be the exact filename as it appears in the document pages provided — do not paraphrase or invent a name\n- Always on its own line, never embedded within a sentence\n- Always placed BEFORE the content it supports\n- One citation block per unique source location — never repeat the same citation header\n- Treat parent sections and their sub-clauses as one location: combine them into a single block under the parent heading\n- If multiple clauses from the same document address the same requirement, combine them under one citation block — do not create a separate block per clause number\n- Draw from ALL provided documents — never rely on just one`;
       const { text: finalAnswer, usage: answerUsage } = await withRetry(
         () => callClaude(
           [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-          `You are an expert building regulations consultant writing for architectural specialists. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Contradictions & Conflicts, (4) ## Practical Conclusion. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section) [p.X]* where X is the exact PDF page number. In Detailed Analysis, start each document's citations with a ### Document Name header on its own line and group ALL citations from that document together before moving to the next. Draw from ALL provided documents.`,
+          `You are an expert building regulations consultant writing for architectural specialists. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Contradictions & Conflicts, (4) ## Practical Conclusion. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. In Detailed Analysis, start each document's citations with a ### Document Name header on its own line and group ALL citations from that document together before moving to the next. Draw from ALL provided documents.`,
           65536
         ), 3, 5000, "Pass 3/3 · Synthesising answer"
       );
 
       setProgress(p => ({ ...p, answer: 100 }));
       setAnswer(finalAnswer);
+      setLastAnswerIndex(activeIndex);
       setAnswerVaultName(usingTempOnly ? "Temp Doc" : (effectiveVault?.name || vault?.name || ""));
       setCitationPageMap(newCitationPageMap);
       setFollowUpQuestion("");
@@ -1207,6 +1196,56 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
 
   const [citationViewer, setCitationViewer] = useState(null); // { base64, fileName, page }
 
+  // ── Look up the physical page for a heading from the vault index ──────────────
+  // Uses the index stored when the last question was answered — the authoritative
+  // source of page numbers (from mupdf [Page X] markers, not Gemini estimates).
+  // Four matching levels tried in order; first hit wins.
+  const findPageInVaultIndex = (fileName, headingText) => {
+    if (!lastAnswerIndex?.documents || !headingText) return null;
+    const stripPdf = s => (s || "").replace(/\.pdf$/i, "").trim();
+    const indexDoc = lastAnswerIndex.documents.find(d => {
+      const dn = stripPdf(d.name).toLowerCase();
+      const fn = stripPdf(fileName).toLowerCase();
+      return dn === fn || dn.includes(fn) || fn.includes(dn);
+    });
+    if (!indexDoc?.headings?.length) return null;
+
+    // Level 1: exact case-insensitive match
+    const target = headingText.toLowerCase().trim();
+    let h = indexDoc.headings.find(h => h.title.toLowerCase().trim() === target);
+    if (h?.pageHint) return h.pageHint;
+
+    // Level 2: normalised match — keep dots (preserves "5.3"), strip other special chars
+    const norm = s => s.toLowerCase().replace(/[^a-z0-9.\s]/g, " ").replace(/\s+/g, " ").trim();
+    const nt = norm(headingText);
+    h = indexDoc.headings.find(h => norm(h.title) === nt);
+    if (h?.pageHint) return h.pageHint;
+
+    // Level 3: clause number prefix match — "5.3", "B3", "K2", "AD-B3" etc.
+    const cnMatch = headingText.match(/\b([A-Z]?\d[\d.]*[A-Za-z]?)\b/i);
+    if (cnMatch) {
+      const cn = cnMatch[1].toLowerCase();
+      h = indexDoc.headings.find(h => {
+        const m = h.title.match(/\b([A-Z]?\d[\d.]*[A-Za-z]?)\b/i);
+        return m && m[1].toLowerCase() === cn;
+      });
+      if (h?.pageHint) return h.pageHint;
+    }
+
+    // Level 4: all significant words (>3 chars) appear in the vault heading
+    const sigWords = s => s.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/).filter(w => w.length > 3);
+    const tw = sigWords(headingText);
+    if (tw.length >= 2) {
+      h = indexDoc.headings.find(h => {
+        const hw = sigWords(h.title);
+        return tw.every(w => hw.includes(w));
+      });
+      if (h?.pageHint) return h.pageHint;
+    }
+
+    return null;
+  };
+
   // ── Open PDF viewer at page from citation ────────────────────────────────────
   const handleCitationClick = async (docName, rawHeading) => {
     // Gemini embeds the exact page number in citations: "Clause 5.3 [p.12]"
@@ -1248,7 +1287,8 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         base64 = pdfData.base64;
       }
       if (!base64) { alert("Could not load the PDF."); return; }
-      setCitationViewer({ base64, fileName: resolved.fileName, page: explicitPage || resolved.page || 1, heading });
+      const indexPage = findPageInVaultIndex(resolved.fileName, heading);
+      setCitationViewer({ base64, fileName: resolved.fileName, page: indexPage || explicitPage || resolved.page || 1, heading });
     } catch (e) {
       alert("Failed to load PDF: " + e.message);
     }
