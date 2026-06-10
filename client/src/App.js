@@ -792,13 +792,60 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
 
       setProgress(p => ({ ...p, select: 100 }));
 
+      // Salvage a truncated scoring response: walk back from the end, cut at the
+      // last complete object, close any unbalanced brackets, and re-parse. Only
+      // runs when the normal parse fails, so healthy responses are unaffected.
+      const salvageScoring = (raw) => {
+        let s = raw;
+        for (let attempt = 0; attempt < 50; attempt++) {
+          const idx = s.lastIndexOf("}");
+          if (idx === -1) return null;
+          s = s.slice(0, idx + 1);
+          // Count unclosed brackets, ignoring those inside string literals
+          let inStr = false, escaped = false;
+          const stack = [];
+          for (const c of s) {
+            if (inStr) {
+              if (escaped) escaped = false;
+              else if (c === "\\") escaped = true;
+              else if (c === '"') inStr = false;
+              continue;
+            }
+            if (c === '"') inStr = true;
+            else if (c === "{" || c === "[") stack.push(c);
+            else if (c === "}" || c === "]") stack.pop();
+          }
+          const closers = stack.reverse().map(c => (c === "{" ? "}" : "]")).join("");
+          try {
+            const parsed = JSON.parse(s + closers);
+            if (parsed?.selectedDocs?.length) return parsed;
+          } catch {}
+          s = s.slice(0, idx); // that cut didn't parse — try the previous }
+        }
+        return null;
+      };
+
       let scoring = { selectedDocs: [] };
+      let scoringParseError = null;
       try {
         const clean = scoringText.replace(/```json|```/g, "").trim();
         scoring = JSON.parse(clean);
-      } catch {
+      } catch (e1) {
+        scoringParseError = e1.message;
         const m = scoringText.match(/\{[\s\S]*\}/);
-        if (m) try { scoring = JSON.parse(m[0]); } catch {}
+        if (m) try { scoring = JSON.parse(m[0]); scoringParseError = null; } catch {}
+      }
+
+      if ((!scoring.selectedDocs || scoring.selectedDocs.length === 0) && scoringParseError) {
+        console.warn(`[Scoring] Parse failed: ${scoringParseError}`);
+        console.warn(`[Scoring] Response length: ${scoringText.length} chars`);
+        console.warn(`[Scoring] Response tail: …${scoringText.slice(-300)}`);
+        const salvaged = salvageScoring(scoringText.replace(/```json|```/g, "").trim());
+        if (salvaged) {
+          const sectionCount = salvaged.selectedDocs.reduce((n, d) => n + (d.sections?.length || 0), 0);
+          console.warn(`[Scoring] Salvaged truncated response: ${salvaged.selectedDocs.length} docs, ${sectionCount} sections recovered`);
+          scoring = salvaged;
+        }
       }
 
       if (!scoring.selectedDocs || scoring.selectedDocs.length === 0) {
