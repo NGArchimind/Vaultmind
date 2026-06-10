@@ -881,6 +881,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
       // Looks across the ENTIRE document — general provisions at the front are always
       // captured even when scored sections are deep in the document.
       const generalSectionsByDoc = {}; // selectedDoc.docName → Set<pageNum>
+      const generalSectionTitles = []; // "docName: title (p.X)" — added to PRIORITY SECTIONS so Pass 3 actually reads them
 
       (scoring.selectedDocs || []).forEach(selectedDoc => {
         const indexDoc = (activeIndex.documents || []).find(d =>
@@ -927,6 +928,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
           );
           const endPage = nextAnchor ? Math.max(nextAnchor.pageHint - 1, startPage + 1) : startPage + 30;
           console.log(`[GeneralProv] ACCEPTED: "${title}" (level ${h.level || 1}) pages ${startPage}–${Math.max(startPage, endPage)} in "${indexDoc.name}"`);
+          generalSectionTitles.push(`${selectedDoc.docName}: ${title} (p.${startPage})`);
 
           if (!generalSectionsByDoc[selectedDoc.docName]) generalSectionsByDoc[selectedDoc.docName] = new Set();
           for (let p = startPage; p <= Math.max(startPage, endPage); p++) generalSectionsByDoc[selectedDoc.docName].add(p);
@@ -1218,9 +1220,10 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
       setStage("answering");
       setStatusMsg("Pass 3/3 · Deep reading selected pages and synthesising answer…");
 
-      const focusSections = (scoring.selectedDocs || [])
-        .flatMap(d => (d.sections || []).map(s => `${d.docName}: ${s.heading} (p.${s.pageHint})`))
-        .join("; ");
+      const focusSections = [
+        ...(scoring.selectedDocs || []).flatMap(d => (d.sections || []).map(s => `${d.docName}: ${s.heading} (p.${s.pageHint})`)),
+        ...generalSectionTitles
+      ].join("; ");
 
       const priorContext = conversationHistory.slice(-5);
       const contextBlock = priorContext.length > 0
