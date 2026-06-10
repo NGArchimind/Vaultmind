@@ -905,10 +905,8 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         sortedHeadings.forEach((h, idx) => {
           const title = (h.title || "").trim();
           if (!/\bgeneral\b/i.test(title)) return;
-          if ((h.level || 1) > 2) {
-            console.log(`[GeneralProv] REJECTED (level ${h.level}): "${title}" p.${h.pageHint} in "${indexDoc.name}"`);
-            return;
-          }
+          // No level filter: the indexer files "General provisions" headings at
+          // levels 4–6 (confirmed in testing), so depth says nothing about relevance.
           if (crowdedPages.has(h.pageHint)) {
             console.log(`[GeneralProv] REJECTED (TOC-like page): "${title}" p.${h.pageHint} in "${indexDoc.name}"`);
             return;
@@ -921,11 +919,13 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
           seenTitles.add(titleKey);
 
           const startPage = h.pageHint || 1;
-          // End at the page before the next heading at same or higher level
+          // End at the page before the next heading at same or higher level —
+          // but always include at least the following page, since clause blocks
+          // routinely roll over onto the next page.
           const nextAnchor = sortedHeadings.slice(idx + 1).find(h2 =>
             (h2.level || 1) <= (h.level || 1) && !crowdedPages.has(h2.pageHint)
           );
-          const endPage = nextAnchor ? nextAnchor.pageHint - 1 : startPage + 30;
+          const endPage = nextAnchor ? Math.max(nextAnchor.pageHint - 1, startPage + 1) : startPage + 30;
           console.log(`[GeneralProv] ACCEPTED: "${title}" (level ${h.level || 1}) pages ${startPage}–${Math.max(startPage, endPage)} in "${indexDoc.name}"`);
 
           if (!generalSectionsByDoc[selectedDoc.docName]) generalSectionsByDoc[selectedDoc.docName] = new Set();
