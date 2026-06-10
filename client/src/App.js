@@ -1283,6 +1283,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
   };
 
   const [citationViewer, setCitationViewer] = useState(null); // { base64, fileName, page }
+  const docTextCacheRef = useRef({}); // fileName → [{ page, text }] — extracted text cache for clause-number page lookup
 
   // ── Look up the physical page for a heading from the vault index ──────────────
   // Uses the index stored when the last question was answered — the authoritative
@@ -1349,6 +1350,42 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
     return null;
   };
 
+  // ── Find the exact page of a numbered clause by searching the document text ───
+  // Paragraph numbers (3.36, 5.3.7, B1) are unique within a document, unlike
+  // headings — Approved Documents repeat near-identical headings across chapters
+  // (e.g. "Sanitary facilities — General provisions" in both M4(2) and M4(3)).
+  // Searching the real text for the line that starts with the clause number gives
+  // the definitive page. Text is fetched once per document and cached.
+  const findPageByClauseNumber = async (base64, fileName, headingText) => {
+    if (!headingText) return null;
+    // Skip diagram/table/figure citations — the type-aware index lookup handles those
+    if (/\b(diagram|table|figure|fig)\b/i.test(headingText)) return null;
+    // Clause number must be dotted (3.36, 5.3.7) or letter+digits (B1, K2) —
+    // bare integers like "2" are too ambiguous to search for, and category
+    // references like "M4(2)" are excluded (the bracket is part of the name)
+    const cnMatch = headingText.match(/\b(\d+(?:\.\d+)+|[A-Z]\d+(?!\())\b/);
+    if (!cnMatch) return null;
+    const clause = cnMatch[1];
+
+    let pages = docTextCacheRef.current[fileName];
+    if (!pages) {
+      const { text, hasText } = await api("/api/extract-text", { method: "POST", body: { base64 } });
+      if (!hasText || !text) return null;
+      pages = text.split(/(?=\[Page \d+\])/).map(chunk => {
+        const m = chunk.match(/^\[Page (\d+)\]/);
+        return m ? { page: Number(m[1]), text: chunk } : null;
+      }).filter(Boolean);
+      docTextCacheRef.current[fileName] = pages;
+    }
+
+    // Line-anchored match: the clause number at the start of a line, not followed
+    // by further digits or dots (so "3.3" never matches "3.36" or "3.3.1")
+    const escaped = clause.replace(/\./g, "\\.");
+    const clauseRe = new RegExp(`(^|\\n)\\s*${escaped}(?![\\d.])`);
+    const hit = pages.find(p => clauseRe.test(p.text));
+    return hit ? hit.page : null;
+  };
+
   // ── Open PDF viewer at page from citation ────────────────────────────────────
   const handleCitationClick = async (docName, rawHeading) => {
     // Gemini embeds the exact page number in citations: "Clause 5.3 [p.12]"
@@ -1390,8 +1427,14 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         base64 = pdfData.base64;
       }
       if (!base64) { alert("Could not load the PDF."); return; }
+      let clausePage = null;
+      try {
+        clausePage = await findPageByClauseNumber(base64, resolved.fileName, heading);
+      } catch (e) {
+        console.warn("Clause-number page search failed, falling back to index:", e.message);
+      }
       const indexPage = findPageInVaultIndex(resolved.fileName, heading);
-      setCitationViewer({ base64, fileName: resolved.fileName, page: indexPage || explicitPage || resolved.page || 1, heading });
+      setCitationViewer({ base64, fileName: resolved.fileName, page: clausePage || indexPage || explicitPage || resolved.page || 1, heading });
     } catch (e) {
       alert("Failed to load PDF: " + e.message);
     }
