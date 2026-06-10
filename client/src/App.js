@@ -821,7 +821,10 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
           d.name.includes(selectedDoc.docName) ||
           selectedDoc.docName.includes(d.name)
         );
-        if (!indexDoc) return;
+        if (!indexDoc) {
+          console.log(`[GeneralProv] No vault index match for selected doc "${selectedDoc.docName}"`);
+          return;
+        }
 
         // Pages with >8 headings are almost certainly TOC/contents pages — skip them
         const pageFreq = {};
@@ -835,10 +838,19 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         sortedHeadings.forEach((h, idx) => {
           const title = (h.title || "").trim();
           if (!/\bgeneral\b/i.test(title)) return;
-          if ((h.level || 1) > 2) return;
-          if (crowdedPages.has(h.pageHint)) return;
+          if ((h.level || 1) > 2) {
+            console.log(`[GeneralProv] REJECTED (level ${h.level}): "${title}" p.${h.pageHint} in "${indexDoc.name}"`);
+            return;
+          }
+          if (crowdedPages.has(h.pageHint)) {
+            console.log(`[GeneralProv] REJECTED (TOC-like page): "${title}" p.${h.pageHint} in "${indexDoc.name}"`);
+            return;
+          }
           const titleKey = title.toLowerCase().trim();
-          if (seenTitles.has(titleKey)) return;
+          if (seenTitles.has(titleKey)) {
+            console.log(`[GeneralProv] REJECTED (duplicate title): "${title}" p.${h.pageHint} in "${indexDoc.name}"`);
+            return;
+          }
           seenTitles.add(titleKey);
 
           const startPage = h.pageHint || 1;
@@ -847,11 +859,15 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
             (h2.level || 1) <= (h.level || 1) && !crowdedPages.has(h2.pageHint)
           );
           const endPage = nextAnchor ? nextAnchor.pageHint - 1 : startPage + 30;
+          console.log(`[GeneralProv] ACCEPTED: "${title}" (level ${h.level || 1}) pages ${startPage}–${Math.max(startPage, endPage)} in "${indexDoc.name}"`);
 
           if (!generalSectionsByDoc[selectedDoc.docName]) generalSectionsByDoc[selectedDoc.docName] = new Set();
           for (let p = startPage; p <= Math.max(startPage, endPage); p++) generalSectionsByDoc[selectedDoc.docName].add(p);
         });
       });
+      if (Object.keys(generalSectionsByDoc).length === 0) {
+        console.log("[GeneralProv] No general sections found in any selected document");
+      }
 
       // ── Replace Gemini page estimates with accurate vault-index page numbers ─────
       // The vault index stores physical [Page X] numbers from mupdf — far more
@@ -1089,10 +1105,14 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         const matchedContent = contentsData.find(d =>
           d.pdf.name.includes(docName) || docName.includes(d.pdf.name)
         );
-        if (!matchedContent) return;
+        if (!matchedContent) {
+          console.log(`[GeneralProv] Could not match "${docName}" to a loaded PDF — general pages NOT added`);
+          return;
+        }
         const key = matchedContent.pdf.name;
         if (!docPageMap[key]) docPageMap[key] = { contentsDoc: matchedContent, pages: new Set() };
         pages.forEach(p => docPageMap[key].pages.add(p));
+        console.log(`[GeneralProv] Added general pages to "${key}": ${[...pages].sort((a, b) => a - b).join(", ")}`);
       });
 
       const docBlocks = [];
@@ -1105,6 +1125,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         try {
           const result = await api("/api/extract-pages", { method: "POST", body: { base64: contentsDoc.base64, pages: pageList } });
           totalPagesExtracted += result.pagesExtracted;
+          console.log(`[GeneralProv] Final pages sent to Gemini for "${docName}": ${result.pageNumbers.join(", ")}`);
           docBlocks.push({
             type: "document",
             source: { type: "base64", media_type: "application/pdf", data: result.base64 },
@@ -1210,22 +1231,37 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
     });
     if (!indexDoc?.headings?.length) return null;
 
+    // Type-aware candidate set: a citation for "Diagram 3.1" must only match
+    // index headings that are themselves a Diagram/Table/Figure — never plain
+    // section "3.1", which starts on a different page. Citations without a
+    // type word skip diagram/table/figure headings for the same reason.
+    // diagram/figure/fig are treated as one type (documents vary in naming).
+    const typeOf = (s, anchored) => {
+      const m = (s || "").match(anchored ? /^\s*(diagram|table|figure|fig)\b/i : /\b(diagram|table|figure|fig)\b/i);
+      if (!m) return null;
+      const t = m[1].toLowerCase();
+      return t === "table" ? "table" : "figure";
+    };
+    const citType = typeOf(headingText, false);
+    const candidates = indexDoc.headings.filter(h => typeOf(h.title, true) === citType);
+    if (!candidates.length) return null;
+
     // Level 1: exact case-insensitive match
     const target = headingText.toLowerCase().trim();
-    let h = indexDoc.headings.find(h => h.title.toLowerCase().trim() === target);
+    let h = candidates.find(h => h.title.toLowerCase().trim() === target);
     if (h?.pageHint) return h.pageHint;
 
     // Level 2: normalised match — keep dots (preserves "5.3"), strip other special chars
     const norm = s => s.toLowerCase().replace(/[^a-z0-9.\s]/g, " ").replace(/\s+/g, " ").trim();
     const nt = norm(headingText);
-    h = indexDoc.headings.find(h => norm(h.title) === nt);
+    h = candidates.find(h => norm(h.title) === nt);
     if (h?.pageHint) return h.pageHint;
 
     // Level 3: clause number prefix match — "5.3", "B3", "K2", "AD-B3" etc.
     const cnMatch = headingText.match(/\b([A-Z]?\d[\d.]*[A-Za-z]?)\b/i);
     if (cnMatch) {
       const cn = cnMatch[1].toLowerCase();
-      h = indexDoc.headings.find(h => {
+      h = candidates.find(h => {
         const m = h.title.match(/\b([A-Z]?\d[\d.]*[A-Za-z]?)\b/i);
         return m && m[1].toLowerCase() === cn;
       });
@@ -1236,7 +1272,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
     const sigWords = s => s.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/).filter(w => w.length > 3);
     const tw = sigWords(headingText);
     if (tw.length >= 2) {
-      h = indexDoc.headings.find(h => {
+      h = candidates.find(h => {
         const hw = sigWords(h.title);
         return tw.every(w => hw.includes(w));
       });
