@@ -825,14 +825,34 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         return null;
       };
 
+      // Gemini sometimes wraps long heading strings onto a second line — a raw
+      // newline inside a JSON string literal is illegal and kills the whole parse.
+      // Replace control characters that appear INSIDE quoted strings with a space;
+      // everything outside strings (the JSON's own formatting) is untouched.
+      const sanitizeJsonControlChars = (s) => {
+        let out = "", inStr = false, escaped = false;
+        for (const c of s) {
+          if (inStr) {
+            if (escaped) { out += c; escaped = false; continue; }
+            if (c === "\\") { out += c; escaped = true; continue; }
+            if (c === '"') { out += c; inStr = false; continue; }
+            if (c.charCodeAt(0) < 32) { out += " "; continue; }
+            out += c; continue;
+          }
+          if (c === '"') inStr = true;
+          out += c;
+        }
+        return out;
+      };
+
       let scoring = { selectedDocs: [] };
       let scoringParseError = null;
+      const cleanScoringText = sanitizeJsonControlChars(scoringText.replace(/```json|```/g, "").trim());
       try {
-        const clean = scoringText.replace(/```json|```/g, "").trim();
-        scoring = JSON.parse(clean);
+        scoring = JSON.parse(cleanScoringText);
       } catch (e1) {
         scoringParseError = e1.message;
-        const m = scoringText.match(/\{[\s\S]*\}/);
+        const m = cleanScoringText.match(/\{[\s\S]*\}/);
         if (m) try { scoring = JSON.parse(m[0]); scoringParseError = null; } catch {}
       }
 
@@ -840,7 +860,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         console.warn(`[Scoring] Parse failed: ${scoringParseError}`);
         console.warn(`[Scoring] Response length: ${scoringText.length} chars`);
         console.warn(`[Scoring] Response tail: …${scoringText.slice(-300)}`);
-        const salvaged = salvageScoring(scoringText.replace(/```json|```/g, "").trim());
+        const salvaged = salvageScoring(cleanScoringText);
         if (salvaged) {
           const sectionCount = salvaged.selectedDocs.reduce((n, d) => n + (d.sections?.length || 0), 0);
           console.warn(`[Scoring] Salvaged truncated response: ${salvaged.selectedDocs.length} docs, ${sectionCount} sections recovered`);
