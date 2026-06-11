@@ -322,6 +322,7 @@ app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => 
     }, 240000);
 
     let response;
+    let payloadMB = "?";
     try {
       const generationConfig = {
         maxOutputTokens: max_tokens || 65000,
@@ -331,11 +332,13 @@ app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => 
         generationConfig.thinkingConfig = { thinkingBudget: 0 };
       }
 
+      const payload = JSON.stringify({ contents, generationConfig });
+      payloadMB = (Buffer.byteLength(payload) / 1048576).toFixed(1);
       response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
-        body: JSON.stringify({ contents, generationConfig }),
+        body: payload,
       });
     } finally {
       clearTimeout(timeoutId);
@@ -343,7 +346,7 @@ app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => 
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error("Gemini error:", errText);
+      console.error(`Gemini error (payload ${payloadMB} MB):`, errText);
       return res.status(502).json({ error: "AI service error — please try again." });
     }
 

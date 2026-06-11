@@ -6,39 +6,87 @@ async function run() {
   const srcDoc = new mupdf.PDFDocument(pdfBuffer);
   const totalPages = srcDoc.countPages();
 
-  // Scan the live document text for "General …" heading lines (e.g. "General
-  // provisions", "1.1 General") so governing sections are always extracted —
-  // the stored vault index collapses duplicate titles and cannot be trusted to
-  // list every occurrence. A heading-like line starts with an optional clause
-  // number then "General", is short, and does not end in a digit (which would
-  // be a table-of-contents line). Each hit pulls in its page + the next page.
+  const validPages = pageList.filter(p => p <= totalPages);
+  const pageSet = new Set(validPages);
+
+  // ── General provisions scan ──────────────────────────────────────────────────
+  // Finds "General …" section headings in the live document text so governing
+  // sections are always extracted — the stored vault index collapses duplicate
+  // titles (e.g. AD Part M's several "General provisions" sections) and cannot
+  // be trusted to list every occurrence.
+  //
+  // A line only counts as a heading if it LOOKS like one typographically: bold,
+  // or noticeably larger than the document's body text size. This rejects body
+  // sentences ("General guidance is given in…") and table rows regardless of
+  // wording. Hits are ranked by proximity to the already-requested pages (the
+  // general provisions twin in the same chapter as the relevant content wins)
+  // and capped so the Gemini request can never balloon past its size limit.
   const generalSections = [];
-  const generalPages = new Set();
   if (scanGeneral) {
-    const headingRe = /^(?:\d+(?:\.\d+)*\s+)?(?:General|GENERAL)\b[^\r\n]{0,40}(?<![\d.])$/;
-    for (let i = 0; i < totalPages && generalSections.length < 12; i++) {
-      let text = "";
+    const GENERAL_PAGE_CAP = 12;
+    const headingTextRe = /^(?:\d+(?:\.\d+)*\s+)?(?:General|GENERAL)\b[^\r\n]{0,40}(?<![\d.])$/;
+
+    // Collect every text line with its font info; track size frequency
+    const allLines = []; // { page, text, size, bold }
+    const sizeFreq = {};
+    for (let i = 0; i < totalPages; i++) {
+      let json;
       try {
-        text = srcDoc.loadPage(i).toStructuredText("preserve-whitespace").asText();
+        json = JSON.parse(srcDoc.loadPage(i).toStructuredText("preserve-whitespace").asJSON());
       } catch (_) { continue; }
-      for (const line of text.split("\n")) {
-        const trimmed = line.trim();
-        if (headingRe.test(trimmed)) {
-          generalSections.push({ page: i + 1, title: trimmed });
-          generalPages.add(i + 1);
-          if (i + 2 <= totalPages) generalPages.add(i + 2);
-          break; // one hit marks the page — no need to scan further lines
+      for (const block of json.blocks || []) {
+        for (const line of block.lines || []) {
+          const text = (line.text || "").trim();
+          if (!text) continue;
+          const size = line.font?.size || 0;
+          const bold = line.font?.weight === "bold" || /bold/i.test(line.font?.name || "");
+          allLines.push({ page: i + 1, text, size, bold });
+          const k = Math.round(size * 2) / 2;
+          sizeFreq[k] = (sizeFreq[k] || 0) + 1;
         }
       }
     }
+
+    // Body text size = the most common line size in the document
+    let bodySize = 10, bestCount = 0;
+    for (const [k, n] of Object.entries(sizeFreq)) {
+      if (n > bestCount) { bestCount = n; bodySize = Number(k); }
+    }
+
+    // Candidate headings: "General…" lines that look like headings
+    const candidates = [];
+    const seenPages = new Set();
+    for (const l of allLines) {
+      if (!headingTextRe.test(l.text)) continue;
+      if (!(l.bold || l.size >= bodySize * 1.2)) continue;
+      if (seenPages.has(l.page)) continue; // one hit marks the page
+      seenPages.add(l.page);
+      const dist = validPages.length
+        ? Math.min(...validPages.map(p => Math.abs(p - l.page)))
+        : 0;
+      candidates.push({ page: l.page, title: l.text, dist });
+    }
+
+    // Nearest to already-requested pages first; each hit pulls in its page +
+    // the next page (clause blocks roll over). Pages already requested are
+    // free — only newly added pages count toward the cap.
+    candidates.sort((a, b) => a.dist - b.dist);
+    let added = 0;
+    for (const c of candidates) {
+      const wanted = [c.page, c.page + 1].filter(p => p <= totalPages);
+      const newPages = wanted.filter(p => !pageSet.has(p));
+      if (newPages.length > 0 && added + newPages.length > GENERAL_PAGE_CAP) continue;
+      newPages.forEach(p => { pageSet.add(p); added++; });
+      generalSections.push({ page: c.page, title: c.title });
+    }
+    generalSections.sort((a, b) => a.page - b.page);
   }
 
-  const validPages = pageList.filter(p => p <= totalPages);
-  if (validPages.length === 0 && generalPages.size === 0) {
+  const mergedPages = [...pageSet].sort((a, b) => a - b);
+  if (mergedPages.length === 0) {
     parentPort.postMessage({ error: "no-valid-pages" });
     return;
   }
-  const mergedPages = [...new Set([...validPages, ...generalPages])].sort((a, b) => a - b);
   const outDoc = new mupdf.PDFDocument();
   for (const pageNum of mergedPages) {
     const graftMap = outDoc.newGraftMap();
