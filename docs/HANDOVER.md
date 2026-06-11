@@ -60,11 +60,17 @@ Specific routes before wildcard `:id` routes. E.g. `/api/expenses/settings` befo
 ### Resend lazy singleton
 `getResend()` returns `null` if `RESEND_API_KEY` not set — `sendEmail()` skips silently. Before deploying timesheets/expenses: set both `RESEND_API_KEY` and `RESEND_FROM` on Railway. Use `onboarding@resend.dev` as `RESEND_FROM` until custom domain is ready.
 
+### Q&A pipeline robustness (2026-06-11, working — do not regress)
+- **Pass 1 JSON parsing**: Gemini wraps long heading strings onto a second line (raw newline inside a JSON string literal = illegal). `sanitizeJsonControlChars` cleans inside-string control chars before parse; `salvageScoring` recovers truncated JSON by closing brackets. Both inside `askQuestion()`. Failure-only `[Scoring]` console.warn diagnostics — keep them.
+- **General provisions**: found server-side by the extract-pages worker (`scanGeneral: true` in the request body). It scans live document text for "General …" headings using font info (mupdf `toStructuredText().asJSON()` — a line counts only if **bold or ≥1.2× body text size**), ranks hits by proximity to requested pages, caps at +12 pages/doc, returns `generalSections[{page,title}]`. Client appends titles to PRIORITY SECTIONS in Pass 3 — without that, Gemini ignores the extra pages. **Do not source general provisions from the vault index** — old stored indexes collapsed duplicate heading titles, losing the twins (dedupe is fixed to title@page for future indexing).
+- **Gemini hard limit**: ~20MB request. `400 INVALID_ARGUMENT` = payload too big. `/api/claude` error log includes payload MB.
+- **Citation click → page resolution** (3 tiers in `handleCitationClick`): (1) `findPageByClauseNumber` — text-search the PDF for a line-anchored clause number (3.36, B1); paragraph numbers are unique per document so this beats heading matching (AD Part M has identical "General provisions" headings in M4(2) and M4(3)); doc text cached in `docTextCacheRef`. (2) `findPageInVaultIndex` — 4-level heading match, type-aware: Diagram/Table/Figure citations only match same-type index headings. (3) `citationPageMap` fallback.
+
 ---
 
-## Outstanding issues (as of 2026-06-07)
+## Outstanding issues (as of 2026-06-11)
 
-1. **General provisions scoring** — code injection deployed 2026-06-07; awaiting test confirmation
+1. **Q&A pipeline soak testing** — general provisions, citation pages (incl. diagrams) all verified working 2026-06-11 on single questions; owner is testing more broadly across vaults/questions
 2. **Multi-clause blocks not combining** (LOW) — same-subject clauses across sections still separate citation blocks
 3. **Wide table extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column structure
 4. **Email work** (PARKED) — summaries not stored in DB; relevance threshold (0.35) needs tuning

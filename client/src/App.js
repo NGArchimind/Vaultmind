@@ -1125,9 +1125,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
           totalPagesExtracted += result.pagesExtracted;
           (result.generalSections || []).forEach(gs => {
             generalSectionTitles.push(`${docName}: ${gs.title} (p.${gs.page})`);
-            console.log(`[GeneralProv] Server scan found "${gs.title}" p.${gs.page} in "${docName}"`);
           });
-          console.log(`[GeneralProv] Final pages sent to Gemini for "${docName}": ${result.pageNumbers.join(", ")}`);
           docBlocks.push({
             type: "document",
             source: { type: "base64", media_type: "application/pdf", data: result.base64 },

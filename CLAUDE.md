@@ -49,9 +49,11 @@ Logic-only (do not remove): `BOILERPLATE_HEADINGS`, `isBoilerplate`, `AD_GREEN_F
 
 All logic in `askQuestion()`:
 
-**Pass 1** (~line 747): Sends vault heading index to Gemini → JSON of relevant sections with page hints.
-**Pass 2** (~line 856): Fetches PDFs from R2, extracts relevant pages only.
-**Pass 3** (~line 1027): Sends extracted pages to Gemini with `answerPrompt` → final formatted answer.
+**Pass 1**: Sends vault heading index to Gemini → JSON of relevant sections with page hints. Response is sanitised + salvage-parsed (Gemini emits illegal newlines inside JSON strings).
+**Pass 2**: Fetches PDFs from R2, extracts relevant pages via `/api/extract-pages` with `scanGeneral: true` — the server worker font-scans the live text for "General …" headings and includes those pages automatically.
+**Pass 3**: Sends extracted pages to Gemini with `answerPrompt` → final formatted answer. General provisions titles are appended to PRIORITY SECTIONS.
+
+Details + invariants in `docs/HANDOVER.md` → "Q&A pipeline robustness".
 
 **`answerPrompt`** is one very long single-line string — the Edit tool cannot reliably match it. Use a Python replacement script. See `docs/HANDOVER.md` for the pattern.
 
@@ -66,8 +68,7 @@ Citation format: `*Exact Filename | Clause title*` — must use exact filename f
 
 ## Citation system
 
-`citationPageMap` state: keys = `docName` and `docName||heading`, values = `{ page, vaultId, fileName }`.
-`handleCitationClick` uses 3-level fuzzy matching: exact key → part-letter extraction → normalised overlap.
+`handleCitationClick` resolves the page in 3 tiers: clause-number text search (definitive) → vault index heading match (type-aware for Diagram/Table/Figure) → `citationPageMap` fallback. See `docs/HANDOVER.md` → "Q&A pipeline robustness".
 PDF viewer: inline iframe, PDF.js CDN v3.11.174.
 
 ---
