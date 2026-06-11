@@ -473,10 +473,14 @@ export default function App() {
     };
 
     const dedupe = (headings) => {
+      // Key includes the page so repeated titles on DIFFERENT pages are all kept —
+      // documents like AD Part M have several sections titled "General provisions"
+      // and collapsing them loses real headings. Only true duplicates (same title,
+      // same page — e.g. from overlapping indexing chunks) are removed.
       const map = {};
       for (const h of headings) {
-        const key = h.title.toLowerCase().trim();
-        if (!map[key] || h.pageHint > map[key].pageHint) map[key] = h;
+        const key = `${h.title.toLowerCase().trim()}@p${h.pageHint || 1}`;
+        if (!map[key]) map[key] = h;
       }
       return Object.values(map);
     };
@@ -872,71 +876,13 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         console.warn("Scoring returned empty — raw response:", scoringText.slice(0, 500));
       }
 
-      // ── Track general provisions sections for unconditional extraction ───────────
-      // Scans level-1/2 headings containing "general" across every selected document.
-      // Skips headings on TOC-like pages (>8 headings on that page = crowded).
-      // Calculates each section's full extent (start → page before next same-or-higher-
-      // level heading) and stores all pages for extraction AFTER budget allocation,
-      // so general provisions never crowd out Gemini-scored relevant sections.
-      // Looks across the ENTIRE document — general provisions at the front are always
-      // captured even when scored sections are deep in the document.
-      const generalSectionsByDoc = {}; // selectedDoc.docName → Set<pageNum>
-      const generalSectionTitles = []; // "docName: title (p.X)" — added to PRIORITY SECTIONS so Pass 3 actually reads them
-
-      (scoring.selectedDocs || []).forEach(selectedDoc => {
-        const indexDoc = (activeIndex.documents || []).find(d =>
-          d.name === selectedDoc.docName ||
-          d.name.includes(selectedDoc.docName) ||
-          selectedDoc.docName.includes(d.name)
-        );
-        if (!indexDoc) {
-          console.log(`[GeneralProv] No vault index match for selected doc "${selectedDoc.docName}"`);
-          return;
-        }
-
-        // Pages with >8 headings are almost certainly TOC/contents pages — skip them
-        const pageFreq = {};
-        (indexDoc.headings || []).forEach(h => { const p = h.pageHint || 1; pageFreq[p] = (pageFreq[p] || 0) + 1; });
-        const crowdedPages = new Set(Object.entries(pageFreq).filter(([, n]) => n > 8).map(([p]) => Number(p)));
-
-        // Sort headings ascending by page so section-end calculation is straightforward
-        const sortedHeadings = [...(indexDoc.headings || [])].sort((a, b) => (a.pageHint || 1) - (b.pageHint || 1));
-        const seenTitles = new Set();
-
-        sortedHeadings.forEach((h, idx) => {
-          const title = (h.title || "").trim();
-          if (!/\bgeneral\b/i.test(title)) return;
-          // No level filter: the indexer files "General provisions" headings at
-          // levels 4–6 (confirmed in testing), so depth says nothing about relevance.
-          if (crowdedPages.has(h.pageHint)) {
-            console.log(`[GeneralProv] REJECTED (TOC-like page): "${title}" p.${h.pageHint} in "${indexDoc.name}"`);
-            return;
-          }
-          const titleKey = title.toLowerCase().trim();
-          if (seenTitles.has(titleKey)) {
-            console.log(`[GeneralProv] REJECTED (duplicate title): "${title}" p.${h.pageHint} in "${indexDoc.name}"`);
-            return;
-          }
-          seenTitles.add(titleKey);
-
-          const startPage = h.pageHint || 1;
-          // End at the page before the next heading at same or higher level —
-          // but always include at least the following page, since clause blocks
-          // routinely roll over onto the next page.
-          const nextAnchor = sortedHeadings.slice(idx + 1).find(h2 =>
-            (h2.level || 1) <= (h.level || 1) && !crowdedPages.has(h2.pageHint)
-          );
-          const endPage = nextAnchor ? Math.max(nextAnchor.pageHint - 1, startPage + 1) : startPage + 30;
-          console.log(`[GeneralProv] ACCEPTED: "${title}" (level ${h.level || 1}) pages ${startPage}–${Math.max(startPage, endPage)} in "${indexDoc.name}"`);
-          generalSectionTitles.push(`${selectedDoc.docName}: ${title} (p.${startPage})`);
-
-          if (!generalSectionsByDoc[selectedDoc.docName]) generalSectionsByDoc[selectedDoc.docName] = new Set();
-          for (let p = startPage; p <= Math.max(startPage, endPage); p++) generalSectionsByDoc[selectedDoc.docName].add(p);
-        });
-      });
-      if (Object.keys(generalSectionsByDoc).length === 0) {
-        console.log("[GeneralProv] No general sections found in any selected document");
-      }
+      // ── General provisions: discovered server-side during page extraction ────────
+      // The stored vault index collapses duplicate heading titles (e.g. the several
+      // "General provisions" sections in AD Part M), so it cannot be trusted to list
+      // every occurrence. Instead the extract-pages worker scans the live document
+      // text for "General …" heading lines and includes those pages automatically.
+      // Titles are collected here and added to PRIORITY SECTIONS so Pass 3 reads them.
+      const generalSectionTitles = []; // "docName: title (p.X)"
 
       // ── Replace Gemini page estimates with accurate vault-index page numbers ─────
       // The vault index stores physical [Page X] numbers from mupdf — far more
@@ -1167,23 +1113,6 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         if (val.pages.size === 0) { for (let i = 1; i <= 5; i++) val.pages.add(i); }
       });
 
-      // ── Add general provisions pages unconditionally (outside budget) ────────────
-      // Added after budget allocation so they never displace scored sections.
-      // Covers sections anywhere in the document — including those before scored pages.
-      Object.entries(generalSectionsByDoc).forEach(([docName, pages]) => {
-        const matchedContent = contentsData.find(d =>
-          d.pdf.name.includes(docName) || docName.includes(d.pdf.name)
-        );
-        if (!matchedContent) {
-          console.log(`[GeneralProv] Could not match "${docName}" to a loaded PDF — general pages NOT added`);
-          return;
-        }
-        const key = matchedContent.pdf.name;
-        if (!docPageMap[key]) docPageMap[key] = { contentsDoc: matchedContent, pages: new Set() };
-        pages.forEach(p => docPageMap[key].pages.add(p));
-        console.log(`[GeneralProv] Added general pages to "${key}": ${[...pages].sort((a, b) => a - b).join(", ")}`);
-      });
-
       const docBlocks = [];
       let totalPagesExtracted = 0;
 
@@ -1192,8 +1121,12 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         const pageList = Array.from(pages).sort((a, b) => a - b);
         if (pageList.length === 0) continue;
         try {
-          const result = await api("/api/extract-pages", { method: "POST", body: { base64: contentsDoc.base64, pages: pageList } });
+          const result = await api("/api/extract-pages", { method: "POST", body: { base64: contentsDoc.base64, pages: pageList, scanGeneral: true } });
           totalPagesExtracted += result.pagesExtracted;
+          (result.generalSections || []).forEach(gs => {
+            generalSectionTitles.push(`${docName}: ${gs.title} (p.${gs.page})`);
+            console.log(`[GeneralProv] Server scan found "${gs.title}" p.${gs.page} in "${docName}"`);
+          });
           console.log(`[GeneralProv] Final pages sent to Gemini for "${docName}": ${result.pageNumbers.join(", ")}`);
           docBlocks.push({
             type: "document",

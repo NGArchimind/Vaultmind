@@ -650,7 +650,7 @@ app.post("/api/extract-text", requireAuth, rateLimit(30, 60_000), async (req, re
 // mupdf runs in a worker thread so that WASM abort() only kills the worker,
 // not the main process. pdf-lib is the fallback if the worker fails.
 app.post("/api/extract-pages", requireAuth, rateLimit(30, 60_000), async (req, res) => {
-  const { base64, pages } = req.body;
+  const { base64, pages, scanGeneral } = req.body;
   if (!base64 || !pages || !Array.isArray(pages)) {
     return res.status(400).json({ error: "base64 and pages array required" });
   }
@@ -663,7 +663,7 @@ app.post("/api/extract-pages", requireAuth, rateLimit(30, 60_000), async (req, r
   try {
     const result = await new Promise((resolve, reject) => {
       const worker = new Worker(path.join(__dirname, "workers/extractPages.worker.js"), {
-        workerData: { pdfBuffer: pdfBytes, pageList },
+        workerData: { pdfBuffer: pdfBytes, pageList, scanGeneral: !!scanGeneral },
       });
       worker.once("message", msg => msg.error ? reject(new Error(msg.error)) : resolve(msg));
       worker.once("error", reject);
