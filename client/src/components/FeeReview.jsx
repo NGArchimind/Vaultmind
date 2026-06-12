@@ -8,7 +8,15 @@ import { DESIGN_GROUND, DESIGN_TEXT, TIMESHEETS_FULL, COMPARE_FULL } from "../co
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
 
-function isoDate(d) { return d.toISOString().split("T")[0]; }
+// Build YYYY-MM-DD from the LOCAL calendar date — never via UTC.
+// toISOString() converts to UTC first, which shifts the date back a day
+// when the UK is on British Summer Time (midnight Mon local = 23:00 Sun UTC).
+function isoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 function getMonday(dateStr) {
   const d = new Date(dateStr);
