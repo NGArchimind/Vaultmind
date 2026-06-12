@@ -307,6 +307,7 @@ export default function App() {
   };
 
   const isAdmin = userRole === "admin";
+  const isHr    = userRole === "hr";
 
   const vault = useMemo(() => {
     for (const v of vaults) {
@@ -1568,7 +1569,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         {appSection === "compare"  && isAdmin && <CompareSection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
         {appSection === "library"  && isAdmin && <DatasheetsLibrarySection key={sectionKey} vaults={vaults} isAdmin={isAdmin} />}
         {appSection === "projects" && isAdmin && <ProjectsSection key={sectionKey} isAdmin={isAdmin} />}
-        {appSection === "timesheets" && <TimesheetsSection key={sectionKey} isAdmin={isAdmin} />}
+        {appSection === "timesheets" && <TimesheetsSection key={sectionKey} isAdmin={isAdmin} isHr={isHr} />}
         {appSection === "schedule" && isAdmin && <ScheduleSection key={sectionKey} />}
         {appSection === "admin" && isAdmin && <AdminSection key={sectionKey} />}
 

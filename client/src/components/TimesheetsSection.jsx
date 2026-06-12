@@ -568,7 +568,7 @@ function NotificationSettings() {
 
 // ── Admin review panel ────────────────────────────────────────────────────────
 
-function AdminPanel({ projects }) {
+function AdminPanel({ projects, isAdmin }) {
   const [submissions,     setSubmissions]     = useState([]);
   const [users,           setUsers]           = useState([]);
   const [expanded,        setExpanded]        = useState(null);
@@ -653,23 +653,26 @@ function AdminPanel({ projects }) {
     <div style={{ padding: "0 32px 32px" }}>
       {toast && <div style={{ position: "fixed", bottom: 24, right: 24, background: DESIGN_TEXT, color: "#fff", padding: "10px 20px", fontSize: 13, zIndex: 9999 }}>{toast}</div>}
 
-      {/* Admin view toggle */}
-      <div style={{ padding: "16px 0 0", display: "flex", gap: 0, marginBottom: 16 }}>
-        {["timesheets", "expenses"].map(v => (
-          <button key={v} onClick={() => setAdminView(v)}
-            style={{
-              fontSize: 12, padding: "7px 20px", border: `1px solid ${TIMESHEETS_FULL}`,
-              background: adminView === v ? TIMESHEETS_FULL : "#fff",
-              color: adminView === v ? "#fff" : TIMESHEETS_FULL,
-              cursor: "pointer", fontWeight: 600, textTransform: "capitalize",
-              marginRight: v === "timesheets" ? -1 : 0,
-            }}>
-            {v}
-          </button>
-        ))}
-      </div>
-
-      <NotificationSettings />
+      {/* Admin-only: view toggle (timesheets/expenses) + notification settings. HR sees timesheets only. */}
+      {isAdmin && (
+        <>
+          <div style={{ padding: "16px 0 0", display: "flex", gap: 0, marginBottom: 16 }}>
+            {["timesheets", "expenses"].map(v => (
+              <button key={v} onClick={() => setAdminView(v)}
+                style={{
+                  fontSize: 12, padding: "7px 20px", border: `1px solid ${TIMESHEETS_FULL}`,
+                  background: adminView === v ? TIMESHEETS_FULL : "#fff",
+                  color: adminView === v ? "#fff" : TIMESHEETS_FULL,
+                  cursor: "pointer", fontWeight: 600, textTransform: "capitalize",
+                  marginRight: v === "timesheets" ? -1 : 0,
+                }}>
+                {v}
+              </button>
+            ))}
+          </div>
+          <NotificationSettings />
+        </>
+      )}
 
       {adminView === "timesheets" && (
         <>
@@ -799,14 +802,15 @@ function AdminPanel({ projects }) {
         </>
       )}
 
-      {adminView === "expenses" && <AdminExpensesPanel users={users} />}
+      {isAdmin && adminView === "expenses" && <AdminExpensesPanel users={users} />}
     </div>
   );
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function TimesheetsSection({ isAdmin }) {
+export default function TimesheetsSection({ isAdmin, isHr }) {
+  const canReview = isAdmin || isHr; // admin or HR can review all staff timesheets
   const [subView,    setSubView]    = useState(null); // null | "history" | "report" | "fee"
   const [view,       setView]       = useState("mine");
   const [monday,     setMonday]     = useState(getMonday(new Date()));
@@ -985,7 +989,7 @@ export default function TimesheetsSection({ isAdmin }) {
   // Render sub-views first
   if (subView === "history") return <TimesheetHistory onBack={() => setSubView(null)} />;
   if (subView === "report")  return <TimesheetReport  onBack={() => setSubView(null)} />;
-  if (subView === "fee")     return <FeeReview        onBack={() => setSubView(null)} />;
+  if (subView === "fee" && isAdmin) return <FeeReview onBack={() => setSubView(null)} />;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
@@ -1041,17 +1045,19 @@ export default function TimesheetsSection({ isAdmin }) {
               style={{ ...btnBase, background: "#fff", color: TIMESHEETS_FULL, border: `1px solid ${TIMESHEETS_FULL}`, padding: "5px 16px", fontSize: 12 }}>
               View History
             </button>
-            {/* Admin: Reports button + My/Admin toggle */}
-            {isAdmin && (
+            {/* Admin/HR: Reports button + My/Admin toggle (Fee Review is admin-only) */}
+            {canReview && (
               <>
                 <button onClick={() => setSubView("report")}
                   style={{ ...btnBase, background: DESIGN_TEXT, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
                   Reports & Analytics
                 </button>
-                <button onClick={() => setSubView("fee")}
-                  style={{ ...btnBase, background: COMPARE_FULL, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
-                  Fee Review
-                </button>
+                {isAdmin && (
+                  <button onClick={() => setSubView("fee")}
+                    style={{ ...btnBase, background: COMPARE_FULL, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
+                    Fee Review
+                  </button>
+                )}
                 <div style={{ display: "flex", border: `1px solid ${TIMESHEETS_FULL}` }}>
                   {["mine", "admin"].map(v => (
                     <button key={v} onClick={() => setView(v)}
@@ -1090,7 +1096,7 @@ export default function TimesheetsSection({ isAdmin }) {
               <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: DESIGN_TEXT, letterSpacing: "0.04em", textTransform: "uppercase" }}>Staff Timesheets</h3>
               <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6a8a9a" }}>Review and approve submitted timesheets. Click a row to expand and amend entries.</p>
             </div>
-            <AdminPanel projects={projects} />
+            <AdminPanel projects={projects} isAdmin={isAdmin} />
           </>
         ) : (
           <>

@@ -441,6 +441,7 @@ export default function AdminSection() {
             style={{ ...inputStyle(false), cursor: "pointer" }}>
             <option value="user">User</option>
             <option value="admin">Admin</option>
+            <option value="hr">HR</option>
           </select>
           {addError && <p style={{ color: ARC_TERRACOTTA, fontSize: 12, marginBottom: 12 }}>{addError}</p>}
           <button onClick={handleAddUser} disabled={adding}
@@ -474,6 +475,7 @@ export default function AdminSection() {
                 style={{ fontSize: 11, padding: "3px 6px", border: `1px solid ${u.role === "admin" ? ARC_TERRACOTTA : "#ccc"}`, color: u.role === "admin" ? ARC_TERRACOTTA : "#505a5f", background: "#fff", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif", fontWeight: u.role === "admin" ? 600 : 400, letterSpacing: "0.04em", textTransform: "uppercase" }}>
                 <option value="user">User</option>
                 <option value="admin">Admin</option>
+                <option value="hr">HR</option>
               </select>
               {updatingRole === u.id && <Spinner size={11} />}
             </div>

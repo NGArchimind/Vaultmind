@@ -356,6 +356,16 @@ async function requireAdmin(req, res, next) {
   next();
 }
 
+// Allows admins and HR. Use ONLY on timesheet-review endpoints — HR is walled
+// off from expenses, fees, user management and all other admin areas.
+function requireTimesheetManager(req, res, next) {
+  const role = req.user?.app_metadata?.role;
+  if (role !== "admin" && role !== "hr") {
+    return res.status(403).json({ error: "Forbidden — admin or HR only" });
+  }
+  next();
+}
+
 // ── Gemini AI proxy ───────────────────────────────────────────────────────────
 app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -3330,7 +3340,7 @@ app.delete("/api/projects/:id/products/:pid", requireAuth, async (req, res) => {
 
 // ── Admin routes ──────────────────────────────────────────────────────────────
 
-app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
+app.get("/api/admin/users", requireAuth, requireTimesheetManager, async (req, res) => {
   try {
     const { data, error } = await supabase.auth.admin.listUsers();
     if (error) throw error;
@@ -3349,7 +3359,7 @@ app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
 app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
   const { email, password, role } = req.body;
   if (!email || !password) return res.status(400).json({ error: "email and password required" });
-  const validRole = role === "admin" ? "admin" : "user";
+  const validRole = ["admin", "hr"].includes(role) ? role : "user";
   try {
     const { data, error } = await supabase.auth.admin.createUser({
       email,
@@ -3373,7 +3383,7 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
 
 app.patch("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) => {
   const { role } = req.body;
-  const validRole = role === "admin" ? "admin" : "user";
+  const validRole = ["admin", "hr"].includes(role) ? role : "user";
   try {
     const { data, error } = await supabase.auth.admin.updateUserById(req.params.uid, {
       app_metadata: { role: validRole },
@@ -4112,7 +4122,7 @@ app.delete("/api/timesheets/:id", requireAuth, async (req, res) => {
 // ── Admin timesheet routes ─────────────────────────────────────────────────────
 
 // GET /api/admin/timesheets/submissions  — must be before /:id
-app.get("/api/admin/timesheets/submissions", requireAuth, requireAdmin, async (req, res) => {
+app.get("/api/admin/timesheets/submissions", requireAuth, requireTimesheetManager, async (req, res) => {
   const { data, error } = await supabase
     .from("timesheet_submissions")
     .select("*")
@@ -4122,7 +4132,7 @@ app.get("/api/admin/timesheets/submissions", requireAuth, requireAdmin, async (r
 });
 
 // POST /api/admin/timesheets/approve
-app.post("/api/admin/timesheets/approve", requireAuth, requireAdmin, async (req, res) => {
+app.post("/api/admin/timesheets/approve", requireAuth, requireTimesheetManager, async (req, res) => {
   const { week, user_id } = req.body;
   if (!week || !user_id) return res.status(400).json({ error: "week and user_id required" });
   const { data, error } = await supabase
@@ -4136,7 +4146,7 @@ app.post("/api/admin/timesheets/approve", requireAuth, requireAdmin, async (req,
   res.json(data);
 });
 
-app.post("/api/admin/timesheets/reject", requireAuth, requireAdmin, async (req, res) => {
+app.post("/api/admin/timesheets/reject", requireAuth, requireTimesheetManager, async (req, res) => {
   const { week, user_id, reason } = req.body;
   if (!week || !user_id) return res.status(400).json({ error: "week and user_id required" });
   if (!reason?.trim()) return res.status(400).json({ error: "rejection reason required" });
@@ -4212,7 +4222,7 @@ app.post("/api/timesheets/unlock-request", requireAuth, rateLimit(5, 60_000), as
   res.json({ ok: true });
 });
 
-app.post("/api/admin/timesheets/unlock", requireAuth, requireAdmin, async (req, res) => {
+app.post("/api/admin/timesheets/unlock", requireAuth, requireTimesheetManager, async (req, res) => {
   const { week, user_id } = req.body;
   if (!week || !user_id) return res.status(400).json({ error: "week and user_id required" });
   const { error } = await supabase
@@ -4225,7 +4235,7 @@ app.post("/api/admin/timesheets/unlock", requireAuth, requireAdmin, async (req, 
 });
 
 // GET /api/admin/timesheets?user_id=&project_id=&week=&from=&to=
-app.get("/api/admin/timesheets", requireAuth, requireAdmin, async (req, res) => {
+app.get("/api/admin/timesheets", requireAuth, requireTimesheetManager, async (req, res) => {
   const { week, user_id, project_id, from, to } = req.query;
   let query = supabase
     .from("timesheets")
@@ -4246,7 +4256,7 @@ app.get("/api/admin/timesheets", requireAuth, requireAdmin, async (req, res) => 
 });
 
 // PATCH /api/admin/timesheets/:id
-app.patch("/api/admin/timesheets/:id", requireAuth, requireAdmin, async (req, res) => {
+app.patch("/api/admin/timesheets/:id", requireAuth, requireTimesheetManager, async (req, res) => {
   if ("hours" in req.body) {
     const err = validateTimesheetFields({ hours: req.body.hours });
     if (err) return res.status(400).json({ error: err });
