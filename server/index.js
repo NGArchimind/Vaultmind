@@ -39,7 +39,7 @@ async function sendEmail({ to, subject, html, text }) {
 async function getAdminEmails() {
   const { data } = await supabase.auth.admin.listUsers();
   return (data?.users || [])
-    .filter(u => u.user_metadata?.role === "admin")
+    .filter(u => u.app_metadata?.role === "admin")
     .map(u => u.email)
     .filter(Boolean);
 }
@@ -275,7 +275,8 @@ async function requireAuth(req, res, next) {
 }
 
 async function requireAdmin(req, res, next) {
-  const role = req.user?.user_metadata?.role;
+  // Role lives in app_metadata (server-only, not user-editable), never user_metadata.
+  const role = req.user?.app_metadata?.role;
   if (role !== "admin") {
     return res.status(403).json({ error: "Forbidden — admin only" });
   }
@@ -3263,7 +3264,7 @@ app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     const users = data.users.map(u => ({
       id: u.id,
       email: u.email,
-      role: u.user_metadata?.role || "user",
+      role: u.app_metadata?.role || "user",
       created_at: u.created_at,
     }));
     res.json({ users });
@@ -3280,7 +3281,7 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     const { data, error } = await supabase.auth.admin.createUser({
       email,
       password,
-      user_metadata: { role: validRole },
+      app_metadata: { role: validRole },
       email_confirm: true,
     });
     if (error) throw error;
@@ -3288,7 +3289,7 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
       user: {
         id: data.user.id,
         email: data.user.email,
-        role: data.user.user_metadata?.role || "user",
+        role: data.user.app_metadata?.role || "user",
         created_at: data.user.created_at,
       },
     });
@@ -3302,14 +3303,14 @@ app.patch("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) =
   const validRole = role === "admin" ? "admin" : "user";
   try {
     const { data, error } = await supabase.auth.admin.updateUserById(req.params.uid, {
-      user_metadata: { role: validRole },
+      app_metadata: { role: validRole },
     });
     if (error) throw error;
     res.json({
       user: {
         id: data.user.id,
         email: data.user.email,
-        role: data.user.user_metadata?.role || "user",
+        role: data.user.app_metadata?.role || "user",
       },
     });
   } catch (err) {
@@ -4301,7 +4302,7 @@ app.get("/api/expenses/:id/receipt", requireAuth, async (req, res) => {
   const { data: existing } = await supabase.from("project_expenses").select("user_id, receipt_key").eq("id", req.params.id).single();
   if (!existing?.receipt_key) return res.status(404).json({ error: "No receipt" });
   const isOwner = existing.user_id === req.user.id;
-  const isAdm   = req.user?.user_metadata?.role === "admin";
+  const isAdm   = req.user?.app_metadata?.role === "admin";
   if (!isOwner && !isAdm) return res.status(403).json({ error: "Not authorised" });
   try {
     const obj = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: existing.receipt_key }));

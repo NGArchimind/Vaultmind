@@ -58,7 +58,10 @@ Specific routes before wildcard `:id` routes. E.g. `/api/expenses/settings` befo
 - PDFs served as base64 through API (not presigned R2 URLs — CORS blocks direct R2 access)
 
 ### Resend lazy singleton
-`getResend()` returns `null` if `RESEND_API_KEY` not set — `sendEmail()` skips silently. Before deploying timesheets/expenses: set both `RESEND_API_KEY` and `RESEND_FROM` on Railway. Use `onboarding@resend.dev` as `RESEND_FROM` until custom domain is ready.
+`getResend()` returns `null` if `RESEND_API_KEY` not set — `sendEmail()` skips silently. Both `RESEND_API_KEY` and `RESEND_FROM` are set on Railway (2026-06-12): production sends from `Archimind <noreply@archimind.co.uk>`, staging from `admin@archimind.co.uk`. Domain is verified in Resend — any `@archimind.co.uk` address works as the from. **Send-only**: no inbound mail is set up, replies bounce (Cloudflare email forwarding is the future option if needed).
+
+### Custom domain + CORS (2026-06-12)
+`archimind.co.uk` bought on Cloudflare (DNS lives there); bare domain 308-redirects to `www.archimind.co.uk`; Vercel production = `main` branch. Old `.vercel.app` URLs still work. **Any new frontend origin (e.g. a staging-branch preview URL) must be added to `corsOptions.origin` in `server/index.js`** — symptom of a missing origin: page loads and login works, but vaults/data silently fail to load. Cloudflare DNS records for Vercel must stay "DNS only" (grey cloud). Share links use `window.location.origin` so they follow whatever domain the user is on. Outstanding: Supabase Auth → URL Configuration may still point at the old vercel.app address (affects password-reset/confirmation email links only).
 
 ### Q&A pipeline robustness (2026-06-11, working — do not regress)
 - **Pass 1 JSON parsing**: Gemini wraps long heading strings onto a second line (raw newline inside a JSON string literal = illegal). `sanitizeJsonControlChars` cleans inside-string control chars before parse; `salvageScoring` recovers truncated JSON by closing brackets. Both inside `askQuestion()`. Failure-only `[Scoring]` console.warn diagnostics — keep them.
@@ -76,5 +79,5 @@ Specific routes before wildcard `:id` routes. E.g. `/api/expenses/settings` befo
 3. **Wide table extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column structure
 4. **Email work** (PARKED) — summaries not stored in DB; relevance threshold (0.35) needs tuning
 5. **PDF Compare** (NEEDS TESTING) — image-based rewrite on Railway; needs first Revit schedule test
-6. **Timesheets/Expenses** (ON develop BRANCH) — needs `RESEND_API_KEY` + `RESEND_FROM` on Railway
-7. **Custom domain** — buy `archimind.co.uk`, point to Vercel, add Resend DNS
+6. **Timesheets/Expenses** — merged to `main` 2026-06-12; Resend vars set on production Railway. Remaining: send one real test email end-to-end and confirm delivery (check Resend dashboard → Emails).
+7. ~~Custom domain~~ ✅ DONE 2026-06-12 — see "Custom domain + CORS" section above. Remaining: check Supabase Auth Site URL.

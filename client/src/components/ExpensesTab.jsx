@@ -12,6 +12,17 @@ const EXPENSE_TYPES = [
 
 function typeLabel(v) { return EXPENSE_TYPES.find(t => t.value === v)?.label || v; }
 
+// Today's date as YYYY-MM-DD from the LOCAL calendar — never via UTC.
+// toISOString() converts to UTC first, which can show yesterday's date
+// in the early hours when the UK is on British Summer Time.
+function todayLocal() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function formatAmount(expense) {
   const pounds = (expense.amount_pence / 100).toFixed(2);
   if (expense.expense_type === "mileage") return `£${pounds} (${expense.miles} mi)`;
@@ -49,7 +60,7 @@ export default function ExpensesTab({ projects }) {
   // Form fields
   const [fType,    setFType]    = useState("train");
   const [fProject, setFProject] = useState("");
-  const [fDate,    setFDate]    = useState(new Date().toISOString().split("T")[0]);
+  const [fDate,    setFDate]    = useState(todayLocal());
   const [fAmount,  setFAmount]  = useState("");
   const [fMiles,   setFMiles]   = useState("");
   const [fDesc,    setFDesc]    = useState("");
@@ -69,7 +80,7 @@ export default function ExpensesTab({ projects }) {
   }, []);
 
   const resetForm = useCallback(() => {
-    setEditingId(null); setFType("train"); setFProject(""); setFDate(new Date().toISOString().split("T")[0]);
+    setEditingId(null); setFType("train"); setFProject(""); setFDate(todayLocal());
     setFAmount(""); setFMiles(""); setFDesc(""); setFFile(null); setShowForm(false);
   }, []);
 

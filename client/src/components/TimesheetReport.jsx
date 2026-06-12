@@ -21,7 +21,15 @@ function getMonday(dateStr) {
   return d;
 }
 
-function isoDate(d) { return d.toISOString().split("T")[0]; }
+// Build YYYY-MM-DD from the LOCAL calendar date — never via UTC.
+// toISOString() converts to UTC first, which shifts the date back a day
+// when the UK is on British Summer Time (midnight Mon local = 23:00 Sun UTC).
+function isoDate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 function entryMins(e) { return (e.hours || 0) * 60 + (e.minutes || 0); }
 function minsToHours(m) { return Math.round((m / 60) * 100) / 100; }
 
