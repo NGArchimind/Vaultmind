@@ -18,9 +18,9 @@ async function run() {
   // A line only counts as a heading if it LOOKS like one typographically: bold,
   // or noticeably larger than the document's body text size. This rejects body
   // sentences ("General guidance is given in…") and table rows regardless of
-  // wording. Hits are ranked by proximity to the already-requested pages (the
-  // general provisions twin in the same chapter as the relevant content wins)
-  // and capped so the Gemini request can never balloon past its size limit.
+  // wording. Hits are kept if they belong to the same CHAPTER as a requested
+  // page (see chapter detection below) and capped so the Gemini request can
+  // never balloon past its size limit.
   const generalSections = [];
   if (scanGeneral) {
     const GENERAL_PAGE_CAP = 12;
@@ -53,13 +53,46 @@ async function run() {
       if (n > bestCount) { bestCount = n; bodySize = Number(k); }
     }
 
+    // RELEVANCE RULE — same chapter, not nearby pages. Documents like AD Part B
+    // and AD Part M have a "General provisions" per chapter/category; the one
+    // that governs the question is the one in the same chapter as the requested
+    // pages. Page distance was a proxy for this and failed both ways on long
+    // chapters (ADM vol 1's M4(3) spans 38 pages — its General provisions sat
+    // 19 pages from the requested content and was dropped, while neighbouring
+    // chapters' sections leaked in).
+    //
+    // A page's chapter = the most common clause-number prefix printed on it
+    // ("3.36" → chapter 3, "B1.2" → B1). Pages with no clause numbers inherit:
+    // requested pages look BACK (content belongs to the chapter in progress),
+    // heading pages look FORWARD (a General heading governs what follows it).
+    const clauseRe = /^(\d+)\.\d+\b|^([A-Z]\d?)\.?\d+\b/;
+    const chapterVotes = {}; // page -> { chapter: count }
+    for (const l of allLines) {
+      const m = l.text.match(clauseRe);
+      if (!m) continue;
+      const ch = m[1] || m[2];
+      const votes = chapterVotes[l.page] || (chapterVotes[l.page] = {});
+      votes[ch] = (votes[ch] || 0) + 1;
+    }
+    const ownChapter = {}; // page -> chapter from its own clause numbers
+    for (const [p, votes] of Object.entries(chapterVotes)) {
+      let best = null, n = 0;
+      for (const [ch, c] of Object.entries(votes)) if (c > n) { best = ch; n = c; }
+      ownChapter[p] = best;
+    }
+    const backChapter = {}, fwdChapter = {};
+    let run = null;
+    for (let p = 1; p <= totalPages; p++) {
+      if (ownChapter[p]) run = ownChapter[p];
+      backChapter[p] = run;
+    }
+    run = null;
+    for (let p = totalPages; p >= 1; p--) {
+      if (ownChapter[p]) run = ownChapter[p];
+      fwdChapter[p] = run;
+    }
+
     // Candidate headings: "General…" lines that look like headings.
-    // Only sections NEAR the requested pages are relevant — documents like
-    // AD Part B have a "General provisions" in every chapter, and pulling in
-    // far-away chapters' sections bloats the Gemini payload with pages the
-    // question never touches. Governing sections that matter sit in the same
-    // chapter as the scored content (verified: ADM 3.36 case, distance 0).
-    const MAX_DIST = 10;
     const candidates = [];
     const seenPages = new Set();
     for (const l of allLines) {
@@ -70,16 +103,37 @@ async function run() {
       const dist = validPages.length
         ? Math.min(...validPages.map(p => Math.abs(p - l.page)))
         : 0;
-      if (dist > MAX_DIST) continue;
-      candidates.push({ page: l.page, title: l.text, dist });
+      candidates.push({ page: l.page, title: l.text, dist, chapter: ownChapter[l.page] || fwdChapter[l.page] });
     }
+
+    // Keep candidates whose chapter matches a requested page's chapter.
+    // SAFETY NET: a requested page whose chapter produced no General section
+    // (chapter undetectable — e.g. a diagram-only page — or a numbering style
+    // the regex doesn't know) falls back to the nearest PRECEDING General
+    // heading, which in these documents is structurally always the governing
+    // one. The fallback only adds, never removes — payload stays bounded by
+    // the page cap below and the client's byte budget.
+    const requestedChapters = new Set(validPages.map(p => backChapter[p]).filter(Boolean));
+    const matched = candidates.filter(c => c.chapter && requestedChapters.has(c.chapter));
+    const matchedChapters = new Set(matched.map(c => c.chapter));
+    const fallback = new Set();
+    for (const p of validPages) {
+      const ch = backChapter[p];
+      if (ch && matchedChapters.has(ch)) continue;
+      let nearest = null;
+      for (const c of candidates) {
+        if (c.page <= p && (!nearest || c.page > nearest.page)) nearest = c;
+      }
+      if (nearest) fallback.add(nearest);
+    }
+    const keep = [...matched, ...[...fallback].filter(c => !matched.includes(c))];
 
     // Nearest to already-requested pages first; each hit pulls in its page +
     // the next page (clause blocks roll over). Pages already requested are
     // free — only newly added pages count toward the cap.
-    candidates.sort((a, b) => a.dist - b.dist);
+    keep.sort((a, b) => a.dist - b.dist);
     let added = 0;
-    for (const c of candidates) {
+    for (const c of keep) {
       const wanted = [c.page, c.page + 1].filter(p => p <= totalPages);
       const newPages = wanted.filter(p => !pageSet.has(p));
       if (newPages.length > 0 && added + newPages.length > GENERAL_PAGE_CAP) continue;
