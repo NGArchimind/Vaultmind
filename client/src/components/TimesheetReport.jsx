@@ -31,6 +31,7 @@ function isoDate(d) {
   return `${y}-${m}-${day}`;
 }
 function entryMins(e) { return (e.hours || 0) * 60 + (e.minutes || 0); }
+function entryOtMins(e) { return (e.overtime_hours || 0) * 60 + (e.overtime_minutes || 0); }
 function minsToHours(m) { return Math.round((m / 60) * 100) / 100; }
 
 function formatMins(m) {
@@ -119,6 +120,7 @@ export default function TimesheetReport({ onBack }) {
   // ── Aggregations ──────────────────────────────────────────────────────────
 
   const totalMins = entries.reduce((s, e) => s + entryMins(e), 0);
+  const totalOt   = entries.reduce((s, e) => s + entryOtMins(e), 0);
 
   // Hours by week (for bar chart)
   const byWeek = {};
@@ -167,8 +169,9 @@ export default function TimesheetReport({ onBack }) {
     const mon   = isoDate(getMonday(e.entry_date));
     const email = users.find(u => u.id === e.user_id)?.email || e.user_id?.slice(0, 8) + "…";
     const key   = `${mon}|${e.user_id}`;
-    if (!weekPersonMap[key]) weekPersonMap[key] = { mon, email, mins: 0, projects: new Set() };
+    if (!weekPersonMap[key]) weekPersonMap[key] = { mon, email, mins: 0, otMins: 0, projects: new Set() };
     weekPersonMap[key].mins += entryMins(e);
+    weekPersonMap[key].otMins += entryOtMins(e);
     if (e.project_id && e.projects?.name) weekPersonMap[key].projects.add(e.projects.name);
   });
   Object.values(weekPersonMap)
@@ -231,6 +234,7 @@ export default function TimesheetReport({ onBack }) {
         {/* Summary cards */}
         <div style={{ display: "flex", gap: 16, marginBottom: 28, flexWrap: "wrap" }}>
           <SummaryCard label="Total hours" value={formatMins(totalMins)} sub={`${entries.length} entries`} color={TIMESHEETS_FULL} />
+          <SummaryCard label="Overtime" value={formatMins(totalOt)} sub="logged separately" color="#8a6a3a" />
           <SummaryCard label="Active projects" value={activeProjects} sub="with logged time" />
           <SummaryCard label="Staff" value={activeStaff} sub="with logged time" />
           <SummaryCard label="Weeks covered" value={Object.keys(byWeek).length} sub={filterFrom && filterTo ? `${filterFrom} → ${filterTo}` : "all time"} />
@@ -389,6 +393,7 @@ export default function TimesheetReport({ onBack }) {
                     <th style={thStyle}>Week</th>
                     <th style={thStyle}>Person</th>
                     <th style={thStyle}>Projects worked on</th>
+                    <th style={{ ...thStyle, textAlign: "right" }}>Overtime</th>
                     <th style={{ ...thStyle, textAlign: "right" }}>Total hours</th>
                   </tr>
                 </thead>
@@ -400,6 +405,9 @@ export default function TimesheetReport({ onBack }) {
                       <td style={{ ...tdStyle, color: "#6a8a9a", fontSize: 12 }}>
                         {r.projects.size > 0 ? [...r.projects].join(", ") : "—"}
                       </td>
+                      <td style={{ ...tdStyle, textAlign: "right", fontWeight: r.otMins > 0 ? 600 : 400, color: r.otMins > 0 ? "#8a6a3a" : "#c0ccd4" }}>
+                        {r.otMins > 0 ? formatMins(r.otMins) : "—"}
+                      </td>
                       <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: r.mins >= 37.5 * 60 ? TIMESHEETS_FULL : COMPARE_FULL }}>
                         {formatMins(r.mins)}
                       </td>
@@ -409,6 +417,7 @@ export default function TimesheetReport({ onBack }) {
                 <tfoot>
                   <tr style={{ background: DESIGN_GROUND }}>
                     <td colSpan={3} style={{ ...tdStyle, fontWeight: 700 }}>Grand total</td>
+                    <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: "#8a6a3a" }}>{totalOt > 0 ? formatMins(totalOt) : "—"}</td>
                     <td style={{ ...tdStyle, textAlign: "right", fontWeight: 700, color: TIMESHEETS_FULL }}>{formatMins(totalMins)}</td>
                   </tr>
                 </tfoot>

@@ -3965,12 +3965,14 @@ app.get("/api/timesheets/submission", requireAuth, async (req, res) => {
 
 // POST /api/timesheets
 app.post("/api/timesheets", requireAuth, async (req, res) => {
-  const { project_id, category, entry_date, hours = 0, minutes = 0, notes } = req.body;
+  const { project_id, category, entry_date, hours = 0, minutes = 0, notes, overtime_hours = 0, overtime_minutes = 0 } = req.body;
   if (!entry_date) return res.status(400).json({ error: "entry_date required" });
   if (!project_id && !category) return res.status(400).json({ error: "project_id or category required" });
 
   const validErr = validateTimesheetFields({ entry_date, hours, minutes });
   if (validErr) return res.status(400).json({ error: validErr });
+  const otErr = validateTimesheetFields({ hours: overtime_hours, minutes: overtime_minutes });
+  if (otErr) return res.status(400).json({ error: `Overtime ${otErr}` });
 
   const weekStart = getWeekStart(entry_date);
   const lockStatus = await getWeekLockStatus(req.user.id, weekStart);
@@ -3985,6 +3987,9 @@ app.post("/api/timesheets", requireAuth, async (req, res) => {
       entry_date,
       hours: Number(hours),
       minutes: Number(minutes),
+      // Overtime only applies to project entries
+      overtime_hours: project_id ? Number(overtime_hours) : 0,
+      overtime_minutes: project_id ? Number(overtime_minutes) : 0,
       notes: notes || null,
     })
     .select("*, projects(id, name, job_number)")
@@ -4057,10 +4062,20 @@ app.put("/api/timesheets/:id", requireAuth, async (req, res) => {
     const err = validateTimesheetFields({ minutes: req.body.minutes });
     if (err) return res.status(400).json({ error: err });
   }
+  if ("overtime_hours" in req.body) {
+    const err = validateTimesheetFields({ hours: req.body.overtime_hours });
+    if (err) return res.status(400).json({ error: `Overtime ${err}` });
+  }
+  if ("overtime_minutes" in req.body) {
+    const err = validateTimesheetFields({ minutes: req.body.overtime_minutes });
+    if (err) return res.status(400).json({ error: `Overtime ${err}` });
+  }
 
   const updates = { updated_at: new Date().toISOString() };
-  if ("hours"      in req.body) updates.hours      = Number(req.body.hours);
-  if ("minutes"    in req.body) updates.minutes    = Number(req.body.minutes);
+  if ("hours"            in req.body) updates.hours            = Number(req.body.hours);
+  if ("minutes"          in req.body) updates.minutes          = Number(req.body.minutes);
+  if ("overtime_hours"   in req.body) updates.overtime_hours   = Number(req.body.overtime_hours);
+  if ("overtime_minutes" in req.body) updates.overtime_minutes = Number(req.body.overtime_minutes);
   if ("notes"      in req.body) updates.notes      = req.body.notes ?? null;
   if ("project_id" in req.body) updates.project_id = req.body.project_id || null;
   if ("category"   in req.body) updates.category   = req.body.category  || null;
@@ -4240,9 +4255,19 @@ app.patch("/api/admin/timesheets/:id", requireAuth, requireAdmin, async (req, re
     const err = validateTimesheetFields({ minutes: req.body.minutes });
     if (err) return res.status(400).json({ error: err });
   }
+  if ("overtime_hours" in req.body) {
+    const err = validateTimesheetFields({ hours: req.body.overtime_hours });
+    if (err) return res.status(400).json({ error: `Overtime ${err}` });
+  }
+  if ("overtime_minutes" in req.body) {
+    const err = validateTimesheetFields({ minutes: req.body.overtime_minutes });
+    if (err) return res.status(400).json({ error: `Overtime ${err}` });
+  }
   const updates = { updated_at: new Date().toISOString() };
-  if ("hours"      in req.body) updates.hours      = Number(req.body.hours);
-  if ("minutes"    in req.body) updates.minutes    = Number(req.body.minutes);
+  if ("hours"            in req.body) updates.hours            = Number(req.body.hours);
+  if ("minutes"          in req.body) updates.minutes          = Number(req.body.minutes);
+  if ("overtime_hours"   in req.body) updates.overtime_hours   = Number(req.body.overtime_hours);
+  if ("overtime_minutes" in req.body) updates.overtime_minutes = Number(req.body.overtime_minutes);
   if ("notes"      in req.body) updates.notes      = req.body.notes ?? null;
   if ("project_id" in req.body) updates.project_id = req.body.project_id || null;
   if ("category"   in req.body) updates.category   = req.body.category  || null;

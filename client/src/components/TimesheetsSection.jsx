@@ -72,6 +72,9 @@ function formatMins(totalMins) {
 
 function entryMins(e) { return (e.hours || 0) * 60 + (e.minutes || 0); }
 function totalMins(entries) { return entries.reduce((s, e) => s + entryMins(e), 0); }
+// Overtime is tracked separately — never added into the normal totals above.
+function entryOtMins(e) { return (e.overtime_hours || 0) * 60 + (e.overtime_minutes || 0); }
+function totalOtMins(entries) { return entries.reduce((s, e) => s + entryOtMins(e), 0); }
 
 // ── Confirm dialog ─────────────────────────────────────────────────────────────
 
@@ -204,9 +207,12 @@ function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
     ? entry.project_id
     : entry.category ? `cat:${entry.category}` : "";
 
+  const isProject = !!entry.project_id;
+
   const handleProjectChange = (e) => {
     const val = e.target.value;
-    if (val.startsWith("cat:")) onUpdate(entry.id, { project_id: null,  category: val.replace("cat:", "") });
+    // Switching to a category clears any overtime (overtime is job-only).
+    if (val.startsWith("cat:")) onUpdate(entry.id, { project_id: null,  category: val.replace("cat:", ""), overtime_hours: 0, overtime_minutes: 0 });
     else                        onUpdate(entry.id, { project_id: val || null, category: null });
   };
 
@@ -227,6 +233,21 @@ function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
         disabled={locked} style={{ ...ss, width: 62 }}>
         {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
       </select>
+      {isProject && (
+        <>
+          <span style={{ fontSize: 11, color: "#8a9aa8", fontWeight: 600, letterSpacing: "0.04em" }} title="Overtime">OT</span>
+          <select value={entry.overtime_hours ?? 0}
+            onChange={e => onUpdate(entry.id, { overtime_hours: parseInt(e.target.value) })}
+            disabled={locked} style={{ ...ss, width: 56 }} title="Overtime hours">
+            {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}h</option>)}
+          </select>
+          <select value={entry.overtime_minutes ?? 0}
+            onChange={e => onUpdate(entry.id, { overtime_minutes: parseInt(e.target.value) })}
+            disabled={locked} style={{ ...ss, width: 56 }} title="Overtime minutes">
+            {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
+          </select>
+        </>
+      )}
       <input placeholder="Notes (optional)" value={notes}
         onChange={e => setNotes(e.target.value)}
         onBlur={() => { if (notes !== (entry.notes || "")) onUpdate(entry.id, { notes: notes || null }); }}
@@ -743,6 +764,11 @@ function AdminPanel({ projects }) {
                         <span style={{ color: "#4a5a6a" }}>{sub.unlock_reason}</span>
                       </div>
                     )}
+                    {totalOtMins(entries) > 0 && (
+                      <div style={{ marginBottom: 10, fontSize: 12, fontWeight: 600, color: "#8a6a3a" }}>
+                        Overtime this week: {formatMins(totalOtMins(entries))}
+                      </div>
+                    )}
                     {entries.length === 0 && <p style={{ color: "#aaa", fontSize: 13 }}>No entries.</p>}
                     {DAYS.map((day, di) => {
                       const date   = dateForDay(new Date(sub.week_start), di);
@@ -952,6 +978,7 @@ export default function TimesheetsSection({ isAdmin }) {
   };
 
   const weekTotal  = totalMins(entries);
+  const weekOt     = totalOtMins(entries);
   const underMin   = weekTotal < MIN_WEEK_MINS && weekTotal > 0;
   const btnBase    = { fontSize: 12, padding: "5px 16px", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif", fontWeight: 600, border: "none" };
 
@@ -1151,6 +1178,11 @@ export default function TimesheetsSection({ isAdmin }) {
                     <span style={{ fontSize: 14, color: DESIGN_TEXT, fontWeight: 600 }}>
                       Week total: <span style={{ color: underMin && !isLocked ? COMPARE_FULL : TIMESHEETS_FULL }}>{formatMins(weekTotal)}</span>
                     </span>
+                    {weekOt > 0 && (
+                      <span style={{ marginLeft: 16, fontSize: 13, color: "#8a6a3a", fontWeight: 600 }}>
+                        Overtime: {formatMins(weekOt)}
+                      </span>
+                    )}
                     {underMin && !isLocked && (
                       <span style={{ marginLeft: 12, fontSize: 12, color: COMPARE_FULL }}>
                         ⚠ Below 37.5h minimum
