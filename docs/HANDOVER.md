@@ -70,8 +70,9 @@ Specific routes before wildcard `:id` routes. E.g. `/api/expenses/settings` befo
 
 ## Outstanding issues (as of 2026-06-11)
 
-1. **Q&A pipeline soak testing** — general provisions, citation pages (incl. diagrams) all verified working 2026-06-11 on single questions; owner is testing more broadly across vaults/questions
-2. **Multi-clause blocks not combining** (LOW) — same-subject clauses across sections still separate citation blocks
+1. **Q&A pipeline soak testing** — general provisions, byte budget, citation pages (incl. diagrams) all verified working 2026-06-11; owner testing more broadly across vaults/questions
+2. **Clause-number citation can hit a cross-reference** (LOW, accepted 2026-06-11) — `findPageByClauseNumber` opens the first page where a line starts with the clause number; occasionally that's a cross-reference/table entry on an earlier page rather than the clause itself. Possible future fix: prefer the match where the clause number is followed by sentence text, or pick the page nearest the section's vault-index heading.
+3. **Multi-clause blocks not combining** (LOW) — same-subject clauses across sections still separate citation blocks
 3. **Wide table extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column structure
 4. **Email work** (PARKED) — summaries not stored in DB; relevance threshold (0.35) needs tuning
 5. **PDF Compare** (NEEDS TESTING) — image-based rewrite on Railway; needs first Revit schedule test
