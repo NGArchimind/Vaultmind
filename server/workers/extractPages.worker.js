@@ -53,7 +53,13 @@ async function run() {
       if (n > bestCount) { bestCount = n; bodySize = Number(k); }
     }
 
-    // Candidate headings: "General…" lines that look like headings
+    // Candidate headings: "General…" lines that look like headings.
+    // Only sections NEAR the requested pages are relevant — documents like
+    // AD Part B have a "General provisions" in every chapter, and pulling in
+    // far-away chapters' sections bloats the Gemini payload with pages the
+    // question never touches. Governing sections that matter sit in the same
+    // chapter as the scored content (verified: ADM 3.36 case, distance 0).
+    const MAX_DIST = 10;
     const candidates = [];
     const seenPages = new Set();
     for (const l of allLines) {
@@ -64,6 +70,7 @@ async function run() {
       const dist = validPages.length
         ? Math.min(...validPages.map(p => Math.abs(p - l.page)))
         : 0;
+      if (dist > MAX_DIST) continue;
       candidates.push({ page: l.page, title: l.text, dist });
     }
 

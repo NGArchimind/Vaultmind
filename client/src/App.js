@@ -1114,11 +1114,15 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
       });
 
       const docBlocks = [];
+      const extractionMeta = []; // links each vault doc block to its source + priority-ordered pages, for byte-budget trimming
       let totalPagesExtracted = 0;
 
       for (const [docName, { contentsDoc, pages }] of Object.entries(docPageMap)) {
         setStatusMsg(`Pass 2/3 · Extracting pages from ${docName}…`);
-        const pageList = Array.from(pages).sort((a, b) => a - b);
+        // Set preserves insertion order = the order pages were chosen (highest
+        // priority first). Kept for trimming; sorted copy used for extraction.
+        const orderedPages = Array.from(pages);
+        const pageList = [...orderedPages].sort((a, b) => a - b);
         if (pageList.length === 0) continue;
         try {
           const result = await api("/api/extract-pages", { method: "POST", body: { base64: contentsDoc.base64, pages: pageList, scanGeneral: true } });
@@ -1126,6 +1130,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
           (result.generalSections || []).forEach(gs => {
             generalSectionTitles.push(`${docName}: ${gs.title} (p.${gs.page})`);
           });
+          extractionMeta.push({ blockIdx: docBlocks.length, docName, contentsDoc, orderedPages });
           docBlocks.push({
             type: "document",
             source: { type: "base64", media_type: "application/pdf", data: result.base64 },
@@ -1142,6 +1147,37 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
           source: { type: "base64", media_type: "application/pdf", data: tempDoc.base64 },
           title: `TEMPORARY DOCUMENT (not in vault): ${tempDoc.name}`,
         });
+      }
+
+      // ── Byte budget: keep the Pass 3 request inside Gemini's ~20 MB cap ─────────
+      // Oversized requests never succeed — Gemini 400s them, or the server strains
+      // building the payload. If the extracted documents total too much, scale every
+      // document's page list down proportionally, dropping its LOWEST-priority pages
+      // (insertion order = priority). General provisions pages are re-added by the
+      // server scan on re-extraction, so they survive trimming.
+      const MAX_PASS3_BASE64 = 15 * 1048576;
+      const blocksTotal = () => docBlocks.reduce((n, b) => n + (b.source?.data?.length || 0), 0);
+      for (let round = 0; round < 2 && blocksTotal() > MAX_PASS3_BASE64; round++) {
+        const total = blocksTotal();
+        const factor = (MAX_PASS3_BASE64 / total) * 0.95;
+        setStatusMsg("Pass 2/3 · Slimming extracted pages to fit size limits…");
+        for (const meta of extractionMeta) {
+          const keep = Math.max(5, Math.floor(meta.orderedPages.length * factor));
+          if (keep >= meta.orderedPages.length) continue;
+          const trimmedPages = meta.orderedPages.slice(0, keep);
+          try {
+            const r = await api("/api/extract-pages", { method: "POST", body: { base64: meta.contentsDoc.base64, pages: [...trimmedPages].sort((a, b) => a - b), scanGeneral: true } });
+            console.log(`[Pass3] Trimmed "${meta.docName}" ${meta.orderedPages.length} → ${r.pageNumbers.length} pages to fit the size limit`);
+            meta.orderedPages = trimmedPages;
+            docBlocks[meta.blockIdx] = {
+              type: "document",
+              source: { type: "base64", media_type: "application/pdf", data: r.base64 },
+              title: `${meta.docName} — pages ${r.pageNumbers.join(", ")}`,
+            };
+          } catch (e) {
+            console.warn(`Trim re-extraction failed for ${meta.docName}, keeping original:`, e.message);
+          }
+        }
       }
 
       setStatusMsg(`Pass 2/3 · ${totalPagesExtracted} specific pages extracted across ${docBlocks.length} document${docBlocks.length !== 1 ? "s" : ""}…`);
