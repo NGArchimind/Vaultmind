@@ -69,6 +69,20 @@ Specific routes before wildcard `:id` routes. E.g. `/api/expenses/settings` befo
 - **Gemini hard limit**: ~20MB request. `400 INVALID_ARGUMENT` = payload too big; oversized payloads can also crash the Railway container (502, no CORS headers) or hang to timeout. `/api/claude` error log includes payload MB; client logs `[Pass3] Sending ~X MB` before the call. Pass 2 enforces a **15MB byte budget**: if extracted docs total more, every doc's page list is scaled down proportionally, dropping lowest-priority pages (Set insertion order = priority); general provisions pages survive because the server scan re-adds them on re-extraction.
 - **Citation click → page resolution** (3 tiers in `handleCitationClick`): (1) `findPageByClauseNumber` — text-search the PDF for a line-anchored clause number (3.36, B1); paragraph numbers are unique per document so this beats heading matching (AD Part M has identical "General provisions" headings in M4(2) and M4(3)); doc text cached in `docTextCacheRef`. (2) `findPageInVaultIndex` — 4-level heading match, type-aware: Diagram/Table/Figure citations only match same-type index headings. (3) `citationPageMap` fallback.
 
+### Roles & access (2026-06-12)
+Three roles, stored in Supabase **`app_metadata.role`** (`user` | `admin` | `hr`) — **never `user_metadata`** (that's user-editable → privilege-escalation; migrated 2026-06-12). Server reads `req.user.app_metadata.role`; client reads `session.user.app_metadata.role`. Role is set only by admins via `/api/admin/users` (writes `app_metadata`). After a role change the user must **log out/in** to refresh the token.
+- `requireAdmin` — admin only (expenses, fees, notification settings, mileage, quiz, user management, logo/colours).
+- `requireTimesheetManager` — admin **or** hr. Applied ONLY to timesheet-review endpoints: `GET /api/admin/timesheets/submissions`, `GET/PATCH /api/admin/timesheets`, approve/reject/unlock, and `GET /api/admin/users` (read, for names). HR is hard-walled from everything else server-side; the client also hides Fee Review, the expenses tab and notification settings for HR (`isAdmin` vs `isHr`/`canReview` in `TimesheetsSection`).
+
+### RLS — every table is server-only (2026-06-12)
+All client data access goes through the server (service key, bypasses RLS); the browser uses Supabase **only for auth** (zero `supabase.from()` calls). So every public table has RLS **enabled with no permissive policy** = deny-all to the anon/authenticated browser key. The wide-open `USING(true)`/`"Auth access"` policies and RLS-off tables (incl. `projects`, `project_emails`, `staff_rates`) were locked down via SQL. **Do not add a permissive `USING(true)` policy** — if a feature ever needs direct browser table access, write a per-user policy (`auth.uid() = user_id`, like `quiz_stats`) instead.
+
+### Timesheets — dates, overtime, notifications (2026-06-12)
+- **BST date bug (fixed):** `isoDate()` must build `YYYY-MM-DD` from **local** date parts, never `toISOString()` (UTC shifts Mon→Sun in British Summer Time → server rejects as weekend / entries land a day early). Fixed in all 5 timesheet/expense client files. Don't reintroduce `toISOString().split("T")[0]` for entry dates.
+- **Overtime:** `timesheets.overtime_hours` / `overtime_minutes` columns. **Tracked separately** — never added into the weekly total or the 37.5/45 warnings. Job (project) entries only; cleared when an entry becomes a category. Shown per-entry, as a weekly figure, in admin review, and in the report.
+- **Notification settings:** 5 office-wide on/off toggles stored as JSON in `app_settings` (key `notification_settings`), missing keys default ON. `isNotificationEnabled(key)` gates each send. Events: timesheet_submitted/expense_submitted/unlock_requested → admins; expense_decided/timesheet_rejected → submitter (`getUserEmail`). Admin-only panel in `AdminPanel`.
+- **Email hardening:** `escapeHtml()` wraps all user text in notification email HTML; expense POST + unlock-request are rate-limited. Receipt uploads: 10 MB cap, magic-byte type check (PDF/JPG/PNG/WEBP/HEIC), served as `attachment`.
+
 ---
 
 ## Outstanding issues (as of 2026-06-12)
@@ -79,5 +93,7 @@ Specific routes before wildcard `:id` routes. E.g. `/api/expenses/settings` befo
 3. **Wide table extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column structure
 4. **Email work** (PARKED) — summaries not stored in DB; relevance threshold (0.35) needs tuning
 5. **PDF Compare** (NEEDS TESTING) — image-based rewrite on Railway; needs first Revit schedule test
-6. **Timesheets/Expenses** — merged to `main` 2026-06-12; Resend vars set on production Railway. Remaining: send one real test email end-to-end and confirm delivery (check Resend dashboard → Emails).
+6. **Timesheets/Expenses** ✅ live on `main` 2026-06-12 — email delivery verified end-to-end. Date bug, overtime, notifications, HR role, email/receipt hardening all shipped (see sections above).
 7. ~~Custom domain~~ ✅ DONE 2026-06-12 — see "Custom domain + CORS" section above. Remaining: check Supabase Auth Site URL.
+8. **Timesheets/Expenses follow-ups** (deferred, none blocking): admin-configurable email *recipients* (currently all-admins); the unlock-*granted* email isn't sent (only the 5 chosen events). Specs in `docs/superpowers/specs/2026-06-12-*`.
+9. **Repo tidy** — `client/build/` is tracked and committed with each change; harmless (Vercel rebuilds from source) but worth adding to `.gitignore`.
