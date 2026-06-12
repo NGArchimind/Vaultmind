@@ -44,6 +44,79 @@ async function getAdminEmails() {
     .filter(Boolean);
 }
 
+// Escape user-supplied text before interpolating into notification email HTML,
+// so a description/reason containing markup can't render as live content.
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+// ── Notification settings ─────────────────────────────────────────────────────
+// Office-wide on/off switches for the five notification emails, stored as JSON
+// in app_settings (key "notification_settings"). Any missing key defaults to ON.
+const NOTIFICATION_KEYS = [
+  "timesheet_submitted", // → admins
+  "expense_submitted",   // → admins
+  "unlock_requested",    // → admins
+  "expense_decided",     // → submitter
+  "timesheet_rejected",  // → submitter
+];
+
+async function getNotificationSettings() {
+  const { data } = await supabase.from("app_settings").select("value").eq("key", "notification_settings").maybeSingle();
+  let stored = {};
+  try { stored = data?.value ? JSON.parse(data.value) : {}; } catch { stored = {}; }
+  const out = {};
+  for (const k of NOTIFICATION_KEYS) out[k] = stored[k] !== false; // default ON
+  return out;
+}
+
+async function isNotificationEnabled(key) {
+  const settings = await getNotificationSettings();
+  return settings[key] !== false;
+}
+
+async function getUserEmail(userId) {
+  try {
+    const { data } = await supabase.auth.admin.getUserById(userId);
+    return data?.user?.email || null;
+  } catch { return null; }
+}
+
+// Branded wrapper shared by notification emails.
+function notificationEmailHtml(headerLabel, bodyHtml) {
+  return `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — ${headerLabel}</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;">${bodyHtml}</div></div>`;
+}
+
+// "8 Jun – 12 Jun 2026" from a Monday week_start string.
+function formatWeekRange(week) {
+  const weekDate = new Date(week + "T12:00:00Z");
+  const fri = new Date(weekDate); fri.setUTCDate(fri.getUTCDate() + 4);
+  const o = { day: "numeric", month: "short" };
+  return `${weekDate.toLocaleDateString("en-GB", o)} – ${fri.toLocaleDateString("en-GB", { ...o, year: "numeric" })}`;
+}
+
+// Email the submitter when an admin approves/rejects their expense.
+async function notifyExpenseDecision(expense, outcome, reason) {
+  if (!expense || !(await isNotificationEnabled("expense_decided"))) return;
+  const email = await getUserEmail(expense.user_id);
+  if (!email) return;
+  const amtStr = `£${(expense.amount_pence / 100).toFixed(2)}`;
+  const reasonHtml = outcome === "rejected" && reason
+    ? `<p style="margin:14px 0 0;font-size:13px;color:#6a8a9a;">Reason:</p><p style="margin:4px 0 0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason)}</p>`
+    : "";
+  await sendEmail({
+    to: email,
+    subject: `Expense ${outcome} — ${amtStr}`,
+    html: notificationEmailHtml("Expenses", `<p style="margin:0;font-size:15px;color:#262830;">Your expense of <strong>${amtStr}</strong> has been <strong>${outcome}</strong>.</p>${reasonHtml}`),
+    text: `Your expense of ${amtStr} has been ${outcome}.${outcome === "rejected" && reason ? `\nReason: ${reason}` : ""}`,
+  });
+}
+
 const app = express();
 
 const corsOptions = {
@@ -279,6 +352,16 @@ async function requireAdmin(req, res, next) {
   const role = req.user?.app_metadata?.role;
   if (role !== "admin") {
     return res.status(403).json({ error: "Forbidden — admin only" });
+  }
+  next();
+}
+
+// Allows admins and HR. Use ONLY on timesheet-review endpoints — HR is walled
+// off from expenses, fees, user management and all other admin areas.
+function requireTimesheetManager(req, res, next) {
+  const role = req.user?.app_metadata?.role;
+  if (role !== "admin" && role !== "hr") {
+    return res.status(403).json({ error: "Forbidden — admin or HR only" });
   }
   next();
 }
@@ -3257,7 +3340,7 @@ app.delete("/api/projects/:id/products/:pid", requireAuth, async (req, res) => {
 
 // ── Admin routes ──────────────────────────────────────────────────────────────
 
-app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
+app.get("/api/admin/users", requireAuth, requireTimesheetManager, async (req, res) => {
   try {
     const { data, error } = await supabase.auth.admin.listUsers();
     if (error) throw error;
@@ -3276,7 +3359,7 @@ app.get("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
 app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
   const { email, password, role } = req.body;
   if (!email || !password) return res.status(400).json({ error: "email and password required" });
-  const validRole = role === "admin" ? "admin" : "user";
+  const validRole = ["admin", "hr"].includes(role) ? role : "user";
   try {
     const { data, error } = await supabase.auth.admin.createUser({
       email,
@@ -3300,7 +3383,7 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
 
 app.patch("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) => {
   const { role } = req.body;
-  const validRole = role === "admin" ? "admin" : "user";
+  const validRole = ["admin", "hr"].includes(role) ? role : "user";
   try {
     const { data, error } = await supabase.auth.admin.updateUserById(req.params.uid, {
       app_metadata: { role: validRole },
@@ -3892,12 +3975,14 @@ app.get("/api/timesheets/submission", requireAuth, async (req, res) => {
 
 // POST /api/timesheets
 app.post("/api/timesheets", requireAuth, async (req, res) => {
-  const { project_id, category, entry_date, hours = 0, minutes = 0, notes } = req.body;
+  const { project_id, category, entry_date, hours = 0, minutes = 0, notes, overtime_hours = 0, overtime_minutes = 0 } = req.body;
   if (!entry_date) return res.status(400).json({ error: "entry_date required" });
   if (!project_id && !category) return res.status(400).json({ error: "project_id or category required" });
 
   const validErr = validateTimesheetFields({ entry_date, hours, minutes });
   if (validErr) return res.status(400).json({ error: validErr });
+  const otErr = validateTimesheetFields({ hours: overtime_hours, minutes: overtime_minutes });
+  if (otErr) return res.status(400).json({ error: `Overtime ${otErr}` });
 
   const weekStart = getWeekStart(entry_date);
   const lockStatus = await getWeekLockStatus(req.user.id, weekStart);
@@ -3912,6 +3997,9 @@ app.post("/api/timesheets", requireAuth, async (req, res) => {
       entry_date,
       hours: Number(hours),
       minutes: Number(minutes),
+      // Overtime only applies to project entries
+      overtime_hours: project_id ? Number(overtime_hours) : 0,
+      overtime_minutes: project_id ? Number(overtime_minutes) : 0,
       notes: notes || null,
     })
     .select("*, projects(id, name, job_number)")
@@ -3944,6 +4032,21 @@ app.post("/api/timesheets/submit", requireAuth, async (req, res) => {
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+
+  // Notify admins that a timesheet was submitted for review
+  if (await isNotificationEnabled("timesheet_submitted")) {
+    const adminEmails = await getAdminEmails();
+    if (adminEmails.length) {
+      const weekStr = formatWeekRange(week);
+      await sendEmail({
+        to: adminEmails,
+        subject: `Timesheet submitted — ${req.user.email}`,
+        html: notificationEmailHtml("Timesheets", `<p style="margin:0;font-size:15px;color:#262830;"><strong>${escapeHtml(req.user.email)}</strong> submitted their timesheet for <strong>${weekStr}</strong> for review.</p>`),
+        text: `${req.user.email} submitted their timesheet for ${weekStr} for review.`,
+      });
+    }
+  }
+
   res.json(data);
 });
 
@@ -3969,10 +4072,20 @@ app.put("/api/timesheets/:id", requireAuth, async (req, res) => {
     const err = validateTimesheetFields({ minutes: req.body.minutes });
     if (err) return res.status(400).json({ error: err });
   }
+  if ("overtime_hours" in req.body) {
+    const err = validateTimesheetFields({ hours: req.body.overtime_hours });
+    if (err) return res.status(400).json({ error: `Overtime ${err}` });
+  }
+  if ("overtime_minutes" in req.body) {
+    const err = validateTimesheetFields({ minutes: req.body.overtime_minutes });
+    if (err) return res.status(400).json({ error: `Overtime ${err}` });
+  }
 
   const updates = { updated_at: new Date().toISOString() };
-  if ("hours"      in req.body) updates.hours      = Number(req.body.hours);
-  if ("minutes"    in req.body) updates.minutes    = Number(req.body.minutes);
+  if ("hours"            in req.body) updates.hours            = Number(req.body.hours);
+  if ("minutes"          in req.body) updates.minutes          = Number(req.body.minutes);
+  if ("overtime_hours"   in req.body) updates.overtime_hours   = Number(req.body.overtime_hours);
+  if ("overtime_minutes" in req.body) updates.overtime_minutes = Number(req.body.overtime_minutes);
   if ("notes"      in req.body) updates.notes      = req.body.notes ?? null;
   if ("project_id" in req.body) updates.project_id = req.body.project_id || null;
   if ("category"   in req.body) updates.category   = req.body.category  || null;
@@ -4009,7 +4122,7 @@ app.delete("/api/timesheets/:id", requireAuth, async (req, res) => {
 // ── Admin timesheet routes ─────────────────────────────────────────────────────
 
 // GET /api/admin/timesheets/submissions  — must be before /:id
-app.get("/api/admin/timesheets/submissions", requireAuth, requireAdmin, async (req, res) => {
+app.get("/api/admin/timesheets/submissions", requireAuth, requireTimesheetManager, async (req, res) => {
   const { data, error } = await supabase
     .from("timesheet_submissions")
     .select("*")
@@ -4019,7 +4132,7 @@ app.get("/api/admin/timesheets/submissions", requireAuth, requireAdmin, async (r
 });
 
 // POST /api/admin/timesheets/approve
-app.post("/api/admin/timesheets/approve", requireAuth, requireAdmin, async (req, res) => {
+app.post("/api/admin/timesheets/approve", requireAuth, requireTimesheetManager, async (req, res) => {
   const { week, user_id } = req.body;
   if (!week || !user_id) return res.status(400).json({ error: "week and user_id required" });
   const { data, error } = await supabase
@@ -4033,7 +4146,7 @@ app.post("/api/admin/timesheets/approve", requireAuth, requireAdmin, async (req,
   res.json(data);
 });
 
-app.post("/api/admin/timesheets/reject", requireAuth, requireAdmin, async (req, res) => {
+app.post("/api/admin/timesheets/reject", requireAuth, requireTimesheetManager, async (req, res) => {
   const { week, user_id, reason } = req.body;
   if (!week || !user_id) return res.status(400).json({ error: "week and user_id required" });
   if (!reason?.trim()) return res.status(400).json({ error: "rejection reason required" });
@@ -4050,11 +4163,26 @@ app.post("/api/admin/timesheets/reject", requireAuth, requireAdmin, async (req, 
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+
+  // Notify the submitter their timesheet was returned for changes
+  if (await isNotificationEnabled("timesheet_rejected")) {
+    const email = await getUserEmail(user_id);
+    if (email) {
+      const weekStr = formatWeekRange(week);
+      await sendEmail({
+        to: email,
+        subject: `Timesheet returned — ${weekStr}`,
+        html: notificationEmailHtml("Timesheets", `<p style="margin:0 0 14px;font-size:15px;color:#262830;">Your timesheet for <strong>${weekStr}</strong> has been returned for changes.</p><p style="margin:0;font-size:13px;color:#6a8a9a;">Reason:</p><p style="margin:4px 0 0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason.trim())}</p>`),
+        text: `Your timesheet for ${weekStr} has been returned for changes.\nReason: ${reason.trim()}`,
+      });
+    }
+  }
+
   res.json(data);
 });
 
 // POST /api/timesheets/unlock-request  — must be before /:id route
-app.post("/api/timesheets/unlock-request", requireAuth, async (req, res) => {
+app.post("/api/timesheets/unlock-request", requireAuth, rateLimit(5, 60_000), async (req, res) => {
   const { week, reason } = req.body;
   if (!week) return res.status(400).json({ error: "week required" });
   if (!reason?.trim()) return res.status(400).json({ error: "reason required" });
@@ -4077,7 +4205,7 @@ app.post("/api/timesheets/unlock-request", requireAuth, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   // Email admin
-  const adminEmails = await getAdminEmails();
+  const adminEmails = (await isNotificationEnabled("unlock_requested")) ? await getAdminEmails() : [];
   if (adminEmails.length) {
     const weekDate = new Date(week + "T12:00:00Z");
     const fri = new Date(weekDate); fri.setUTCDate(fri.getUTCDate() + 4);
@@ -4086,7 +4214,7 @@ app.post("/api/timesheets/unlock-request", requireAuth, async (req, res) => {
     await sendEmail({
       to: adminEmails,
       subject: `Timesheet edit request — ${req.user.email}`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — Timesheets</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;"><p style="margin:0 0 16px;font-size:15px;color:#262830;"><strong>${req.user.email}</strong> has requested to edit their timesheet for <strong>${weekStr}</strong>.</p><p style="font-size:13px;color:#6a8a9a;margin:0 0 6px;">Reason:</p><p style="margin:0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${reason.trim()}</p></div></div>`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — Timesheets</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;"><p style="margin:0 0 16px;font-size:15px;color:#262830;"><strong>${escapeHtml(req.user.email)}</strong> has requested to edit their timesheet for <strong>${weekStr}</strong>.</p><p style="font-size:13px;color:#6a8a9a;margin:0 0 6px;">Reason:</p><p style="margin:0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason.trim())}</p></div></div>`,
       text: `Timesheet edit request from ${req.user.email}\n\nWeek: ${weekStr}\nReason: ${reason.trim()}`,
     });
   }
@@ -4094,7 +4222,7 @@ app.post("/api/timesheets/unlock-request", requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
-app.post("/api/admin/timesheets/unlock", requireAuth, requireAdmin, async (req, res) => {
+app.post("/api/admin/timesheets/unlock", requireAuth, requireTimesheetManager, async (req, res) => {
   const { week, user_id } = req.body;
   if (!week || !user_id) return res.status(400).json({ error: "week and user_id required" });
   const { error } = await supabase
@@ -4107,7 +4235,7 @@ app.post("/api/admin/timesheets/unlock", requireAuth, requireAdmin, async (req, 
 });
 
 // GET /api/admin/timesheets?user_id=&project_id=&week=&from=&to=
-app.get("/api/admin/timesheets", requireAuth, requireAdmin, async (req, res) => {
+app.get("/api/admin/timesheets", requireAuth, requireTimesheetManager, async (req, res) => {
   const { week, user_id, project_id, from, to } = req.query;
   let query = supabase
     .from("timesheets")
@@ -4128,10 +4256,28 @@ app.get("/api/admin/timesheets", requireAuth, requireAdmin, async (req, res) => 
 });
 
 // PATCH /api/admin/timesheets/:id
-app.patch("/api/admin/timesheets/:id", requireAuth, requireAdmin, async (req, res) => {
+app.patch("/api/admin/timesheets/:id", requireAuth, requireTimesheetManager, async (req, res) => {
+  if ("hours" in req.body) {
+    const err = validateTimesheetFields({ hours: req.body.hours });
+    if (err) return res.status(400).json({ error: err });
+  }
+  if ("minutes" in req.body) {
+    const err = validateTimesheetFields({ minutes: req.body.minutes });
+    if (err) return res.status(400).json({ error: err });
+  }
+  if ("overtime_hours" in req.body) {
+    const err = validateTimesheetFields({ hours: req.body.overtime_hours });
+    if (err) return res.status(400).json({ error: `Overtime ${err}` });
+  }
+  if ("overtime_minutes" in req.body) {
+    const err = validateTimesheetFields({ minutes: req.body.overtime_minutes });
+    if (err) return res.status(400).json({ error: `Overtime ${err}` });
+  }
   const updates = { updated_at: new Date().toISOString() };
-  if ("hours"      in req.body) updates.hours      = req.body.hours;
-  if ("minutes"    in req.body) updates.minutes    = req.body.minutes;
+  if ("hours"            in req.body) updates.hours            = Number(req.body.hours);
+  if ("minutes"          in req.body) updates.minutes          = Number(req.body.minutes);
+  if ("overtime_hours"   in req.body) updates.overtime_hours   = Number(req.body.overtime_hours);
+  if ("overtime_minutes" in req.body) updates.overtime_minutes = Number(req.body.overtime_minutes);
   if ("notes"      in req.body) updates.notes      = req.body.notes ?? null;
   if ("project_id" in req.body) updates.project_id = req.body.project_id || null;
   if ("category"   in req.body) updates.category   = req.body.category  || null;
@@ -4171,7 +4317,7 @@ app.get("/api/expenses", requireAuth, async (req, res) => {
 });
 
 // POST /api/expenses
-app.post("/api/expenses", requireAuth, async (req, res) => {
+app.post("/api/expenses", requireAuth, rateLimit(10, 60_000), async (req, res) => {
   const { project_id, expense_type, expense_date, amount_pence, miles, description } = req.body;
   if (!project_id) return res.status(400).json({ error: "project_id required" });
   if (!VALID_EXPENSE_TYPES.includes(expense_type)) return res.status(400).json({ error: "Invalid expense_type" });
@@ -4213,7 +4359,7 @@ app.post("/api/expenses", requireAuth, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
 
   // Notify admin
-  const adminEmails = await getAdminEmails();
+  const adminEmails = (await isNotificationEnabled("expense_submitted")) ? await getAdminEmails() : [];
   if (adminEmails.length) {
     const typeLbl = { train:"Train",mileage:"Car Mileage",meals:"Meals",taxi:"Taxi",parking:"Parking" }[expense_type] || expense_type;
     const amtStr  = `£${(computedPence / 100).toFixed(2)}`;
@@ -4223,7 +4369,7 @@ app.post("/api/expenses", requireAuth, async (req, res) => {
     await sendEmail({
       to: adminEmails,
       subject: `New expense — ${req.user.email.split("@")[0]} · ${typeLbl} · ${amtStr}`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — Expenses</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;"><p style="margin:0 0 20px;font-size:15px;color:#262830;"><strong>${req.user.email}</strong> submitted an expense for review.</p><table style="width:100%;font-size:13px;border-collapse:collapse;"><tr><td style="padding:5px 0;color:#6a8a9a;width:110px;">Type</td><td style="padding:5px 0;color:#262830;font-weight:600;">${typeLbl}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Date</td><td style="padding:5px 0;color:#262830;">${dateStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Project</td><td style="padding:5px 0;color:#262830;">${projStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Amount</td><td style="padding:5px 0;color:#262830;font-weight:600;">${amtStr}${miStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Description</td><td style="padding:5px 0;color:#262830;">${data.description}</td></tr></table></div></div>`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — Expenses</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;"><p style="margin:0 0 20px;font-size:15px;color:#262830;"><strong>${escapeHtml(req.user.email)}</strong> submitted an expense for review.</p><table style="width:100%;font-size:13px;border-collapse:collapse;"><tr><td style="padding:5px 0;color:#6a8a9a;width:110px;">Type</td><td style="padding:5px 0;color:#262830;font-weight:600;">${typeLbl}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Date</td><td style="padding:5px 0;color:#262830;">${dateStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Project</td><td style="padding:5px 0;color:#262830;">${escapeHtml(projStr)}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Amount</td><td style="padding:5px 0;color:#262830;font-weight:600;">${amtStr}${miStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Description</td><td style="padding:5px 0;color:#262830;">${escapeHtml(data.description)}</td></tr></table></div></div>`,
       text: `New expense from ${req.user.email}\nType: ${typeLbl}\nDate: ${dateStr}\nProject: ${projStr}\nAmount: ${amtStr}${miStr}\nDescription: ${data.description}`,
     });
   }
@@ -4280,9 +4426,25 @@ app.delete("/api/expenses/:id", requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// A receipt must be a PDF or image. Detect the real type from the file's
+// magic bytes rather than trusting the client-supplied mimeType.
+const MAX_RECEIPT_BYTES = 10 * 1024 * 1024; // 10 MB
+function sniffReceiptType(buf) {
+  if (!buf || buf.length < 12) return null;
+  if (buf.slice(0, 4).toString("latin1") === "%PDF") return "application/pdf";
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png";
+  if (buf.slice(0, 4).toString("latin1") === "RIFF" && buf.slice(8, 12).toString("latin1") === "WEBP") return "image/webp";
+  if (buf.slice(4, 8).toString("latin1") === "ftyp") {
+    const brand = buf.slice(8, 12).toString("latin1");
+    if (["heic", "heif", "mif1", "heix"].includes(brand)) return "image/heic";
+  }
+  return null;
+}
+
 // POST /api/expenses/:id/receipt
 app.post("/api/expenses/:id/receipt", requireAuth, async (req, res) => {
-  const { content, filename, mimeType } = req.body;
+  const { content, filename } = req.body;
   if (!content || !filename) return res.status(400).json({ error: "content and filename required" });
   const { data: existing } = await supabase.from("project_expenses").select("user_id, status").eq("id", req.params.id).single();
   if (!existing) return res.status(404).json({ error: "Not found" });
@@ -4290,8 +4452,12 @@ app.post("/api/expenses/:id/receipt", requireAuth, async (req, res) => {
   if (existing.status !== "pending") return res.status(403).json({ error: "Only pending expenses can have receipts updated" });
 
   const buffer = Buffer.from(content.replace(/^data:[^;]+;base64,/, ""), "base64");
+  if (buffer.length > MAX_RECEIPT_BYTES) return res.status(400).json({ error: "Receipt must be 10 MB or smaller" });
+  const detectedType = sniffReceiptType(buffer);
+  if (!detectedType) return res.status(400).json({ error: "Receipt must be a PDF or image (JPG, PNG, WEBP or HEIC)" });
+
   const key = `expenses/${req.user.id}/${req.params.id}/${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-  await r2.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: buffer, ContentType: mimeType || "application/octet-stream" }));
+  await r2.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: buffer, ContentType: detectedType }));
   const { error } = await supabase.from("project_expenses").update({ receipt_key: key, updated_at: new Date().toISOString() }).eq("id", req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true, key });
@@ -4308,7 +4474,7 @@ app.get("/api/expenses/:id/receipt", requireAuth, async (req, res) => {
     const obj = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: existing.receipt_key }));
     const chunks = []; for await (const c of obj.Body) chunks.push(c);
     res.set("Content-Type", obj.ContentType || "application/octet-stream");
-    res.set("Content-Disposition", `inline; filename="${existing.receipt_key.split("/").pop()}"`);
+    res.set("Content-Disposition", `attachment; filename="${existing.receipt_key.split("/").pop()}"`);
     res.send(Buffer.concat(chunks));
   } catch (e) {
     res.status(500).json({ error: "Could not retrieve receipt" });
@@ -4336,6 +4502,24 @@ app.put("/api/admin/expenses/settings", requireAuth, requireAdmin, async (req, r
   res.json({ ok: true, mileage_rate_ppm: rate });
 });
 
+// GET /api/admin/notification-settings
+app.get("/api/admin/notification-settings", requireAuth, requireAdmin, async (req, res) => {
+  res.json(await getNotificationSettings());
+});
+
+// PUT /api/admin/notification-settings
+app.put("/api/admin/notification-settings", requireAuth, requireAdmin, async (req, res) => {
+  const incoming = req.body || {};
+  const settings = {};
+  for (const k of NOTIFICATION_KEYS) settings[k] = incoming[k] === undefined ? true : Boolean(incoming[k]);
+  const { error } = await supabase.from("app_settings").upsert(
+    { key: "notification_settings", value: JSON.stringify(settings), updated_at: new Date().toISOString() },
+    { onConflict: "key" }
+  );
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(settings);
+});
+
 // GET /api/admin/expenses
 app.get("/api/admin/expenses", requireAuth, requireAdmin, async (req, res) => {
   const { status, user_id, from, to } = req.query;
@@ -4356,6 +4540,7 @@ app.post("/api/admin/expenses/:id/approve", requireAuth, requireAdmin, async (re
     .update({ status: "approved", reviewed_by: req.user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  await notifyExpenseDecision(data, "approved");
   res.json(data);
 });
 
@@ -4368,6 +4553,7 @@ app.post("/api/admin/expenses/:id/reject", requireAuth, requireAdmin, async (req
     .update({ status: "rejected", rejection_reason: reason.trim(), reviewed_by: req.user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  await notifyExpenseDecision(data, "rejected", reason.trim());
   res.json(data);
 });
 

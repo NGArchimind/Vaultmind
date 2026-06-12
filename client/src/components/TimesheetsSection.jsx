@@ -72,6 +72,9 @@ function formatMins(totalMins) {
 
 function entryMins(e) { return (e.hours || 0) * 60 + (e.minutes || 0); }
 function totalMins(entries) { return entries.reduce((s, e) => s + entryMins(e), 0); }
+// Overtime is tracked separately — never added into the normal totals above.
+function entryOtMins(e) { return (e.overtime_hours || 0) * 60 + (e.overtime_minutes || 0); }
+function totalOtMins(entries) { return entries.reduce((s, e) => s + entryOtMins(e), 0); }
 
 // ── Confirm dialog ─────────────────────────────────────────────────────────────
 
@@ -204,9 +207,12 @@ function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
     ? entry.project_id
     : entry.category ? `cat:${entry.category}` : "";
 
+  const isProject = !!entry.project_id;
+
   const handleProjectChange = (e) => {
     const val = e.target.value;
-    if (val.startsWith("cat:")) onUpdate(entry.id, { project_id: null,  category: val.replace("cat:", "") });
+    // Switching to a category clears any overtime (overtime is job-only).
+    if (val.startsWith("cat:")) onUpdate(entry.id, { project_id: null,  category: val.replace("cat:", ""), overtime_hours: 0, overtime_minutes: 0 });
     else                        onUpdate(entry.id, { project_id: val || null, category: null });
   };
 
@@ -227,6 +233,21 @@ function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
         disabled={locked} style={{ ...ss, width: 62 }}>
         {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
       </select>
+      {isProject && (
+        <>
+          <span style={{ fontSize: 11, color: "#8a9aa8", fontWeight: 600, letterSpacing: "0.04em" }} title="Overtime">OT</span>
+          <select value={entry.overtime_hours ?? 0}
+            onChange={e => onUpdate(entry.id, { overtime_hours: parseInt(e.target.value) })}
+            disabled={locked} style={{ ...ss, width: 56 }} title="Overtime hours">
+            {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}h</option>)}
+          </select>
+          <select value={entry.overtime_minutes ?? 0}
+            onChange={e => onUpdate(entry.id, { overtime_minutes: parseInt(e.target.value) })}
+            disabled={locked} style={{ ...ss, width: 56 }} title="Overtime minutes">
+            {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
+          </select>
+        </>
+      )}
       <input placeholder="Notes (optional)" value={notes}
         onChange={e => setNotes(e.target.value)}
         onBlur={() => { if (notes !== (entry.notes || "")) onUpdate(entry.id, { notes: notes || null }); }}
@@ -480,9 +501,74 @@ function AdminExpensesPanel({ users }) {
   );
 }
 
+// ── Notification settings (admin) ─────────────────────────────────────────────
+
+const NOTIFICATION_LABELS = [
+  { key: "timesheet_submitted", label: "Timesheet submitted",          desc: "Email admins when someone submits their timesheet" },
+  { key: "expense_submitted",   label: "Expense submitted",            desc: "Email admins when someone files an expense" },
+  { key: "unlock_requested",    label: "Unlock requested",             desc: "Email admins when someone asks to edit a locked timesheet" },
+  { key: "expense_decided",     label: "Expense approved / rejected",  desc: "Email the submitter when their expense is decided" },
+  { key: "timesheet_rejected",  label: "Timesheet returned",           desc: "Email the submitter when their timesheet is returned for changes" },
+];
+
+function NotificationSettings() {
+  const [settings, setSettings] = useState(null);
+  const [open,     setOpen]     = useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const [toast,    setToast]    = useState(null);
+
+  useEffect(() => {
+    api("/api/admin/notification-settings").then(setSettings).catch(() => {});
+  }, []);
+
+  const toggle = async (key) => {
+    if (!settings || saving) return;
+    const prev = settings;
+    const next = { ...settings, [key]: !settings[key] };
+    setSettings(next);
+    setSaving(true);
+    try {
+      const saved = await api("/api/admin/notification-settings", { method: "PUT", body: next });
+      setSettings(saved);
+      setToast("Saved"); setTimeout(() => setToast(null), 1500);
+    } catch {
+      setSettings(prev);
+      setToast("Could not save"); setTimeout(() => setToast(null), 2000);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ marginBottom: 16, border: "1px solid #dde4e8", background: "#fff" }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ width: "100%", textAlign: "left", background: DESIGN_GROUND, border: "none", padding: "12px 16px", fontSize: 12, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "#6a8a9a", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 13 }}>{open ? "▲" : "▼"}</span>
+        Email Notifications
+        {toast && <span style={{ marginLeft: "auto", fontSize: 11, color: TIMESHEETS_FULL, textTransform: "none", letterSpacing: 0 }}>{toast}</span>}
+      </button>
+      {open && (
+        <div style={{ padding: "8px 16px 14px" }}>
+          {!settings && <p style={{ fontSize: 13, color: "#6a8a9a", margin: "8px 0" }}>Loading…</p>}
+          {settings && NOTIFICATION_LABELS.map(({ key, label, desc }) => (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: "1px solid #eef2f4" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT }}>{label}</div>
+                <div style={{ fontSize: 11, color: "#8a9aa8" }}>{desc}</div>
+              </div>
+              <button onClick={() => toggle(key)} disabled={saving} title={settings[key] ? "On" : "Off"}
+                style={{ width: 46, height: 24, borderRadius: 12, border: "none", cursor: saving ? "default" : "pointer", background: settings[key] ? TIMESHEETS_FULL : "#c0ccd4", position: "relative", flexShrink: 0, transition: "background .15s" }}>
+                <span style={{ position: "absolute", top: 2, left: settings[key] ? 24 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Admin review panel ────────────────────────────────────────────────────────
 
-function AdminPanel({ projects }) {
+function AdminPanel({ projects, isAdmin }) {
   const [submissions,     setSubmissions]     = useState([]);
   const [users,           setUsers]           = useState([]);
   const [expanded,        setExpanded]        = useState(null);
@@ -567,21 +653,26 @@ function AdminPanel({ projects }) {
     <div style={{ padding: "0 32px 32px" }}>
       {toast && <div style={{ position: "fixed", bottom: 24, right: 24, background: DESIGN_TEXT, color: "#fff", padding: "10px 20px", fontSize: 13, zIndex: 9999 }}>{toast}</div>}
 
-      {/* Admin view toggle */}
-      <div style={{ padding: "16px 0 0", display: "flex", gap: 0, marginBottom: 16 }}>
-        {["timesheets", "expenses"].map(v => (
-          <button key={v} onClick={() => setAdminView(v)}
-            style={{
-              fontSize: 12, padding: "7px 20px", border: `1px solid ${TIMESHEETS_FULL}`,
-              background: adminView === v ? TIMESHEETS_FULL : "#fff",
-              color: adminView === v ? "#fff" : TIMESHEETS_FULL,
-              cursor: "pointer", fontWeight: 600, textTransform: "capitalize",
-              marginRight: v === "timesheets" ? -1 : 0,
-            }}>
-            {v}
-          </button>
-        ))}
-      </div>
+      {/* Admin-only: view toggle (timesheets/expenses) + notification settings. HR sees timesheets only. */}
+      {isAdmin && (
+        <>
+          <div style={{ padding: "16px 0 0", display: "flex", gap: 0, marginBottom: 16 }}>
+            {["timesheets", "expenses"].map(v => (
+              <button key={v} onClick={() => setAdminView(v)}
+                style={{
+                  fontSize: 12, padding: "7px 20px", border: `1px solid ${TIMESHEETS_FULL}`,
+                  background: adminView === v ? TIMESHEETS_FULL : "#fff",
+                  color: adminView === v ? "#fff" : TIMESHEETS_FULL,
+                  cursor: "pointer", fontWeight: 600, textTransform: "capitalize",
+                  marginRight: v === "timesheets" ? -1 : 0,
+                }}>
+                {v}
+              </button>
+            ))}
+          </div>
+          <NotificationSettings />
+        </>
+      )}
 
       {adminView === "timesheets" && (
         <>
@@ -676,6 +767,11 @@ function AdminPanel({ projects }) {
                         <span style={{ color: "#4a5a6a" }}>{sub.unlock_reason}</span>
                       </div>
                     )}
+                    {totalOtMins(entries) > 0 && (
+                      <div style={{ marginBottom: 10, fontSize: 12, fontWeight: 600, color: "#8a6a3a" }}>
+                        Overtime this week: {formatMins(totalOtMins(entries))}
+                      </div>
+                    )}
                     {entries.length === 0 && <p style={{ color: "#aaa", fontSize: 13 }}>No entries.</p>}
                     {DAYS.map((day, di) => {
                       const date   = dateForDay(new Date(sub.week_start), di);
@@ -706,14 +802,15 @@ function AdminPanel({ projects }) {
         </>
       )}
 
-      {adminView === "expenses" && <AdminExpensesPanel users={users} />}
+      {isAdmin && adminView === "expenses" && <AdminExpensesPanel users={users} />}
     </div>
   );
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function TimesheetsSection({ isAdmin }) {
+export default function TimesheetsSection({ isAdmin, isHr }) {
+  const canReview = isAdmin || isHr; // admin or HR can review all staff timesheets
   const [subView,    setSubView]    = useState(null); // null | "history" | "report" | "fee"
   const [view,       setView]       = useState("mine");
   const [monday,     setMonday]     = useState(getMonday(new Date()));
@@ -885,13 +982,14 @@ export default function TimesheetsSection({ isAdmin }) {
   };
 
   const weekTotal  = totalMins(entries);
+  const weekOt     = totalOtMins(entries);
   const underMin   = weekTotal < MIN_WEEK_MINS && weekTotal > 0;
   const btnBase    = { fontSize: 12, padding: "5px 16px", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif", fontWeight: 600, border: "none" };
 
   // Render sub-views first
   if (subView === "history") return <TimesheetHistory onBack={() => setSubView(null)} />;
   if (subView === "report")  return <TimesheetReport  onBack={() => setSubView(null)} />;
-  if (subView === "fee")     return <FeeReview        onBack={() => setSubView(null)} />;
+  if (subView === "fee" && isAdmin) return <FeeReview onBack={() => setSubView(null)} />;
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
@@ -947,17 +1045,19 @@ export default function TimesheetsSection({ isAdmin }) {
               style={{ ...btnBase, background: "#fff", color: TIMESHEETS_FULL, border: `1px solid ${TIMESHEETS_FULL}`, padding: "5px 16px", fontSize: 12 }}>
               View History
             </button>
-            {/* Admin: Reports button + My/Admin toggle */}
-            {isAdmin && (
+            {/* Admin/HR: Reports button + My/Admin toggle (Fee Review is admin-only) */}
+            {canReview && (
               <>
                 <button onClick={() => setSubView("report")}
                   style={{ ...btnBase, background: DESIGN_TEXT, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
                   Reports & Analytics
                 </button>
-                <button onClick={() => setSubView("fee")}
-                  style={{ ...btnBase, background: COMPARE_FULL, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
-                  Fee Review
-                </button>
+                {isAdmin && (
+                  <button onClick={() => setSubView("fee")}
+                    style={{ ...btnBase, background: COMPARE_FULL, color: "#fff", border: "none", padding: "5px 16px", fontSize: 12 }}>
+                    Fee Review
+                  </button>
+                )}
                 <div style={{ display: "flex", border: `1px solid ${TIMESHEETS_FULL}` }}>
                   {["mine", "admin"].map(v => (
                     <button key={v} onClick={() => setView(v)}
@@ -996,7 +1096,7 @@ export default function TimesheetsSection({ isAdmin }) {
               <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: DESIGN_TEXT, letterSpacing: "0.04em", textTransform: "uppercase" }}>Staff Timesheets</h3>
               <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6a8a9a" }}>Review and approve submitted timesheets. Click a row to expand and amend entries.</p>
             </div>
-            <AdminPanel projects={projects} />
+            <AdminPanel projects={projects} isAdmin={isAdmin} />
           </>
         ) : (
           <>
@@ -1084,6 +1184,11 @@ export default function TimesheetsSection({ isAdmin }) {
                     <span style={{ fontSize: 14, color: DESIGN_TEXT, fontWeight: 600 }}>
                       Week total: <span style={{ color: underMin && !isLocked ? COMPARE_FULL : TIMESHEETS_FULL }}>{formatMins(weekTotal)}</span>
                     </span>
+                    {weekOt > 0 && (
+                      <span style={{ marginLeft: 16, fontSize: 13, color: "#8a6a3a", fontWeight: 600 }}>
+                        Overtime: {formatMins(weekOt)}
+                      </span>
+                    )}
                     {underMin && !isLocked && (
                       <span style={{ marginLeft: 12, fontSize: 12, color: COMPARE_FULL }}>
                         ⚠ Below 37.5h minimum
