@@ -1,12 +1,12 @@
 import { useState } from "react";
 import {
   DESIGN_GROUND, DESIGN_MUTED,
-  DESIGN_PLACEHOLDER_BORDER, DESIGN_PLACEHOLDER_TEXT,
   VAULT_FULL, VAULT_WASH,
   COMPARE_FULL, COMPARE_WASH,
   LIBRARY_FULL, LIBRARY_WASH,
   PROJECTS_FULL, PROJECTS_WASH,
   TIMESHEETS_FULL, TIMESHEETS_WASH,
+  SCHEDULE_FULL, SCHEDULE_WASH,
 } from "../constants";
 
 function Tile({ id, label, category, washColor, fullColor, cta, description, onSelect }) {
@@ -103,6 +103,7 @@ const DOCUMENT_TILES = [
 const PRACTICE_TILES = [
   { id: "projects",   label: "Projects",   category: "Practice Management", washColor: PROJECTS_WASH,   fullColor: PROJECTS_FULL,   cta: "Open Projects →",   description: "Manage projects, tasks, drawing reviews, and client email correspondence in one place." },
   { id: "timesheets", label: "Timesheets", category: "Practice Management", washColor: TIMESHEETS_WASH, fullColor: TIMESHEETS_FULL, cta: "Open Timesheets →", description: "Log time against projects, track fees, and monitor budget against programme across the practice." },
+  { id: "schedule",   label: "Schedule",   category: "Practice Management", washColor: SCHEDULE_WASH,   fullColor: SCHEDULE_FULL,   cta: "Open Schedule →",  description: "Compare schedule revisions and generate formatted Excel outputs from Revit exports." },
 ];
 
 const GROUP_LABEL = {
@@ -115,7 +116,33 @@ const GROUP_LABEL = {
   fontFamily: "Inter, Arial, sans-serif",
 };
 
-export default function LandingPage({ onSelect }) {
+export default function LandingPage({ onSelect, isAdmin = false }) {
+  if (!isAdmin) {
+    const STAFF_IDS = ["vault", "timesheets"];
+    const STAFF_TILES = [
+      ...DOCUMENT_TILES.filter(t => STAFF_IDS.includes(t.id)),
+      ...PRACTICE_TILES.filter(t => STAFF_IDS.includes(t.id)),
+    ];
+    return (
+      <div
+        style={{
+          flex: 1,
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          background: DESIGN_GROUND,
+          padding: "40px",
+          fontFamily: "Inter, Arial, sans-serif",
+        }}
+      >
+        <div style={{ display: "flex", gap: 20, width: "100%", maxWidth: 760 }}>
+          {STAFF_TILES.map(t => <Tile key={t.id} {...t} onSelect={onSelect} />)}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -144,30 +171,6 @@ export default function LandingPage({ onSelect }) {
         <p style={GROUP_LABEL}>Practice Management</p>
         <div style={{ display: "flex", gap: 20 }}>
           {PRACTICE_TILES.map(t => <Tile key={t.id} {...t} onSelect={onSelect} />)}
-          {/* Coming soon placeholder */}
-          <div
-            style={{
-              flex: 1,
-              background: DESIGN_GROUND,
-              border: `1px dashed ${DESIGN_PLACEHOLDER_BORDER}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              minHeight: 180,
-            }}
-          >
-            <span
-              style={{
-                fontSize: 8,
-                fontWeight: 500,
-                color: DESIGN_PLACEHOLDER_TEXT,
-                letterSpacing: ".18em",
-                textTransform: "uppercase",
-              }}
-            >
-              Coming soon
-            </span>
-          </div>
         </div>
       </div>
 

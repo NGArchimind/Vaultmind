@@ -14,6 +14,10 @@ async function getAuthToken() {
 
 const API_BASE = process.env.REACT_APP_API_URL || "https://archimind.up.railway.app";
 
+const AI_TIMEOUT_MS = 240000;   // 4 min — Gemini can be slow on large documents
+const AI_RETRY_DELAY_429 = 15000; // 15 s back-off on rate-limit response
+const AI_RETRY_DELAY_502 = 5000;  // 5 s back-off on gateway error
+
 // ── Generic fetch wrapper ─────────────────────────────────────────────────────
 export async function api(path, options = {}) {
   const token = await getAuthToken();
@@ -43,7 +47,7 @@ export function fileToBase64(file) {
 }
 
 // ── Gemini proxy call ─────────────────────────────────────────────────────────
-export async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash", timeoutMs = 240000, options = {}) {
+export async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash", timeoutMs = AI_TIMEOUT_MS, options = {}) {
   const token = await getAuthToken();
   const headers = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -67,11 +71,11 @@ export async function callClaude(messages, systemPrompt, maxTokens = 1000, retri
   clearTimeout(timeoutId);
 
   if (res.status === 429 && retries > 0) {
-    await new Promise(r => setTimeout(r, 15000));
+    await new Promise(r => setTimeout(r, AI_RETRY_DELAY_429));
     return callClaude(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs, options);
   }
   if ((res.status === 504 || res.status === 502) && retries > 0) {
-    await new Promise(r => setTimeout(r, 5000));
+    await new Promise(r => setTimeout(r, AI_RETRY_DELAY_502));
     return callClaude(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs, options);
   }
   if (!res.ok) {
@@ -83,4 +87,25 @@ export async function callClaude(messages, systemPrompt, maxTokens = 1000, retri
     text: data.content.map(b => b.text || "").join("\n"),
     usage: data.usage || { input_tokens: 0, output_tokens: 0 },
   };
+}
+
+// ── Binary download helper ────────────────────────────────────────────────────
+// Like api() but returns the raw Response instead of parsing JSON.
+// Use for endpoints that return binary files (Excel, CSV).
+// Pass body=null and method="GET" for GET requests.
+export async function apiBlob(path, body = null, method = "POST") {
+  const token = await getAuthToken();
+  const headers = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  if (body !== null) headers["Content-Type"] = "application/json";
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers,
+    body: body !== null ? JSON.stringify(body) : undefined,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error || `API error ${res.status}`);
+  }
+  return res; // caller reads .blob() and .headers
 }

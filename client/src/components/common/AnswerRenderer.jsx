@@ -11,17 +11,19 @@ function formatInline(text) {
   });
 }
 
-// Parse "Document Name | Clause Title (Parent)" into { docName, heading }
+// Parse "Document Name | Clause Title [p.X]" into { docName, heading, rawHeading }
+// heading has the [p.X] tag stripped (for display); rawHeading keeps it (for click handler)
 function parseCitation(citationText) {
   const pipeIdx = citationText.indexOf("|");
-  if (pipeIdx === -1) return { docName: citationText.trim(), heading: "" };
+  if (pipeIdx === -1) return { docName: citationText.trim(), heading: "", rawHeading: "" };
   const docName = citationText.slice(0, pipeIdx).trim();
-  const heading = citationText.slice(pipeIdx + 1).trim();
-  return { docName, heading };
+  const rawHeading = citationText.slice(pipeIdx + 1).trim();
+  const heading = rawHeading.replace(/\s*\[p\.\d+\]\s*$/i, "").trim();
+  return { docName, heading, rawHeading };
 }
 
 function CitationLine({ citationText, onCitationClick, keyProp, accentColor }) {
-  const { docName, heading } = parseCitation(citationText);
+  const { docName, heading, rawHeading } = parseCitation(citationText);
   const displayDoc = docName.replace(/\.pdf$/i, "").replace(/__+/g, " — ").trim();
   return (
     <div key={keyProp} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: AD_GREEN_LIGHT, borderLeft: `3px solid ${accentColor}`, padding: "10px 14px", margin: "20px 0 4px", borderRadius: "0 2px 2px 0" }}>
@@ -33,7 +35,7 @@ function CitationLine({ citationText, onCitationClick, keyProp, accentColor }) {
       </div>
       {onCitationClick && (
         <button
-          onClick={() => onCitationClick(docName, heading)}
+          onClick={() => onCitationClick(docName, rawHeading || heading)}
           style={{ background: accentColor, border: "none", cursor: "pointer", color: "#fff", fontSize: 10, padding: "4px 10px", fontFamily: "Inter, Arial, sans-serif", borderRadius: 2, flexShrink: 0, fontWeight: 500, letterSpacing: "0.05em", whiteSpace: "nowrap" }}
         >↗ open</button>
       )}
@@ -42,13 +44,14 @@ function CitationLine({ citationText, onCitationClick, keyProp, accentColor }) {
 }
 
 function ClauseBlock({ clause, onCitationClick, accentColor }) {
+  const clickArg = clause.rawHeading || clause.heading;
   return (
     <div style={{ marginTop: 12 }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 5 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: accentColor, textTransform: "uppercase", letterSpacing: "0.06em", fontFamily: "Inter, Arial, sans-serif" }}>{clause.heading}</div>
         {onCitationClick && (
           <button
-            onClick={() => onCitationClick(clause.docName, clause.heading)}
+            onClick={() => onCitationClick(clause.docName, clickArg)}
             style={{ background: accentColor, border: "none", cursor: "pointer", color: "#fff", fontSize: 10, padding: "4px 10px", fontFamily: "Inter, Arial, sans-serif", borderRadius: 2, flexShrink: 0, marginLeft: 10, fontWeight: 500, letterSpacing: "0.05em", whiteSpace: "nowrap" }}
           >↗ open</button>
         )}
@@ -59,7 +62,7 @@ function ClauseBlock({ clause, onCitationClick, accentColor }) {
             {line.text}
             {onCitationClick && (
               <button
-                onClick={() => onCitationClick(clause.docName, clause.heading)}
+                onClick={() => onCitationClick(clause.docName, clickArg)}
                 style={{ background: "none", border: "none", cursor: "pointer", color: accentColor, fontSize: 10, padding: 0, fontFamily: "Inter, Arial, sans-serif", fontWeight: 500 }}
               >↗ open</button>
             )}
@@ -230,8 +233,8 @@ export default function AnswerRenderer({ text, onCitationClick, accentColor = VA
         const isCitationLine = trimmedLine2.startsWith("*") && trimmedLine2.endsWith("*") && trimmedLine2.includes("|") && !trimmedLine2.startsWith("**") && trimmedLine2.length > 2;
         if (isCitationLine) {
           if (currentClause) groupBuffer.clauses.push(currentClause);
-          const { docName, heading } = parseCitation(trimmedLine2.slice(1, -1));
-          currentClause = { heading, docName, lines: [] };
+          const { docName, heading, rawHeading } = parseCitation(trimmedLine2.slice(1, -1));
+          currentClause = { heading, rawHeading, docName, lines: [] };
           return;
         }
 

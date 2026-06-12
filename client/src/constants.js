@@ -15,6 +15,7 @@ export const COMPARE_FULL    = "#9e4a3a";
 export const LIBRARY_FULL    = "#3a6e9a";
 export const PROJECTS_FULL   = "#3e7e58";
 export const TIMESHEETS_FULL = "#4c6278";
+export const SCHEDULE_FULL   = "#5c4a80";
 
 // ── Per-module washed colours (landing tile rest state) ───────────────────────
 export const VAULT_WASH      = "#7da8a2";
@@ -22,6 +23,7 @@ export const COMPARE_WASH    = "#a09090";
 export const LIBRARY_WASH    = "#7e94a8";
 export const PROJECTS_WASH   = "#8ea09a";
 export const TIMESHEETS_WASH = "#8898a8";
+export const SCHEDULE_WASH   = "#9288a8";
 
 export const AD_GREEN = "#0d6478";
 export const AD_GREEN_LIGHT = "#f0f5f6";
