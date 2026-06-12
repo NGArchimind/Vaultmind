@@ -55,6 +55,68 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+// ── Notification settings ─────────────────────────────────────────────────────
+// Office-wide on/off switches for the five notification emails, stored as JSON
+// in app_settings (key "notification_settings"). Any missing key defaults to ON.
+const NOTIFICATION_KEYS = [
+  "timesheet_submitted", // → admins
+  "expense_submitted",   // → admins
+  "unlock_requested",    // → admins
+  "expense_decided",     // → submitter
+  "timesheet_rejected",  // → submitter
+];
+
+async function getNotificationSettings() {
+  const { data } = await supabase.from("app_settings").select("value").eq("key", "notification_settings").maybeSingle();
+  let stored = {};
+  try { stored = data?.value ? JSON.parse(data.value) : {}; } catch { stored = {}; }
+  const out = {};
+  for (const k of NOTIFICATION_KEYS) out[k] = stored[k] !== false; // default ON
+  return out;
+}
+
+async function isNotificationEnabled(key) {
+  const settings = await getNotificationSettings();
+  return settings[key] !== false;
+}
+
+async function getUserEmail(userId) {
+  try {
+    const { data } = await supabase.auth.admin.getUserById(userId);
+    return data?.user?.email || null;
+  } catch { return null; }
+}
+
+// Branded wrapper shared by notification emails.
+function notificationEmailHtml(headerLabel, bodyHtml) {
+  return `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — ${headerLabel}</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;">${bodyHtml}</div></div>`;
+}
+
+// "8 Jun – 12 Jun 2026" from a Monday week_start string.
+function formatWeekRange(week) {
+  const weekDate = new Date(week + "T12:00:00Z");
+  const fri = new Date(weekDate); fri.setUTCDate(fri.getUTCDate() + 4);
+  const o = { day: "numeric", month: "short" };
+  return `${weekDate.toLocaleDateString("en-GB", o)} – ${fri.toLocaleDateString("en-GB", { ...o, year: "numeric" })}`;
+}
+
+// Email the submitter when an admin approves/rejects their expense.
+async function notifyExpenseDecision(expense, outcome, reason) {
+  if (!expense || !(await isNotificationEnabled("expense_decided"))) return;
+  const email = await getUserEmail(expense.user_id);
+  if (!email) return;
+  const amtStr = `£${(expense.amount_pence / 100).toFixed(2)}`;
+  const reasonHtml = outcome === "rejected" && reason
+    ? `<p style="margin:14px 0 0;font-size:13px;color:#6a8a9a;">Reason:</p><p style="margin:4px 0 0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason)}</p>`
+    : "";
+  await sendEmail({
+    to: email,
+    subject: `Expense ${outcome} — ${amtStr}`,
+    html: notificationEmailHtml("Expenses", `<p style="margin:0;font-size:15px;color:#262830;">Your expense of <strong>${amtStr}</strong> has been <strong>${outcome}</strong>.</p>${reasonHtml}`),
+    text: `Your expense of ${amtStr} has been ${outcome}.${outcome === "rejected" && reason ? `\nReason: ${reason}` : ""}`,
+  });
+}
+
 const app = express();
 
 const corsOptions = {
@@ -3955,6 +4017,21 @@ app.post("/api/timesheets/submit", requireAuth, async (req, res) => {
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+
+  // Notify admins that a timesheet was submitted for review
+  if (await isNotificationEnabled("timesheet_submitted")) {
+    const adminEmails = await getAdminEmails();
+    if (adminEmails.length) {
+      const weekStr = formatWeekRange(week);
+      await sendEmail({
+        to: adminEmails,
+        subject: `Timesheet submitted — ${req.user.email}`,
+        html: notificationEmailHtml("Timesheets", `<p style="margin:0;font-size:15px;color:#262830;"><strong>${escapeHtml(req.user.email)}</strong> submitted their timesheet for <strong>${weekStr}</strong> for review.</p>`),
+        text: `${req.user.email} submitted their timesheet for ${weekStr} for review.`,
+      });
+    }
+  }
+
   res.json(data);
 });
 
@@ -4061,6 +4138,21 @@ app.post("/api/admin/timesheets/reject", requireAuth, requireAdmin, async (req, 
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
+
+  // Notify the submitter their timesheet was returned for changes
+  if (await isNotificationEnabled("timesheet_rejected")) {
+    const email = await getUserEmail(user_id);
+    if (email) {
+      const weekStr = formatWeekRange(week);
+      await sendEmail({
+        to: email,
+        subject: `Timesheet returned — ${weekStr}`,
+        html: notificationEmailHtml("Timesheets", `<p style="margin:0 0 14px;font-size:15px;color:#262830;">Your timesheet for <strong>${weekStr}</strong> has been returned for changes.</p><p style="margin:0;font-size:13px;color:#6a8a9a;">Reason:</p><p style="margin:4px 0 0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason.trim())}</p>`),
+        text: `Your timesheet for ${weekStr} has been returned for changes.\nReason: ${reason.trim()}`,
+      });
+    }
+  }
+
   res.json(data);
 });
 
@@ -4088,7 +4180,7 @@ app.post("/api/timesheets/unlock-request", requireAuth, rateLimit(5, 60_000), as
   if (error) return res.status(500).json({ error: error.message });
 
   // Email admin
-  const adminEmails = await getAdminEmails();
+  const adminEmails = (await isNotificationEnabled("unlock_requested")) ? await getAdminEmails() : [];
   if (adminEmails.length) {
     const weekDate = new Date(week + "T12:00:00Z");
     const fri = new Date(weekDate); fri.setUTCDate(fri.getUTCDate() + 4);
@@ -4232,7 +4324,7 @@ app.post("/api/expenses", requireAuth, rateLimit(10, 60_000), async (req, res) =
   if (error) return res.status(500).json({ error: error.message });
 
   // Notify admin
-  const adminEmails = await getAdminEmails();
+  const adminEmails = (await isNotificationEnabled("expense_submitted")) ? await getAdminEmails() : [];
   if (adminEmails.length) {
     const typeLbl = { train:"Train",mileage:"Car Mileage",meals:"Meals",taxi:"Taxi",parking:"Parking" }[expense_type] || expense_type;
     const amtStr  = `£${(computedPence / 100).toFixed(2)}`;
@@ -4375,6 +4467,24 @@ app.put("/api/admin/expenses/settings", requireAuth, requireAdmin, async (req, r
   res.json({ ok: true, mileage_rate_ppm: rate });
 });
 
+// GET /api/admin/notification-settings
+app.get("/api/admin/notification-settings", requireAuth, requireAdmin, async (req, res) => {
+  res.json(await getNotificationSettings());
+});
+
+// PUT /api/admin/notification-settings
+app.put("/api/admin/notification-settings", requireAuth, requireAdmin, async (req, res) => {
+  const incoming = req.body || {};
+  const settings = {};
+  for (const k of NOTIFICATION_KEYS) settings[k] = incoming[k] === undefined ? true : Boolean(incoming[k]);
+  const { error } = await supabase.from("app_settings").upsert(
+    { key: "notification_settings", value: JSON.stringify(settings), updated_at: new Date().toISOString() },
+    { onConflict: "key" }
+  );
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(settings);
+});
+
 // GET /api/admin/expenses
 app.get("/api/admin/expenses", requireAuth, requireAdmin, async (req, res) => {
   const { status, user_id, from, to } = req.query;
@@ -4395,6 +4505,7 @@ app.post("/api/admin/expenses/:id/approve", requireAuth, requireAdmin, async (re
     .update({ status: "approved", reviewed_by: req.user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  await notifyExpenseDecision(data, "approved");
   res.json(data);
 });
 
@@ -4407,6 +4518,7 @@ app.post("/api/admin/expenses/:id/reject", requireAuth, requireAdmin, async (req
     .update({ status: "rejected", rejection_reason: reason.trim(), reviewed_by: req.user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
     .eq("id", req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  await notifyExpenseDecision(data, "rejected", reason.trim());
   res.json(data);
 });
 

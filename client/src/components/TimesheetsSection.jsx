@@ -480,6 +480,71 @@ function AdminExpensesPanel({ users }) {
   );
 }
 
+// ── Notification settings (admin) ─────────────────────────────────────────────
+
+const NOTIFICATION_LABELS = [
+  { key: "timesheet_submitted", label: "Timesheet submitted",          desc: "Email admins when someone submits their timesheet" },
+  { key: "expense_submitted",   label: "Expense submitted",            desc: "Email admins when someone files an expense" },
+  { key: "unlock_requested",    label: "Unlock requested",             desc: "Email admins when someone asks to edit a locked timesheet" },
+  { key: "expense_decided",     label: "Expense approved / rejected",  desc: "Email the submitter when their expense is decided" },
+  { key: "timesheet_rejected",  label: "Timesheet returned",           desc: "Email the submitter when their timesheet is returned for changes" },
+];
+
+function NotificationSettings() {
+  const [settings, setSettings] = useState(null);
+  const [open,     setOpen]     = useState(false);
+  const [saving,   setSaving]   = useState(false);
+  const [toast,    setToast]    = useState(null);
+
+  useEffect(() => {
+    api("/api/admin/notification-settings").then(setSettings).catch(() => {});
+  }, []);
+
+  const toggle = async (key) => {
+    if (!settings || saving) return;
+    const prev = settings;
+    const next = { ...settings, [key]: !settings[key] };
+    setSettings(next);
+    setSaving(true);
+    try {
+      const saved = await api("/api/admin/notification-settings", { method: "PUT", body: next });
+      setSettings(saved);
+      setToast("Saved"); setTimeout(() => setToast(null), 1500);
+    } catch {
+      setSettings(prev);
+      setToast("Could not save"); setTimeout(() => setToast(null), 2000);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ marginBottom: 16, border: "1px solid #dde4e8", background: "#fff" }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ width: "100%", textAlign: "left", background: DESIGN_GROUND, border: "none", padding: "12px 16px", fontSize: 12, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase", color: "#6a8a9a", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 13 }}>{open ? "▲" : "▼"}</span>
+        Email Notifications
+        {toast && <span style={{ marginLeft: "auto", fontSize: 11, color: TIMESHEETS_FULL, textTransform: "none", letterSpacing: 0 }}>{toast}</span>}
+      </button>
+      {open && (
+        <div style={{ padding: "8px 16px 14px" }}>
+          {!settings && <p style={{ fontSize: 13, color: "#6a8a9a", margin: "8px 0" }}>Loading…</p>}
+          {settings && NOTIFICATION_LABELS.map(({ key, label, desc }) => (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 0", borderBottom: "1px solid #eef2f4" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT }}>{label}</div>
+                <div style={{ fontSize: 11, color: "#8a9aa8" }}>{desc}</div>
+              </div>
+              <button onClick={() => toggle(key)} disabled={saving} title={settings[key] ? "On" : "Off"}
+                style={{ width: 46, height: 24, borderRadius: 12, border: "none", cursor: saving ? "default" : "pointer", background: settings[key] ? TIMESHEETS_FULL : "#c0ccd4", position: "relative", flexShrink: 0, transition: "background .15s" }}>
+                <span style={{ position: "absolute", top: 2, left: settings[key] ? 24 : 2, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Admin review panel ────────────────────────────────────────────────────────
 
 function AdminPanel({ projects }) {
@@ -582,6 +647,8 @@ function AdminPanel({ projects }) {
           </button>
         ))}
       </div>
+
+      <NotificationSettings />
 
       {adminView === "timesheets" && (
         <>
