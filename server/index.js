@@ -44,6 +44,17 @@ async function getAdminEmails() {
     .filter(Boolean);
 }
 
+// Escape user-supplied text before interpolating into notification email HTML,
+// so a description/reason containing markup can't render as live content.
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 const app = express();
 
 const corsOptions = {
@@ -4054,7 +4065,7 @@ app.post("/api/admin/timesheets/reject", requireAuth, requireAdmin, async (req, 
 });
 
 // POST /api/timesheets/unlock-request  — must be before /:id route
-app.post("/api/timesheets/unlock-request", requireAuth, async (req, res) => {
+app.post("/api/timesheets/unlock-request", requireAuth, rateLimit(5, 60_000), async (req, res) => {
   const { week, reason } = req.body;
   if (!week) return res.status(400).json({ error: "week required" });
   if (!reason?.trim()) return res.status(400).json({ error: "reason required" });
@@ -4086,7 +4097,7 @@ app.post("/api/timesheets/unlock-request", requireAuth, async (req, res) => {
     await sendEmail({
       to: adminEmails,
       subject: `Timesheet edit request — ${req.user.email}`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — Timesheets</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;"><p style="margin:0 0 16px;font-size:15px;color:#262830;"><strong>${req.user.email}</strong> has requested to edit their timesheet for <strong>${weekStr}</strong>.</p><p style="font-size:13px;color:#6a8a9a;margin:0 0 6px;">Reason:</p><p style="margin:0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${reason.trim()}</p></div></div>`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — Timesheets</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;"><p style="margin:0 0 16px;font-size:15px;color:#262830;"><strong>${escapeHtml(req.user.email)}</strong> has requested to edit their timesheet for <strong>${weekStr}</strong>.</p><p style="font-size:13px;color:#6a8a9a;margin:0 0 6px;">Reason:</p><p style="margin:0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason.trim())}</p></div></div>`,
       text: `Timesheet edit request from ${req.user.email}\n\nWeek: ${weekStr}\nReason: ${reason.trim()}`,
     });
   }
@@ -4129,9 +4140,17 @@ app.get("/api/admin/timesheets", requireAuth, requireAdmin, async (req, res) => 
 
 // PATCH /api/admin/timesheets/:id
 app.patch("/api/admin/timesheets/:id", requireAuth, requireAdmin, async (req, res) => {
+  if ("hours" in req.body) {
+    const err = validateTimesheetFields({ hours: req.body.hours });
+    if (err) return res.status(400).json({ error: err });
+  }
+  if ("minutes" in req.body) {
+    const err = validateTimesheetFields({ minutes: req.body.minutes });
+    if (err) return res.status(400).json({ error: err });
+  }
   const updates = { updated_at: new Date().toISOString() };
-  if ("hours"      in req.body) updates.hours      = req.body.hours;
-  if ("minutes"    in req.body) updates.minutes    = req.body.minutes;
+  if ("hours"      in req.body) updates.hours      = Number(req.body.hours);
+  if ("minutes"    in req.body) updates.minutes    = Number(req.body.minutes);
   if ("notes"      in req.body) updates.notes      = req.body.notes ?? null;
   if ("project_id" in req.body) updates.project_id = req.body.project_id || null;
   if ("category"   in req.body) updates.category   = req.body.category  || null;
@@ -4171,7 +4190,7 @@ app.get("/api/expenses", requireAuth, async (req, res) => {
 });
 
 // POST /api/expenses
-app.post("/api/expenses", requireAuth, async (req, res) => {
+app.post("/api/expenses", requireAuth, rateLimit(10, 60_000), async (req, res) => {
   const { project_id, expense_type, expense_date, amount_pence, miles, description } = req.body;
   if (!project_id) return res.status(400).json({ error: "project_id required" });
   if (!VALID_EXPENSE_TYPES.includes(expense_type)) return res.status(400).json({ error: "Invalid expense_type" });
@@ -4223,7 +4242,7 @@ app.post("/api/expenses", requireAuth, async (req, res) => {
     await sendEmail({
       to: adminEmails,
       subject: `New expense — ${req.user.email.split("@")[0]} · ${typeLbl} · ${amtStr}`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — Expenses</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;"><p style="margin:0 0 20px;font-size:15px;color:#262830;"><strong>${req.user.email}</strong> submitted an expense for review.</p><table style="width:100%;font-size:13px;border-collapse:collapse;"><tr><td style="padding:5px 0;color:#6a8a9a;width:110px;">Type</td><td style="padding:5px 0;color:#262830;font-weight:600;">${typeLbl}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Date</td><td style="padding:5px 0;color:#262830;">${dateStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Project</td><td style="padding:5px 0;color:#262830;">${projStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Amount</td><td style="padding:5px 0;color:#262830;font-weight:600;">${amtStr}${miStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Description</td><td style="padding:5px 0;color:#262830;">${data.description}</td></tr></table></div></div>`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — Expenses</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;"><p style="margin:0 0 20px;font-size:15px;color:#262830;"><strong>${escapeHtml(req.user.email)}</strong> submitted an expense for review.</p><table style="width:100%;font-size:13px;border-collapse:collapse;"><tr><td style="padding:5px 0;color:#6a8a9a;width:110px;">Type</td><td style="padding:5px 0;color:#262830;font-weight:600;">${typeLbl}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Date</td><td style="padding:5px 0;color:#262830;">${dateStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Project</td><td style="padding:5px 0;color:#262830;">${escapeHtml(projStr)}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Amount</td><td style="padding:5px 0;color:#262830;font-weight:600;">${amtStr}${miStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Description</td><td style="padding:5px 0;color:#262830;">${escapeHtml(data.description)}</td></tr></table></div></div>`,
       text: `New expense from ${req.user.email}\nType: ${typeLbl}\nDate: ${dateStr}\nProject: ${projStr}\nAmount: ${amtStr}${miStr}\nDescription: ${data.description}`,
     });
   }
@@ -4280,9 +4299,25 @@ app.delete("/api/expenses/:id", requireAuth, async (req, res) => {
   res.json({ ok: true });
 });
 
+// A receipt must be a PDF or image. Detect the real type from the file's
+// magic bytes rather than trusting the client-supplied mimeType.
+const MAX_RECEIPT_BYTES = 10 * 1024 * 1024; // 10 MB
+function sniffReceiptType(buf) {
+  if (!buf || buf.length < 12) return null;
+  if (buf.slice(0, 4).toString("latin1") === "%PDF") return "application/pdf";
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return "image/jpeg";
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return "image/png";
+  if (buf.slice(0, 4).toString("latin1") === "RIFF" && buf.slice(8, 12).toString("latin1") === "WEBP") return "image/webp";
+  if (buf.slice(4, 8).toString("latin1") === "ftyp") {
+    const brand = buf.slice(8, 12).toString("latin1");
+    if (["heic", "heif", "mif1", "heix"].includes(brand)) return "image/heic";
+  }
+  return null;
+}
+
 // POST /api/expenses/:id/receipt
 app.post("/api/expenses/:id/receipt", requireAuth, async (req, res) => {
-  const { content, filename, mimeType } = req.body;
+  const { content, filename } = req.body;
   if (!content || !filename) return res.status(400).json({ error: "content and filename required" });
   const { data: existing } = await supabase.from("project_expenses").select("user_id, status").eq("id", req.params.id).single();
   if (!existing) return res.status(404).json({ error: "Not found" });
@@ -4290,8 +4325,12 @@ app.post("/api/expenses/:id/receipt", requireAuth, async (req, res) => {
   if (existing.status !== "pending") return res.status(403).json({ error: "Only pending expenses can have receipts updated" });
 
   const buffer = Buffer.from(content.replace(/^data:[^;]+;base64,/, ""), "base64");
+  if (buffer.length > MAX_RECEIPT_BYTES) return res.status(400).json({ error: "Receipt must be 10 MB or smaller" });
+  const detectedType = sniffReceiptType(buffer);
+  if (!detectedType) return res.status(400).json({ error: "Receipt must be a PDF or image (JPG, PNG, WEBP or HEIC)" });
+
   const key = `expenses/${req.user.id}/${req.params.id}/${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-  await r2.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: buffer, ContentType: mimeType || "application/octet-stream" }));
+  await r2.send(new PutObjectCommand({ Bucket: BUCKET, Key: key, Body: buffer, ContentType: detectedType }));
   const { error } = await supabase.from("project_expenses").update({ receipt_key: key, updated_at: new Date().toISOString() }).eq("id", req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ ok: true, key });
@@ -4308,7 +4347,7 @@ app.get("/api/expenses/:id/receipt", requireAuth, async (req, res) => {
     const obj = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: existing.receipt_key }));
     const chunks = []; for await (const c of obj.Body) chunks.push(c);
     res.set("Content-Type", obj.ContentType || "application/octet-stream");
-    res.set("Content-Disposition", `inline; filename="${existing.receipt_key.split("/").pop()}"`);
+    res.set("Content-Disposition", `attachment; filename="${existing.receipt_key.split("/").pop()}"`);
     res.send(Buffer.concat(chunks));
   } catch (e) {
     res.status(500).json({ error: "Could not retrieve receipt" });
