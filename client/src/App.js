@@ -240,7 +240,7 @@ export default function App() {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session) {
-        const role = session.user?.user_metadata?.role || "user";
+        const role = session.user?.app_metadata?.role || "user";
         setUserRole(role);
       }
       setAuthLoading(false);
@@ -250,7 +250,7 @@ export default function App() {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session) {
-        const role = session.user?.user_metadata?.role || "user";
+        const role = session.user?.app_metadata?.role || "user";
         setUserRole(role);
       } else {
         setUserRole(null);
