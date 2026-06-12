@@ -48,6 +48,8 @@ const app = express();
 
 const corsOptions = {
   origin: [
+    "https://archimind.co.uk",
+    "https://www.archimind.co.uk",
     "https://archimind.vercel.app",
     "https://archimind-omega.vercel.app",
     "https://archimind-git-develop-nathan-greens-projects-192281d0.vercel.app"
