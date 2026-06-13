@@ -673,7 +673,7 @@ export default function AdminSection() {
 
         {/* AD documents table */}
         {quizAdVault && (
-          <div style={{ background: "#fff", border: "1px solid #e0dbd4", maxWidth: 560, marginBottom: 20 }}>
+          <div style={{ background: "#fff", border: "1px solid #e0dbd4", maxWidth: 720, marginBottom: 20 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 180px", padding: "10px 16px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
               {["Document", "Questions", ""].map(h => (
                 <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</span>
@@ -684,8 +684,8 @@ export default function AdminSection() {
             ) : quizDocs.length === 0 ? (
               <div style={{ padding: "16px", fontSize: 12, color: "#9a9088" }}>No PDFs found in this vault.</div>
             ) : quizDocs.map(({ document_name, count }) => (
-              <div key={document_name} style={{ display: "grid", gridTemplateColumns: "1fr 100px 180px", padding: "10px 16px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
-                <span style={{ fontSize: 12, color: DESIGN_SHELL }}>{document_name}</span>
+              <div key={document_name} style={{ display: "grid", gridTemplateColumns: "1fr 100px 180px", padding: "10px 16px", borderBottom: "1px solid #f0ede8", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: DESIGN_SHELL, overflowWrap: "anywhere", minWidth: 0 }}>{document_name}</span>
                 <span style={{ fontSize: 12, color: count > 0 ? "#2e7d4f" : "#9a9088" }}>{count > 0 ? count : "None"}</span>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
