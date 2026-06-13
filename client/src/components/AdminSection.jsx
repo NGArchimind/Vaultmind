@@ -25,8 +25,80 @@ const COLOUR_LABELS = {
   bodyText:    "Body Text",
 };
 
+const NOTIFICATION_ROWS = [
+  { key: "timesheet_submitted", label: "Timesheet submitted",          desc: "When someone submits their timesheet for review" },
+  { key: "expense_submitted",   label: "Expense submitted",            desc: "When someone files an expense" },
+  { key: "unlock_requested",    label: "Unlock requested",             desc: "When someone asks to edit a locked timesheet" },
+  { key: "expense_decided",     label: "Expense approved / rejected",  desc: "When an expense is approved or rejected" },
+  { key: "timesheet_rejected",  label: "Timesheet returned",           desc: "When a timesheet is returned for changes" },
+];
+
+function RoleToggle({ on, label, onClick, disabled }) {
+  return (
+    <button onClick={onClick} disabled={disabled} type="button"
+      style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: disabled ? "default" : "pointer", padding: 0 }}>
+      <span style={{ width: 38, height: 20, borderRadius: 10, background: on ? DESIGN_SHELL : "#cfc8c0", position: "relative", transition: "background .15s", flexShrink: 0 }}>
+        <span style={{ position: "absolute", top: 2, left: on ? 20 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+      </span>
+      <span style={{ fontSize: 11, fontWeight: 600, color: on ? DESIGN_SHELL : "#9a9088", textTransform: "uppercase", letterSpacing: ".05em" }}>{label}</span>
+    </button>
+  );
+}
+
+function NotificationSettings() {
+  const [settings, setSettings] = useState(null);
+  const [saving,   setSaving]   = useState(false);
+  const [toast,    setToast]    = useState(null);
+
+  useEffect(() => { api("/api/admin/notification-settings").then(setSettings).catch(() => {}); }, []);
+
+  const setRole = async (key, role, value) => {
+    if (!settings || saving) return;
+    const prev = settings;
+    const cur  = settings[key] || { admin: false, hr: false };
+    const next = { ...settings, [key]: { ...cur, [role]: value } };
+    setSettings(next);
+    setSaving(true);
+    try {
+      const saved = await api("/api/admin/notification-settings", { method: "PUT", body: next });
+      setSettings(saved);
+      setToast("Saved"); setTimeout(() => setToast(null), 1500);
+    } catch {
+      setSettings(prev);
+      setToast("Could not save"); setTimeout(() => setToast(null), 2000);
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ marginBottom: 48 }}>
+      <h2 style={{ fontSize: 16, fontWeight: 300, color: DESIGN_SHELL, marginBottom: 4 }}>Email Notifications</h2>
+      <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 20 }}>
+        Choose which role is emailed for each event — Admin, HR, both, or neither.
+        {toast && <span style={{ marginLeft: 10, color: DESIGN_SHELL, fontWeight: 600 }}>{toast}</span>}
+      </p>
+      <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${DESIGN_SHELL}`, padding: "8px 24px", maxWidth: 640 }}>
+        {!settings && <p style={{ fontSize: 13, color: "#9a9088", padding: "12px 0" }}>Loading…</p>}
+        {settings && NOTIFICATION_ROWS.map(({ key, label, desc }) => {
+          const r = settings[key] || { admin: false, hr: false };
+          return (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 0", borderBottom: "1px solid #f0ede8" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: DESIGN_SHELL }}>{label}</div>
+                <div style={{ fontSize: 11, color: "#9a9088" }}>{desc}</div>
+              </div>
+              <RoleToggle on={r.admin} label="Admin" disabled={saving} onClick={() => setRole(key, "admin", !r.admin)} />
+              <RoleToggle on={r.hr}    label="HR"    disabled={saving} onClick={() => setRole(key, "hr", !r.hr)} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminSection() {
   const [users, setUsers] = useState([]);
+  const [adminTab, setAdminTab] = useState("users");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -405,6 +477,21 @@ export default function AdminSection() {
     </div>
     <div style={{ flex: 1, overflowY: "auto", background: "#faf8f5", padding: "32px 40px" }}>
 
+      {/* ── Tab bar ───────────────────────────────────────────────────────── */}
+      <div style={{ display: "flex", borderBottom: "2px solid #e8e0d5", marginBottom: 28, gap: 4 }}>
+        {[["users","Users"],["notifications","Notifications"],["quiz","Quiz"],["branding","Branding"],["archisync","ArchiSync"]].map(([key, label]) => (
+          <button key={key} onClick={() => setAdminTab(key)}
+            style={{ fontSize: 12, padding: "10px 18px", border: "none", background: "none", cursor: "pointer",
+              color: adminTab === key ? DESIGN_SHELL : "#9a9088",
+              fontWeight: adminTab === key ? 700 : 500,
+              borderBottom: adminTab === key ? `2px solid ${DESIGN_SHELL}` : "2px solid transparent",
+              marginBottom: -2, fontFamily: "Inter, Arial, sans-serif", letterSpacing: ".04em", textTransform: "uppercase" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {adminTab === "users" && (<>
       {/* ── User Management ──────────────────────────────────────────────── */}
       <div style={{ marginBottom: 8, display: "flex", alignItems: "baseline", justifyContent: "space-between" }}>
         <div>
@@ -494,6 +581,11 @@ export default function AdminSection() {
         {users.length} user{users.length !== 1 ? "s" : ""}
       </p>
 
+      </>)}
+
+      {adminTab === "notifications" && <NotificationSettings />}
+
+      {adminTab === "branding" && (<>
       {/* ── Practice Logo ─────────────────────────────────────────────────── */}
       <div style={{ marginBottom: 48 }}>
         {sectionHeader("Practice Logo", "Appears in the header of all drawing schedules. PNG, JPG, SVG or WebP, max 2 MB.")}
@@ -634,6 +726,9 @@ export default function AdminSection() {
         </div>
       </div>
 
+      </>)}
+
+      {adminTab === "quiz" && (<>
       {/* ── Quiz Management ──────────────────────────────────────────────── */}
       <div style={{ marginBottom: 48 }}>
         {sectionHeader("Quiz Management", "Generate practice questions for Approved Documents and upload the CSCS question bank.")}
@@ -673,7 +768,7 @@ export default function AdminSection() {
 
         {/* AD documents table */}
         {quizAdVault && (
-          <div style={{ background: "#fff", border: "1px solid #e0dbd4", maxWidth: 560, marginBottom: 20 }}>
+          <div style={{ background: "#fff", border: "1px solid #e0dbd4", maxWidth: 720, marginBottom: 20 }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 100px 180px", padding: "10px 16px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
               {["Document", "Questions", ""].map(h => (
                 <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</span>
@@ -684,8 +779,8 @@ export default function AdminSection() {
             ) : quizDocs.length === 0 ? (
               <div style={{ padding: "16px", fontSize: 12, color: "#9a9088" }}>No PDFs found in this vault.</div>
             ) : quizDocs.map(({ document_name, count }) => (
-              <div key={document_name} style={{ display: "grid", gridTemplateColumns: "1fr 100px 180px", padding: "10px 16px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
-                <span style={{ fontSize: 12, color: DESIGN_SHELL }}>{document_name}</span>
+              <div key={document_name} style={{ display: "grid", gridTemplateColumns: "1fr 100px 180px", padding: "10px 16px", borderBottom: "1px solid #f0ede8", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 12, color: DESIGN_SHELL, overflowWrap: "anywhere", minWidth: 0 }}>{document_name}</span>
                 <span style={{ fontSize: 12, color: count > 0 ? "#2e7d4f" : "#9a9088" }}>{count > 0 ? count : "None"}</span>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
@@ -768,6 +863,9 @@ export default function AdminSection() {
         </div>
       </div>
 
+      </>)}
+
+      {adminTab === "archisync" && (<>
       {/* ── ArchiSync Connection ──────────────────────────────────────────── */}
       <div style={{ marginBottom: 48 }}>
         {sectionHeader("ArchiSync Connection", "Generate an encrypted connection code to link the ArchiSync desktop tool to this Archimind deployment.")}
@@ -871,6 +969,7 @@ export default function AdminSection() {
           )}
         </div>
       </div>
+      </>)}
 
     </div>
     </>

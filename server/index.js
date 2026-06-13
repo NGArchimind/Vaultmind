@@ -44,6 +44,14 @@ async function getAdminEmails() {
     .filter(Boolean);
 }
 
+async function getHrEmails() {
+  const { data } = await supabase.auth.admin.listUsers();
+  return (data?.users || [])
+    .filter(u => u.app_metadata?.role === "hr")
+    .map(u => u.email)
+    .filter(Boolean);
+}
+
 // Escape user-supplied text before interpolating into notification email HTML,
 // so a description/reason containing markup can't render as live content.
 function escapeHtml(value) {
@@ -56,28 +64,55 @@ function escapeHtml(value) {
 }
 
 // ── Notification settings ─────────────────────────────────────────────────────
-// Office-wide on/off switches for the five notification emails, stored as JSON
-// in app_settings (key "notification_settings"). Any missing key defaults to ON.
+// Per-event email routing for the five notifications, stored as JSON in
+// app_settings (key "notification_settings"). New shape: each event maps to
+// { admin: bool, hr: bool } — the event emails whichever roles are on.
+// Backward-compatible: an old boolean value (or a missing key) is read using
+// the per-event default below, so the new server understands old stored data.
 const NOTIFICATION_KEYS = [
-  "timesheet_submitted", // → admins
-  "expense_submitted",   // → admins
-  "unlock_requested",    // → admins
-  "expense_decided",     // → submitter
-  "timesheet_rejected",  // → submitter
+  "timesheet_submitted",
+  "expense_submitted",
+  "unlock_requested",
+  "expense_decided",
+  "timesheet_rejected",
 ];
+
+// Default routing per event (used for missing keys and legacy boolean values).
+const NOTIFICATION_DEFAULTS = {
+  timesheet_submitted: { admin: true,  hr: false },
+  expense_submitted:   { admin: true,  hr: false },
+  unlock_requested:    { admin: true,  hr: false },
+  expense_decided:     { admin: false, hr: false },
+  timesheet_rejected:  { admin: false, hr: false },
+};
+
+// Normalise one stored value (object | boolean | undefined) to { admin, hr }.
+function normaliseNotificationValue(key, stored) {
+  const def = NOTIFICATION_DEFAULTS[key] || { admin: false, hr: false };
+  if (stored && typeof stored === "object") {
+    return { admin: stored.admin === true, hr: stored.hr === true };
+  }
+  if (stored === false) return { admin: false, hr: false }; // legacy "off"
+  return { ...def }; // legacy true, or missing → default
+}
 
 async function getNotificationSettings() {
   const { data } = await supabase.from("app_settings").select("value").eq("key", "notification_settings").maybeSingle();
   let stored = {};
   try { stored = data?.value ? JSON.parse(data.value) : {}; } catch { stored = {}; }
   const out = {};
-  for (const k of NOTIFICATION_KEYS) out[k] = stored[k] !== false; // default ON
+  for (const k of NOTIFICATION_KEYS) out[k] = normaliseNotificationValue(k, stored[k]);
   return out;
 }
 
-async function isNotificationEnabled(key) {
+// Deduped recipient email list for an event, based on its admin/hr toggles.
+async function notificationRecipients(key) {
   const settings = await getNotificationSettings();
-  return settings[key] !== false;
+  const route = settings[key] || { admin: false, hr: false };
+  const emails = [];
+  if (route.admin) emails.push(...(await getAdminEmails()));
+  if (route.hr)    emails.push(...(await getHrEmails()));
+  return [...new Set(emails.filter(Boolean))];
 }
 
 async function getUserEmail(userId) {
@@ -100,20 +135,21 @@ function formatWeekRange(week) {
   return `${weekDate.toLocaleDateString("en-GB", o)} – ${fri.toLocaleDateString("en-GB", { ...o, year: "numeric" })}`;
 }
 
-// Email the submitter when an admin approves/rejects their expense.
+// Notify the configured manager role(s) when an admin approves/rejects an expense.
 async function notifyExpenseDecision(expense, outcome, reason) {
-  if (!expense || !(await isNotificationEnabled("expense_decided"))) return;
-  const email = await getUserEmail(expense.user_id);
-  if (!email) return;
+  if (!expense) return;
+  const recipients = await notificationRecipients("expense_decided");
+  if (!recipients.length) return;
+  const who = (await getUserEmail(expense.user_id)) || "A staff member";
   const amtStr = `£${(expense.amount_pence / 100).toFixed(2)}`;
   const reasonHtml = outcome === "rejected" && reason
     ? `<p style="margin:14px 0 0;font-size:13px;color:#6a8a9a;">Reason:</p><p style="margin:4px 0 0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason)}</p>`
     : "";
   await sendEmail({
-    to: email,
+    to: recipients,
     subject: `Expense ${outcome} — ${amtStr}`,
-    html: notificationEmailHtml("Expenses", `<p style="margin:0;font-size:15px;color:#262830;">Your expense of <strong>${amtStr}</strong> has been <strong>${outcome}</strong>.</p>${reasonHtml}`),
-    text: `Your expense of ${amtStr} has been ${outcome}.${outcome === "rejected" && reason ? `\nReason: ${reason}` : ""}`,
+    html: notificationEmailHtml("Expenses", `<p style="margin:0;font-size:15px;color:#262830;">The expense of <strong>${amtStr}</strong> from <strong>${escapeHtml(who)}</strong> has been <strong>${outcome}</strong>.</p>${reasonHtml}`),
+    text: `The expense of ${amtStr} from ${who} has been ${outcome}.${outcome === "rejected" && reason ? `\nReason: ${reason}` : ""}`,
   });
 }
 
@@ -4033,9 +4069,9 @@ app.post("/api/timesheets/submit", requireAuth, async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
-  // Notify admins that a timesheet was submitted for review
-  if (await isNotificationEnabled("timesheet_submitted")) {
-    const adminEmails = await getAdminEmails();
+  // Notify the configured role(s) that a timesheet was submitted for review
+  {
+    const adminEmails = await notificationRecipients("timesheet_submitted");
     if (adminEmails.length) {
       const weekStr = formatWeekRange(week);
       await sendEmail({
@@ -4164,16 +4200,17 @@ app.post("/api/admin/timesheets/reject", requireAuth, requireTimesheetManager, a
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
-  // Notify the submitter their timesheet was returned for changes
-  if (await isNotificationEnabled("timesheet_rejected")) {
-    const email = await getUserEmail(user_id);
-    if (email) {
+  // Notify the configured role(s) that a timesheet was returned for changes
+  {
+    const recipients = await notificationRecipients("timesheet_rejected");
+    if (recipients.length) {
+      const who = (await getUserEmail(user_id)) || "A staff member";
       const weekStr = formatWeekRange(week);
       await sendEmail({
-        to: email,
+        to: recipients,
         subject: `Timesheet returned — ${weekStr}`,
-        html: notificationEmailHtml("Timesheets", `<p style="margin:0 0 14px;font-size:15px;color:#262830;">Your timesheet for <strong>${weekStr}</strong> has been returned for changes.</p><p style="margin:0;font-size:13px;color:#6a8a9a;">Reason:</p><p style="margin:4px 0 0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason.trim())}</p>`),
-        text: `Your timesheet for ${weekStr} has been returned for changes.\nReason: ${reason.trim()}`,
+        html: notificationEmailHtml("Timesheets", `<p style="margin:0 0 14px;font-size:15px;color:#262830;">The timesheet from <strong>${escapeHtml(who)}</strong> for <strong>${weekStr}</strong> has been returned for changes.</p><p style="margin:0;font-size:13px;color:#6a8a9a;">Reason:</p><p style="margin:4px 0 0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason.trim())}</p>`),
+        text: `The timesheet from ${who} for ${weekStr} has been returned for changes.\nReason: ${reason.trim()}`,
       });
     }
   }
@@ -4204,8 +4241,8 @@ app.post("/api/timesheets/unlock-request", requireAuth, rateLimit(5, 60_000), as
     .eq("week_start", week);
   if (error) return res.status(500).json({ error: error.message });
 
-  // Email admin
-  const adminEmails = (await isNotificationEnabled("unlock_requested")) ? await getAdminEmails() : [];
+  // Email the configured role(s)
+  const adminEmails = await notificationRecipients("unlock_requested");
   if (adminEmails.length) {
     const weekDate = new Date(week + "T12:00:00Z");
     const fri = new Date(weekDate); fri.setUTCDate(fri.getUTCDate() + 4);
@@ -4358,8 +4395,8 @@ app.post("/api/expenses", requireAuth, rateLimit(10, 60_000), async (req, res) =
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
-  // Notify admin
-  const adminEmails = (await isNotificationEnabled("expense_submitted")) ? await getAdminEmails() : [];
+  // Notify the configured role(s)
+  const adminEmails = await notificationRecipients("expense_submitted");
   if (adminEmails.length) {
     const typeLbl = { train:"Train",mileage:"Car Mileage",meals:"Meals",taxi:"Taxi",parking:"Parking" }[expense_type] || expense_type;
     const amtStr  = `£${(computedPence / 100).toFixed(2)}`;
@@ -4511,7 +4548,7 @@ app.get("/api/admin/notification-settings", requireAuth, requireAdmin, async (re
 app.put("/api/admin/notification-settings", requireAuth, requireAdmin, async (req, res) => {
   const incoming = req.body || {};
   const settings = {};
-  for (const k of NOTIFICATION_KEYS) settings[k] = incoming[k] === undefined ? true : Boolean(incoming[k]);
+  for (const k of NOTIFICATION_KEYS) settings[k] = normaliseNotificationValue(k, incoming[k]);
   const { error } = await supabase.from("app_settings").upsert(
     { key: "notification_settings", value: JSON.stringify(settings), updated_at: new Date().toISOString() },
     { onConflict: "key" }
