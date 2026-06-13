@@ -4,6 +4,7 @@ import {
   ResponsiveContainer, PieChart, Pie, Cell,
 } from "recharts";
 import { api } from "../api/client";
+import { datePreset, toCsv, downloadCsv, filterSummary } from "../utils/reportExport";
 import { DESIGN_GROUND, DESIGN_TEXT, TIMESHEETS_FULL, COMPARE_FULL } from "../constants";
 
 const CHART_COLORS = [
@@ -12,6 +13,11 @@ const CHART_COLORS = [
 ];
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+
+const CATEGORY_LABELS = {
+  holiday: "Holiday", sickness: "Sickness", bank_holiday: "Bank Holiday",
+  training: "Training / CPD", internal: "Internal / Non-billable",
+};
 
 function getMonday(dateStr) {
   const d = new Date(dateStr);
@@ -85,11 +91,11 @@ export default function TimesheetReport({ onBack }) {
   const [loading,   setLoading]   = useState(false);
   const [filterUser,    setFilterUser]    = useState("");
   const [filterProject, setFilterProject] = useState("");
-  const [filterFrom,    setFilterFrom]    = useState(() => {
-    const d = new Date(); d.setMonth(d.getMonth() - 3);
-    return isoDate(d);
-  });
-  const [filterTo, setFilterTo] = useState(isoDate(new Date()));
+  const [filterFrom,    setFilterFrom]    = useState(() => datePreset("quarter").from);
+  const [filterTo,      setFilterTo]      = useState(() => datePreset("quarter").to);
+  const [filterCategory, setFilterCategory] = useState(""); // "" = all, or a category value
+  const [filterBillable, setFilterBillable] = useState(""); // "", "billable", "nonbillable"
+  const [groupBy,        setGroupBy]        = useState("week"); // week | project | person | category
 
   // Load users and projects on mount
   useEffect(() => {
@@ -117,25 +123,34 @@ export default function TimesheetReport({ onBack }) {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // ── Client-side filters (category + billable) ──────────────────────────────
+  const fEntries = entries.filter(e => {
+    if (filterBillable === "billable"    && !e.project_id) return false;
+    if (filterBillable === "nonbillable" &&  e.project_id) return false;
+    if (filterCategory && e.category !== filterCategory)   return false;
+    return true;
+  });
+
   // ── Aggregations ──────────────────────────────────────────────────────────
 
-  const totalMins = entries.reduce((s, e) => s + entryMins(e), 0);
-  const totalOt   = entries.reduce((s, e) => s + entryOtMins(e), 0);
+  const totalMins = fEntries.reduce((s, e) => s + entryMins(e), 0);
+  const totalOt   = fEntries.reduce((s, e) => s + entryOtMins(e), 0);
 
-  // Hours by week (for bar chart)
+  // Billable share (utilisation) — project entries count as billable.
+  const billableMins   = fEntries.reduce((s, e) => s + (e.project_id ? entryMins(e) : 0), 0);
+  const utilisationPct = totalMins > 0 ? Math.round((billableMins / totalMins) * 100) : 0;
+
+  // Hours by week (for the "Weeks covered" card)
   const byWeek = {};
-  entries.forEach(e => {
+  fEntries.forEach(e => {
     const mon = isoDate(getMonday(e.entry_date));
     if (!byWeek[mon]) byWeek[mon] = 0;
     byWeek[mon] += entryMins(e);
   });
-  const weekChartData = Object.keys(byWeek)
-    .sort()
-    .map(mon => ({ week: formatWeekShort(mon), hours: minsToHours(byWeek[mon]), mondayStr: mon }));
 
   // Hours by project (for bar + pie)
   const byProject = {};
-  entries.forEach(e => {
+  fEntries.forEach(e => {
     const key = e.project_id
       ? (e.projects?.job_number ? `${e.projects.job_number} — ${e.projects.name}` : e.projects?.name || "Unknown")
       : (e.category ? e.category.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "Other");
@@ -148,7 +163,7 @@ export default function TimesheetReport({ onBack }) {
 
   // Hours by person (for bar chart)
   const byPerson = {};
-  entries.forEach(e => {
+  fEntries.forEach(e => {
     const email = users.find(u => u.id === e.user_id)?.email || e.user_id?.slice(0, 8) + "…";
     const key = email.split("@")[0]; // Use name part of email for chart label
     if (!byPerson[key]) byPerson[key] = { fullEmail: email, mins: 0 };
@@ -158,14 +173,34 @@ export default function TimesheetReport({ onBack }) {
     .sort((a, b) => b[1].mins - a[1].mins)
     .map(([name, { mins, fullEmail }]) => ({ name, hours: minsToHours(mins), fullEmail }));
 
+  // ── Group-by dataset (drives the primary chart) ────────────────────────────
+  const groupKey = (e) => {
+    if (groupBy === "project")  return e.project_id
+      ? (e.projects?.job_number ? `${e.projects.job_number} — ${e.projects.name}` : e.projects?.name || "Unknown")
+      : (e.category ? (CATEGORY_LABELS[e.category] || e.category) : "Other");
+    if (groupBy === "person")   return users.find(u => u.id === e.user_id)?.email || (e.user_id?.slice(0, 8) + "…");
+    if (groupBy === "category") return e.project_id ? "Project work" : (CATEGORY_LABELS[e.category] || e.category || "Other");
+    return isoDate(getMonday(e.entry_date)); // default: week
+  };
+
+  const grouped = {};
+  fEntries.forEach(e => {
+    const k = groupKey(e);
+    if (!grouped[k]) grouped[k] = 0;
+    grouped[k] += entryMins(e);
+  });
+  const groupedData = Object.entries(grouped)
+    .map(([k, mins]) => ({ key: k, label: groupBy === "week" ? formatWeekShort(k) : k, hours: minsToHours(mins) }))
+    .sort((a, b) => groupBy === "week" ? a.key.localeCompare(b.key) : b.hours - a.hours);
+
   // Unique staff and projects in the filtered data
-  const activeStaff    = new Set(entries.map(e => e.user_id)).size;
-  const activeProjects = new Set(entries.filter(e => e.project_id).map(e => e.project_id)).size;
+  const activeStaff    = new Set(fEntries.map(e => e.user_id)).size;
+  const activeProjects = new Set(fEntries.filter(e => e.project_id).map(e => e.project_id)).size;
 
   // ── Detailed table: rows per week per person ──────────────────────────────
   const tableRows = [];
   const weekPersonMap = {};
-  entries.forEach(e => {
+  fEntries.forEach(e => {
     const mon   = isoDate(getMonday(e.entry_date));
     const email = users.find(u => u.id === e.user_id)?.email || e.user_id?.slice(0, 8) + "…";
     const key   = `${mon}|${e.user_id}`;
@@ -178,6 +213,31 @@ export default function TimesheetReport({ onBack }) {
     .sort((a, b) => b.mon.localeCompare(a.mon) || a.email.localeCompare(b.email))
     .forEach(r => tableRows.push(r));
 
+  // ── Filter summary + export handlers ───────────────────────────────────────
+  const summaryText = filterSummary([
+    filterUser ? (users.find(u => u.id === filterUser)?.email) : "All staff",
+    filterProject ? (projects.find(p => String(p.id) === String(filterProject))?.name) : "All projects",
+    filterCategory ? CATEGORY_LABELS[filterCategory] : null,
+    filterBillable === "billable" ? "Billable only" : filterBillable === "nonbillable" ? "Non-billable only" : null,
+    (filterFrom && filterTo) ? `${filterFrom} → ${filterTo}` : null,
+  ]);
+
+  const handlePrint = () => window.print();
+
+  const handleCsv = () => {
+    const rows = fEntries.map(e => ({
+      Date: e.entry_date,
+      Person: users.find(u => u.id === e.user_id)?.email || e.user_id,
+      "Project / Category": e.project_id
+        ? (e.projects?.job_number ? `${e.projects.job_number} — ${e.projects.name}` : e.projects?.name || "")
+        : (e.category ? (CATEGORY_LABELS[e.category] || e.category) : ""),
+      Hours: minsToHours(entryMins(e)),
+      Overtime: minsToHours(entryOtMins(e)),
+      Notes: e.notes || "",
+    }));
+    downloadCsv(`timesheet-report-${isoDate(new Date())}.csv`, toCsv(rows));
+  };
+
   // ── Styles ────────────────────────────────────────────────────────────────
   const selStyle = { padding: "6px 10px", fontSize: 12, border: "1px solid #d0d8de", background: "#fff", color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" };
   const thStyle  = { padding: "10px 14px", fontSize: 11, fontWeight: 700, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "left", borderBottom: "2px solid #dde4e8", background: DESIGN_GROUND };
@@ -185,23 +245,33 @@ export default function TimesheetReport({ onBack }) {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
-      <div style={{ background: TIMESHEETS_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+      <div className="no-print" style={{ background: TIMESHEETS_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
         <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Timesheets</span>
         <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— Report</span>
       </div>
       {/* Header */}
-      <div style={{ background: "#fff", borderBottom: "1px solid #dde4e8", padding: "16px 32px", flexShrink: 0, display: "flex", alignItems: "center", gap: 20 }}>
+      <div className="no-print" style={{ background: "#fff", borderBottom: "1px solid #dde4e8", padding: "16px 32px", flexShrink: 0, display: "flex", alignItems: "center", gap: 20 }}>
         <button onClick={onBack}
           style={{ background: "none", border: "none", color: TIMESHEETS_FULL, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: 0 }}>
           ← Back
         </button>
-        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: DESIGN_TEXT }}>Reports & Analytics</h2>
+        <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: DESIGN_TEXT }}>Reports &amp; Analytics</h2>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button onClick={handleCsv} style={{ ...selStyle, cursor: "pointer", background: "#fff" }}>Download CSV</button>
+          <button onClick={handlePrint} style={{ ...selStyle, cursor: "pointer", background: DESIGN_TEXT, color: "#fff", border: "none" }}>Export PDF</button>
+        </div>
       </div>
 
-      <div style={{ flex: 1, overflow: "auto", padding: "24px 32px" }}>
+      <div className="print-area" style={{ flex: 1, overflow: "auto", padding: "24px 32px" }}>
+
+        {/* Print-only report header (hidden on screen) */}
+        <div style={{ display: "none" }} className="print-only-header">
+          <h1 style={{ fontSize: 20, margin: "0 0 4px", color: DESIGN_TEXT }}>Archimind — Timesheet Report</h1>
+          <p style={{ fontSize: 12, color: "#6a8a9a", margin: "0 0 16px" }}>{summaryText} · Generated {isoDate(new Date())}</p>
+        </div>
 
         {/* Filters */}
-        <div style={{ background: "#fff", border: "1px solid #dde4e8", padding: "16px 20px", marginBottom: 24, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+        <div className="no-print" style={{ background: "#fff", border: "1px solid #dde4e8", padding: "16px 20px", marginBottom: 24, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
           <span style={{ fontSize: 12, color: "#6a8a9a", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Filters</span>
 
           <select value={filterUser} onChange={e => setFilterUser(e.target.value)} style={selStyle}>
@@ -214,6 +284,16 @@ export default function TimesheetReport({ onBack }) {
             {projects.map(p => <option key={p.id} value={p.id}>{p.job_number ? `${p.job_number} — ${p.name}` : p.name}</option>)}
           </select>
 
+          <div style={{ display: "flex", gap: 4 }}>
+            {[["This week","week"],["Month","month"],["Quarter","quarter"],["Year","year"]].map(([label, key]) => (
+              <button key={key} type="button"
+                onClick={() => { const p = datePreset(key); setFilterFrom(p.from); setFilterTo(p.to); }}
+                style={{ ...selStyle, cursor: "pointer", background: "#f4f7f9" }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 12, color: "#8a9aa8" }}>From</span>
             <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} style={selStyle} />
@@ -221,8 +301,29 @@ export default function TimesheetReport({ onBack }) {
             <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} style={selStyle} />
           </div>
 
-          {(filterUser || filterProject) && (
-            <button onClick={() => { setFilterUser(""); setFilterProject(""); }}
+          <select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} style={selStyle}>
+            <option value="">All types</option>
+            {Object.entries(CATEGORY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
+
+          <select value={filterBillable} onChange={e => setFilterBillable(e.target.value)} style={selStyle}>
+            <option value="">Billable + non-billable</option>
+            <option value="billable">Billable (project work)</option>
+            <option value="nonbillable">Non-billable (categories)</option>
+          </select>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginLeft: "auto" }}>
+            <span style={{ fontSize: 12, color: "#8a9aa8" }}>Group by</span>
+            <select value={groupBy} onChange={e => setGroupBy(e.target.value)} style={selStyle}>
+              <option value="week">Week</option>
+              <option value="project">Project</option>
+              <option value="person">Person</option>
+              <option value="category">Category</option>
+            </select>
+          </div>
+
+          {(filterUser || filterProject || filterCategory || filterBillable) && (
+            <button onClick={() => { setFilterUser(""); setFilterProject(""); setFilterCategory(""); setFilterBillable(""); }}
               style={{ background: "none", border: "none", color: COMPARE_FULL, fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
               Clear filters
             </button>
@@ -233,29 +334,32 @@ export default function TimesheetReport({ onBack }) {
 
         {/* Summary cards */}
         <div style={{ display: "flex", gap: 16, marginBottom: 28, flexWrap: "wrap" }}>
-          <SummaryCard label="Total hours" value={formatMins(totalMins)} sub={`${entries.length} entries`} color={TIMESHEETS_FULL} />
+          <SummaryCard label="Total hours" value={formatMins(totalMins)} sub={`${fEntries.length} entries`} color={TIMESHEETS_FULL} />
           <SummaryCard label="Overtime" value={formatMins(totalOt)} sub="logged separately" color="#8a6a3a" />
+          <SummaryCard label="Utilisation" value={`${utilisationPct}%`} sub="billable share of hours" color={TIMESHEETS_FULL} />
           <SummaryCard label="Active projects" value={activeProjects} sub="with logged time" />
           <SummaryCard label="Staff" value={activeStaff} sub="with logged time" />
           <SummaryCard label="Weeks covered" value={Object.keys(byWeek).length} sub={filterFrom && filterTo ? `${filterFrom} → ${filterTo}` : "all time"} />
         </div>
 
-        {entries.length === 0 && !loading && (
+        {fEntries.length === 0 && !loading && (
           <p style={{ color: "#6a8a9a", fontSize: 13 }}>No data for the selected filters.</p>
         )}
 
-        {entries.length > 0 && (
+        {fEntries.length > 0 && (
           <>
             {/* Charts row 1 */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
 
-              {/* Hours by week */}
+              {/* Primary chart — driven by Group by */}
               <div style={{ background: "#fff", border: "1px solid #dde4e8", padding: "20px 20px 12px" }}>
-                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: DESIGN_TEXT, textTransform: "uppercase", letterSpacing: "0.06em" }}>Hours by Week</h3>
+                <h3 style={{ margin: "0 0 16px", fontSize: 13, fontWeight: 700, color: DESIGN_TEXT, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                  Hours by {groupBy.charAt(0).toUpperCase() + groupBy.slice(1)}
+                </h3>
                 <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={weekChartData} margin={{ top: 0, right: 8, bottom: 0, left: -10 }}>
+                  <BarChart data={groupedData} margin={{ top: 0, right: 8, bottom: 0, left: -10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#eef2f4" />
-                    <XAxis dataKey="week" tick={{ fontSize: 11, fill: "#8a9aa8" }} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#8a9aa8" }} />
                     <YAxis tick={{ fontSize: 11, fill: "#8a9aa8" }} unit="h" />
                     <Tooltip content={<CustomTooltip />} />
                     <Bar dataKey="hours" fill={TIMESHEETS_FULL} radius={[2, 2, 0, 0]} />
