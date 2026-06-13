@@ -1,0 +1,20 @@
+/* When printing, show only the report area and hide everything else
+   (app shell, nav, filter bar, buttons). The report container gets
+   className="print-area"; non-printing chrome gets className="no-print". */
+@media print {
+  body * { visibility: hidden; }
+  .print-area, .print-area * { visibility: visible; }
+  .print-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+  .no-print { display: none !important; }
+  .print-only-header { display: block !important; }
+  /* Avoid breaking a chart or table row across pages where possible */
+  .print-area table, .print-area .recharts-wrapper { page-break-inside: avoid; }
+  @page { margin: 14mm; }
+}

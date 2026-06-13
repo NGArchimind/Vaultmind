@@ -4,6 +4,7 @@ import {
   Tooltip, ReferenceLine, ResponsiveContainer, Legend,
 } from "recharts";
 import { api } from "../api/client";
+import { datePreset, toCsv, downloadCsv, filterSummary } from "../utils/reportExport";
 import { DESIGN_GROUND, DESIGN_TEXT, TIMESHEETS_FULL, COMPARE_FULL } from "../constants";
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
@@ -273,6 +274,10 @@ export default function FeeReview({ onBack }) {
   const [drillProject, setDrillProject] = useState(null); // project object
   const [setupOpen,   setSetupOpen]   = useState(false);
   const [toast,       setToast]       = useState(null);
+  const [fFrom,    setFFrom]    = useState(() => datePreset("year").from);
+  const [fTo,      setFTo]      = useState(() => datePreset("year").to);
+  const [fProject, setFProject] = useState("");
+  const [fPerson,  setFPerson]  = useState("");
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
@@ -307,16 +312,58 @@ export default function FeeReview({ onBack }) {
     showToast("Rate saved.");
   }, []);
 
+  // ── Filtered entries (project / person / date range) ───────────────────────
+  const filteredEntries = allEntries.filter(e => {
+    if (fProject && String(e.project_id) !== String(fProject)) return false;
+    if (fPerson  && e.user_id !== fPerson)                     return false;
+    if (fFrom && e.entry_date < fFrom)                          return false;
+    if (fTo   && e.entry_date > fTo)                            return false;
+    return true;
+  });
+
+  const feeSummary = filterSummary([
+    fProject ? (projects.find(p => String(p.id) === String(fProject))?.name) : "All projects",
+    fPerson  ? (userMap[fPerson]) : "All staff",
+    (fFrom && fTo) ? `${fFrom} → ${fTo}` : null,
+  ]);
+
+  const handlePrint = () => window.print();
+
+  const handleCsv = () => {
+    const rows = filteredEntries.map(e => {
+      const hrs = (e.hours || 0) + (e.minutes || 0) / 60;
+      const rate = rates[e.user_id] || 0;
+      return {
+        Date: e.entry_date,
+        Person: userMap[e.user_id] || e.user_id,
+        Project: e.projects?.name || "",
+        Hours: Math.round(hrs * 100) / 100,
+        "Rate (£/h)": rate,
+        "Cost (£)": Math.round(hrs * rate * 100) / 100,
+      };
+    });
+    downloadCsv(`fee-review-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows));
+  };
+
   // If drilled into a project, show detail view
   if (drillProject) {
-    const projectEntries = allEntries.filter(e => e.project_id === drillProject.id);
+    const projectEntries = filteredEntries.filter(e => e.project_id === drillProject.id);
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
-        <div style={{ background: "#fff", borderBottom: "1px solid #dde4e8", padding: "16px 32px", flexShrink: 0, display: "flex", alignItems: "center", gap: 20 }}>
+        <div className="no-print" style={{ background: "#fff", borderBottom: "1px solid #dde4e8", padding: "16px 32px", flexShrink: 0, display: "flex", alignItems: "center", gap: 20 }}>
           <button onClick={onBack} style={{ background: "none", border: "none", color: TIMESHEETS_FULL, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: 0 }}>← Back</button>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: DESIGN_TEXT }}>Fee Review</h2>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <button onClick={handlePrint} style={{ padding: "6px 14px", fontSize: 13, cursor: "pointer", background: DESIGN_TEXT, color: "#fff", border: "none", fontFamily: "Inter, Arial, sans-serif" }}>Export PDF</button>
+          </div>
         </div>
-        <div style={{ flex: 1, overflow: "auto", padding: "28px 32px" }}>
+        <div className="print-area" style={{ flex: 1, overflow: "auto", padding: "28px 32px" }}>
+          <div style={{ display: "none" }} className="print-only-header">
+            <h1 style={{ fontSize: 20, margin: "0 0 4px", color: DESIGN_TEXT }}>Archimind — Fee Review</h1>
+            <p style={{ fontSize: 12, color: "#6a8a9a", margin: "0 0 16px" }}>
+              {drillProject.job_number ? `${drillProject.job_number} — ` : ""}{drillProject.name} · {feeSummary} · Generated {new Date().toISOString().slice(0, 10)}
+            </p>
+          </div>
           <ProjectDrillDown
             project={drillProject}
             entries={projectEntries}
@@ -333,7 +380,7 @@ export default function FeeReview({ onBack }) {
   const projectsWithFee = projects
     .filter(p => p.fee != null && p.fee > 0)
     .map(p => {
-      const pEntries = allEntries.filter(e => e.project_id === p.id);
+      const pEntries = filteredEntries.filter(e => e.project_id === p.id);
       const spent = pEntries.reduce((s, e) => s + entryHours(e) * (rates[e.user_id] || 0), 0);
       const pct   = (spent / p.fee) * 100;
       return { ...p, spent, pct };
@@ -348,25 +395,56 @@ export default function FeeReview({ onBack }) {
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
-      <div style={{ background: TIMESHEETS_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
+      <div className="no-print" style={{ background: TIMESHEETS_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
         <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Timesheets</span>
         <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— Fee Review</span>
       </div>
       {toast && <div style={{ position: "fixed", bottom: 24, right: 24, background: DESIGN_TEXT, color: "#fff", padding: "10px 20px", fontSize: 13, zIndex: 9999 }}>{toast}</div>}
 
       {/* Header */}
-      <div style={{ background: "#fff", borderBottom: "1px solid #dde4e8", padding: "16px 32px", flexShrink: 0, display: "flex", alignItems: "center", gap: 20 }}>
+      <div className="no-print" style={{ background: "#fff", borderBottom: "1px solid #dde4e8", padding: "16px 32px", flexShrink: 0, display: "flex", alignItems: "center", gap: 20 }}>
         <button onClick={onBack} style={{ background: "none", border: "none", color: TIMESHEETS_FULL, fontSize: 13, cursor: "pointer", fontWeight: 600, padding: 0 }}>← Back</button>
         <h2 style={{ margin: 0, fontSize: 20, fontWeight: 300, color: DESIGN_TEXT }}>Fee Review</h2>
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <button onClick={handleCsv} style={{ ...selStyle, cursor: "pointer", background: "#fff" }}>Download CSV</button>
+          <button onClick={handlePrint} style={{ ...selStyle, cursor: "pointer", background: DESIGN_TEXT, color: "#fff", border: "none" }}>Export PDF</button>
+        </div>
       </div>
 
-      <div style={{ flex: 1, overflow: "auto", padding: "24px 32px" }}>
+      <div className="print-area" style={{ flex: 1, overflow: "auto", padding: "24px 32px" }}>
         {loading && <p style={{ color: "#6a8a9a", fontSize: 13 }}>Loading…</p>}
+
+        <div style={{ display: "none" }} className="print-only-header">
+          <h1 style={{ fontSize: 20, margin: "0 0 4px", color: DESIGN_TEXT }}>Archimind — Fee Review</h1>
+          <p style={{ fontSize: 12, color: "#6a8a9a", margin: "0 0 16px" }}>{feeSummary} · Generated {new Date().toISOString().slice(0, 10)}</p>
+        </div>
 
         {!loading && (
           <>
+            {/* Filters */}
+            <div className="no-print" style={{ background: "#fff", border: "1px solid #dde4e8", padding: "14px 18px", marginBottom: 20, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "#6a8a9a", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Filters</span>
+              <select value={fProject} onChange={e => setFProject(e.target.value)} style={selStyle}>
+                <option value="">All projects</option>
+                {projects.map(p => <option key={p.id} value={p.id}>{p.job_number ? `${p.job_number} — ${p.name}` : p.name}</option>)}
+              </select>
+              <select value={fPerson} onChange={e => setFPerson(e.target.value)} style={selStyle}>
+                <option value="">All staff</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
+              </select>
+              <div style={{ display: "flex", gap: 4 }}>
+                {[["Month","month"],["Quarter","quarter"],["Year","year"]].map(([label, key]) => (
+                  <button key={key} type="button" onClick={() => { const p = datePreset(key); setFFrom(p.from); setFTo(p.to); }}
+                    style={{ ...selStyle, cursor: "pointer", background: "#f4f7f9" }}>{label}</button>
+                ))}
+              </div>
+              <input type="date" value={fFrom} onChange={e => setFFrom(e.target.value)} style={selStyle} />
+              <span style={{ fontSize: 12, color: "#8a9aa8" }}>to</span>
+              <input type="date" value={fTo} onChange={e => setFTo(e.target.value)} style={selStyle} />
+            </div>
+
             {/* Setup panel */}
-            <div style={{ background: "#fff", border: "1px solid #dde4e8", marginBottom: 24 }}>
+            <div className="no-print" style={{ background: "#fff", border: "1px solid #dde4e8", marginBottom: 24 }}>
               <button onClick={() => setSetupOpen(o => !o)}
                 style={{ width: "100%", background: "none", border: "none", padding: "12px 18px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", textAlign: "left" }}>
                 <span style={{ fontSize: 14 }}>{setupOpen ? "▲" : "▼"}</span>
