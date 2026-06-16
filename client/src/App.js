@@ -54,13 +54,25 @@ function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
   #page-controls button { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 4px 10px; cursor: pointer; font-size: 13px; border-radius: 2px; }
   #page-controls button:hover { background: rgba(255,255,255,0.2); }
   #page-controls input { width: 48px; text-align: center; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 4px; font-size: 12px; border-radius: 2px; }
+  #zoom-controls { display: flex; align-items: center; gap: 6px; margin-left: 20px; }
+  #zoom-controls button { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 4px 10px; cursor: pointer; font-size: 13px; border-radius: 2px; }
+  #zoom-controls button:hover { background: rgba(255,255,255,0.2); }
+  #zoom-controls button.active { background: rgba(255,255,255,0.85); color: #1a2332; border-color: rgba(255,255,255,0.85); }
+  #zoom-level { color: rgba(255,255,255,0.7); font-size: 12px; min-width: 42px; text-align: center; }
   #canvas-container { flex: 1; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 16px; }
+  #canvas-container.fit { align-items: center; }
   canvas { box-shadow: 0 2px 16px rgba(0,0,0,0.5); }
 </style>
 </head>
 <body>
 <div id="toolbar">
   <strong id="filename">${safeFileName}</strong>
+  <div id="zoom-controls">
+    <button id="zoom-out" title="Zoom out">−</button>
+    <span id="zoom-level">150%</span>
+    <button id="zoom-in" title="Zoom in">+</button>
+    <button id="fit-page" title="Fit whole page — scroll wheel flips pages">Fit page</button>
+  </div>
   <div id="page-controls">
     <button id="prev">‹</button>
     <input id="page-input" type="number" min="1" value="${page || 1}" />
@@ -74,16 +86,29 @@ function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   let pdfDoc = null;
   let currentPage = ${page || 1};
+  let scale = 1.5;
+  let fitMode = false;
   const canvas = document.getElementById('pdf-canvas');
   const ctx = canvas.getContext('2d');
+  const container = document.getElementById('canvas-container');
+
+  function effectiveScale(page) {
+    if (!fitMode) return scale;
+    const base = page.getViewport({ scale: 1 });
+    const availH = container.clientHeight - 32; // 16px padding top + bottom
+    const availW = container.clientWidth - 32;
+    return Math.max(0.1, Math.min(availH / base.height, availW / base.width));
+  }
 
   function renderPage(num) {
     pdfDoc.getPage(num).then(page => {
-      const viewport = page.getViewport({ scale: 1.5 });
+      const s = effectiveScale(page);
+      const viewport = page.getViewport({ scale: s });
       canvas.width = viewport.width;
       canvas.height = viewport.height;
       page.render({ canvasContext: ctx, viewport }).promise.then(() => {
         document.getElementById('page-input').value = num;
+        document.getElementById('zoom-level').textContent = Math.round(s * 100) + '%';
       });
     });
   }
@@ -147,6 +172,38 @@ function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
     const n = parseInt(e.target.value);
     if (pdfDoc && n >= 1 && n <= pdfDoc.numPages) { currentPage = n; renderPage(currentPage); }
   });
+
+  function exitFit() {
+    fitMode = false;
+    document.getElementById('fit-page').classList.remove('active');
+    container.classList.remove('fit');
+  }
+  document.getElementById('zoom-in').addEventListener('click', () => {
+    exitFit(); scale = Math.min(4, scale + 0.25); renderPage(currentPage);
+  });
+  document.getElementById('zoom-out').addEventListener('click', () => {
+    exitFit(); scale = Math.max(0.5, scale - 0.25); renderPage(currentPage);
+  });
+  document.getElementById('fit-page').addEventListener('click', () => {
+    fitMode = !fitMode;
+    document.getElementById('fit-page').classList.toggle('active', fitMode);
+    container.classList.toggle('fit', fitMode);
+    renderPage(currentPage);
+  });
+
+  // In Fit-page mode the page fills the view, so the scroll wheel flips pages
+  // (one notch = one page). When zoomed in, normal scrolling is left alone.
+  let wheelLock = false;
+  container.addEventListener('wheel', e => {
+    if (!fitMode || !pdfDoc) return;
+    e.preventDefault();
+    if (wheelLock) return;
+    wheelLock = true;
+    setTimeout(() => { wheelLock = false; }, 250);
+    if (e.deltaY > 0 && currentPage < pdfDoc.numPages) { currentPage++; renderPage(currentPage); }
+    else if (e.deltaY < 0 && currentPage > 1) { currentPage--; renderPage(currentPage); }
+  }, { passive: false });
+  window.addEventListener('resize', () => { if (fitMode && pdfDoc) renderPage(currentPage); });
 </script>
 </body>
 </html>` : "";
@@ -200,6 +257,7 @@ export default function App() {
   const [dragOver, setDragOver] = useState(false);
   const [costEst, setCostEst] = useState(null);
   const [history, setHistory] = useState([]);
+  const [recentQuestions, setRecentQuestions] = useState([]); // persisted per-user question history for the open vault
   const [conversationHistory, setConversationHistory] = useState([]);
   const [loadingVaults, setLoadingVaults] = useState(true);
   const [uploadingPdf, setUploadingPdf] = useState(false);
@@ -279,6 +337,7 @@ export default function App() {
     setVaults([]);
     setAnswer(null);
     setHistory([]);
+    setRecentQuestions([]);
   };
 
   const loadTempDoc = async (file) => {
@@ -351,7 +410,33 @@ export default function App() {
   useEffect(() => {
     if (!selectedVault) return;
     loadVaultContents(selectedVault);
+    loadRecentQuestions(selectedVault);
   }, [selectedVault]);
+
+  // Persisted per-user question history for the open vault
+  const loadRecentQuestions = useCallback(async (vaultId) => {
+    if (!vaultId) { setRecentQuestions([]); return; }
+    try {
+      const data = await api(`/api/vault-history?vault_id=${encodeURIComponent(vaultId)}`);
+      setRecentQuestions(data.questions || []);
+    } catch {
+      setRecentQuestions([]);
+    }
+  }, []);
+
+  const deleteRecentQuestion = async (id) => {
+    setRecentQuestions(prev => prev.filter(q => q.id !== id)); // optimistic
+    try { await api(`/api/vault-history/${id}`, { method: "DELETE" }); }
+    catch { loadRecentQuestions(selectedVault); } // reload on failure to resync
+  };
+
+  const clearRecentQuestions = async () => {
+    if (!selectedVault) return;
+    const prev = recentQuestions;
+    setRecentQuestions([]); // optimistic
+    try { await api(`/api/vault-history?vault_id=${encodeURIComponent(selectedVault)}`, { method: "DELETE" }); }
+    catch { setRecentQuestions(prev); } // restore on failure
+  };
 
   // Re-focus the temp doc textarea when indexing completes so Enter still works,
   // and clear any stale "Indexing…" status message left over from background indexing.
@@ -1222,6 +1307,16 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
       setHistory(prev => [...prev, { vaultId: usingTempOnly ? "temp" : (effectiveVault?.id || "temp"), vaultName: usingTempOnly ? "Temp Doc" : (effectiveVault?.name || ""), question: q, answer: finalAnswer, timestamp: new Date() }]);
       setConversationHistory(prev => [...prev, { question: q, answer: finalAnswer }]);
 
+      // Persist the question to this user's per-vault history (question-only, real vaults only)
+      if (!usingTempOnly && effectiveVault?.id) {
+        api("/api/vault-history", {
+          method: "POST",
+          body: { vault_id: effectiveVault.id, vault_name: effectiveVault.name || "", question: q },
+        })
+          .then(({ question }) => { if (question) setRecentQuestions(prev => [question, ...prev.filter(p => p.question !== question.question)]); })
+          .catch(() => {});
+      }
+
       const GEMINI_INPUT_PRICE_USD = 0.15;
       const GEMINI_OUTPUT_PRICE_USD = 0.60;
       const USD_TO_GBP = 0.79;
@@ -1977,7 +2072,34 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
                         </div>
                       )}
 
-                      {!answer && !isRunning && vaultIndex && vaultHistory.length === 0 && (
+                      {!answer && !isRunning && vaultIndex && recentQuestions.length > 0 && (
+                        <div style={{ marginBottom: 20 }}>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: "#b0a8a0", textTransform: "uppercase", letterSpacing: "0.08em" }}>Your recent questions</span>
+                            <button className="btn" onClick={clearRecentQuestions}
+                              style={{ background: "none", border: "none", color: "#b0a8a0", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", cursor: "pointer", padding: "2px 4px" }}>
+                              Clear all
+                            </button>
+                          </div>
+                          {recentQuestions.map(rq => (
+                            <div key={rq.id}
+                              style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6, border: "1px solid #e4e4e8", background: "#fafafa" }}>
+                              <button className="btn" onClick={() => { setQuestion(rq.question); askQuestion(); }}
+                                title="Ask this again"
+                                style={{ flex: 1, textAlign: "left", background: "none", border: "none", color: "#505a5f", fontSize: 13, padding: "9px 14px", cursor: "pointer", letterSpacing: "0.01em", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {rq.question}
+                              </button>
+                              <button className="btn" onClick={() => deleteRecentQuestion(rq.id)}
+                                title="Remove from history"
+                                style={{ background: "none", border: "none", color: "#c0b8b0", fontSize: 16, lineHeight: 1, cursor: "pointer", padding: "0 12px", flexShrink: 0 }}>
+                                ×
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {!answer && !isRunning && vaultIndex && vaultHistory.length === 0 && recentQuestions.length === 0 && (
                         <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 10 }}>
                           <div style={{ width: 32, height: 2, background: VAULT_FULL }} />
                           <p style={{ fontSize: 16, color: DESIGN_TEXT, fontWeight: 300, letterSpacing: "0.02em" }}>Ask a question</p>

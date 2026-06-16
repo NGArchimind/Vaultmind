@@ -85,15 +85,24 @@ All client data access goes through the server (service key, bypasses RLS); the 
 
 ---
 
-## Outstanding issues (as of 2026-06-12)
+### Admin section — tabs + notification routing (2026-06-13, live on main)
+- `AdminSection.jsx` is **tabbed**: Users / Notifications / Quiz / Branding (logo+colours) / ArchiSync. Each group wrapped in `{adminTab === "x" && (<>…</>)}`; tab bar mirrors the TimesheetsSection tab style. Default tab: Users.
+- **Notification routing**: the `NotificationSettings` UI **moved out of `TimesheetsSection.jsx`** into Admin's Notifications tab. Each of the 5 events now has **two toggles, Admin + HR** (was a single on/off). Server `notification_settings` (JSON in `app_settings`) changed shape `bool` → `{ admin, hr }`; `getNotificationSettings()`/`normaliseNotificationValue()` read old bool + new object (backward-compatible, **no SQL**). New helpers `getHrEmails()` and `notificationRecipients(key)`; all 5 send sites build recipients from the toggles.
+- ⚠️ **Behaviour change**: `expense_decided` and `timesheet_rejected` used to email the *submitter*; they now email Admin/HR per the toggles and **default to OFF** — staff no longer get an automatic "expense approved / timesheet returned" email. Turn on in Admin → Notifications if wanted. Spec/plan: `docs/superpowers/*/2026-06-13-admin-tabs-notification-routing*`.
 
-1. **Re-index stale vaults** (operational, no code) — any vault indexed before the title@page dedupe fix has collapsed duplicate headings and can steer Pass 1 to the wrong chapter. Part M re-indexed 2026-06-12; Part B and other Approved Document vaults are prime suspects. Chapter-matching general provisions verified 2026-06-12 (live M4(2)/M4(3) tests + worker tests against Part M v1/v2 and Part B v2).
-2. **Clause-number citation can hit a cross-reference** (LOW, accepted 2026-06-11) — `findPageByClauseNumber` opens the first page where a line starts with the clause number; occasionally that's a cross-reference/table entry on an earlier page rather than the clause itself. Possible future fix: prefer the match where the clause number is followed by sentence text, or pick the page nearest the section's vault-index heading.
-3. **Multi-clause blocks not combining** (LOW) — same-subject clauses across sections still separate citation blocks
-3. **Wide table extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column structure
-4. **Email work** (PARKED) — summaries not stored in DB; relevance threshold (0.35) needs tuning
-5. **PDF Compare** (NEEDS TESTING) — image-based rewrite on Railway; needs first Revit schedule test
-6. **Timesheets/Expenses** ✅ live on `main` 2026-06-12 — email delivery verified end-to-end. Date bug, overtime, notifications, HR role, email/receipt hardening all shipped (see sections above).
-7. ~~Custom domain~~ ✅ DONE 2026-06-12 — see "Custom domain + CORS" section above. Remaining: check Supabase Auth Site URL.
-8. **Timesheets/Expenses follow-ups** (deferred, none blocking): admin-configurable email *recipients* (currently all-admins); the unlock-*granted* email isn't sent (only the 5 chosen events). Specs in `docs/superpowers/specs/2026-06-12-*`.
-9. **Repo tidy** — `client/build/` is tracked and committed with each change; harmless (Vercel rebuilds from source) but worth adding to `.gitignore`.
+### Timesheets analytics & export (2026-06-13, live on main)
+- Client-only. Shared helpers in `client/src/utils/reportExport.js` (`datePreset`, `endOfCurrentWeek`, `toCsv`, `downloadCsv`, `filterSummary`). PDF export = **browser print-to-PDF** via `client/src/printReport.css` (imported once in `index.js`): print shows only `.print-area`, hides `.no-print`, reveals `.print-only-header`.
+- `TimesheetReport.jsx` (HR+admin): date presets, **default range now ends end-of-current-week** (was `isoDate(new Date())`, which hid the live week + time logged ahead), category + billable/non-billable filters, **Group-by** (week/project/person/category → drives primary chart via `fEntries`/`groupedData`), utilisation card, Export PDF + Download CSV.
+- `FeeReview.jsx` (admin only): project/person/date filters (`filteredEntries`), Export PDF + CSV. Spec/plan: `docs/superpowers/*/2026-06-13-timesheets-analytics-export*`.
+
+---
+
+## Outstanding issues (as of 2026-06-13)
+
+1. **PDF Compare** (NEEDS TESTING) — image-based rewrite on Railway; needs first Revit schedule test.
+2. **Clause-number citation can hit a cross-reference** (LOW, accepted) — `findPageByClauseNumber` opens the first page where a line starts with the clause number; occasionally a cross-reference/table entry. Future fix: prefer match followed by sentence text, or nearest the section's vault-index heading.
+3. **Re-index stale vaults** (operational, no code) — vaults indexed before the title@page dedupe fix can steer Pass 1 to the wrong chapter. Part M done; Part B / other Approved Doc vaults may still be stale — re-index if mis-steering shows.
+4. **Multi-clause blocks not combining** (LOW) — same-subject clauses across sections stay separate citation blocks.
+5. **Wide table extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column structure.
+6. **Email work** (PARKED) — summaries not stored in DB; relevance threshold (0.35) needs tuning.
+7. **Timesheets follow-up** (deferred) — the unlock-*granted* email still isn't sent (only the 5 routed events).
