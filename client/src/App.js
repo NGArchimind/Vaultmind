@@ -810,6 +810,12 @@ export default function App() {
     const effectiveVaultIndex = overrideIndex || vaultIndex;
     const effectivePdfs = overridePdfs || pdfs;
 
+    // If still running after 2 minutes, reassure the user it hasn't stalled.
+    // Cleared in the finally below the moment the answer arrives or errors out.
+    const slowWarnTimer = setTimeout(() => {
+      setStatusMsg("⏳ Still working — this answer is taking longer than usual. Large documents or heavy demand on the AI can slow things down. It's still running, please hold on…");
+    }, 120000);
+
     try {
       // ── Temp doc only mode — wait for background index then run full pipeline ──
       let resolvedTempIndex = null;
@@ -876,8 +882,8 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         () => callClaude(
           [{ role: "user", content: scoringPrompt }],
           "You are a technical document analyst. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
-          65000, 2, "gemini-2.5-flash"
-        ), 3, 4000, "Pass 1/3 · Scoring index"
+          65000, 0, "gemini-2.5-flash"
+        ), 1, 4000, "Pass 1/3 · Scoring index"
       );
 
       setProgress(p => ({ ...p, select: 100 }));
@@ -1293,8 +1299,8 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         () => callClaude(
           [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
           `You are an expert building regulations consultant writing for architectural specialists. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Contradictions & Conflicts, (4) ## Practical Conclusion. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. In Detailed Analysis, start each document's citations with a ### Document Name header on its own line and group ALL citations from that document together before moving to the next. Draw from ALL provided documents.`,
-          65536
-        ), 3, 5000, "Pass 3/3 · Synthesising answer"
+          65536, 0, "gemini-2.5-flash"
+        ), 1, 5000, "Pass 3/3 · Synthesising answer"
       );
 
       setProgress(p => ({ ...p, answer: 100 }));
@@ -1336,6 +1342,8 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
       } else {
         setStatusMsg("Error: " + (err.message || String(err)));
       }
+    } finally {
+      clearTimeout(slowWarnTimer);
     }
   };
 
