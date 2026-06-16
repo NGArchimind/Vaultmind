@@ -33,7 +33,7 @@ export default function QuizModal({ onClose }) {
   // Load AD vault name on mount — fails silently for non-admins
   useEffect(() => {
     let alive = true;
-    api("/api/admin/quiz/settings")
+    api("/api/quiz/settings")
       .then(d => alive && setAdVaultName(d.quiz_ad_vault_name))
       .catch(() => {});
     return () => { alive = false; };
@@ -171,32 +171,31 @@ export default function QuizModal({ onClose }) {
                 </div>
               </div>
 
-              {/* CSCS tile */}
+              {/* CSCS tile — TBC, not ready yet (disabled) */}
               <div
-                onClick={() => {
-                  if (quizLoading) return;
-                  setQuizType("cscs");
-                  setError("");
-                  startQuiz("cscs", null);
-                }}
+                title="Coming soon"
                 style={{
-                  border: `2px solid ${TIMESHEETS_FULL}`, borderRadius: 6, padding: "28px 24px",
-                  width: 200, textAlign: "center", cursor: "pointer",
-                  boxShadow: "0 2px 8px rgba(76,98,120,0.1)", transition: "transform 0.15s",
+                  position: "relative",
+                  border: `2px solid #d8d4d0`, borderRadius: 6, padding: "28px 24px",
+                  width: 200, textAlign: "center", cursor: "not-allowed",
+                  background: "#f7f5f3", opacity: 0.65,
                 }}
-                onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
-                onMouseLeave={e => e.currentTarget.style.transform = "none"}
               >
-                {quizLoading && quizType === "cscs" ? (
-                  <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><Spinner size={24} /></div>
-                ) : (
-                  <div style={{ fontSize: 32, marginBottom: 12 }}>🪪</div>
-                )}
-                <div style={{ fontSize: 12, fontWeight: 700, color: TIMESHEETS_FULL, letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
+                {/* TBC badge */}
+                <div style={{
+                  position: "absolute", top: 10, right: 10,
+                  background: TIMESHEETS_FULL, color: "#fff", fontSize: 9, fontWeight: 700,
+                  letterSpacing: "0.08em", textTransform: "uppercase",
+                  padding: "3px 8px", borderRadius: 3,
+                }}>
+                  TBC
+                </div>
+                <div style={{ fontSize: 32, marginBottom: 12, filter: "grayscale(1)" }}>🪪</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#9a9088", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 8 }}>
                   CITB CSCS
                 </div>
                 <div style={{ fontSize: 11, color: DESIGN_MUTED, lineHeight: 1.5 }}>
-                  Health, safety &amp; environment test questions
+                  Coming soon — not yet available
                 </div>
               </div>
 

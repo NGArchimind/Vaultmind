@@ -4594,6 +4594,94 @@ app.post("/api/admin/expenses/:id/reject", requireAuth, requireAdmin, async (req
   res.json(data);
 });
 
+// ── Vault question history ────────────────────────────────────────────────────
+// Per-user log of questions asked in a vault. Server-only table (RLS deny-all);
+// every row is scoped to req.user.id so a user only ever sees their own history.
+
+// GET /api/vault-history?vault_id=... — this user's recent questions for a vault
+app.get("/api/vault-history", requireAuth, async (req, res) => {
+  try {
+    const { vault_id } = req.query;
+    if (!vault_id) return res.status(400).json({ error: "vault_id is required" });
+    const { data, error } = await supabase
+      .from("vault_question_history")
+      .select("id, question, created_at")
+      .eq("user_id", req.user.id)
+      .eq("vault_id", vault_id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    res.json({ questions: data || [] });
+  } catch (err) {
+    return serverError(res, err, "GET /api/vault-history");
+  }
+});
+
+// POST /api/vault-history — save a question this user asked in a vault
+app.post("/api/vault-history", requireAuth, async (req, res) => {
+  try {
+    const { vault_id, vault_name, question } = req.body || {};
+    if (!vault_id || !question || !question.trim()) {
+      return res.status(400).json({ error: "vault_id and question are required" });
+    }
+    const trimmed = question.trim().slice(0, 2000);
+    // Drop any earlier identical question so re-asking bumps it to the top
+    // (keeps the list a set of unique recent questions, newest first).
+    await supabase
+      .from("vault_question_history")
+      .delete()
+      .eq("user_id", req.user.id)
+      .eq("vault_id", vault_id)
+      .eq("question", trimmed);
+    const { data, error } = await supabase
+      .from("vault_question_history")
+      .insert({
+        user_id: req.user.id,
+        vault_id,
+        vault_name: vault_name || null,
+        question: trimmed,
+      })
+      .select("id, question, created_at")
+      .single();
+    if (error) throw error;
+    res.json({ question: data });
+  } catch (err) {
+    return serverError(res, err, "POST /api/vault-history");
+  }
+});
+
+// DELETE /api/vault-history?vault_id=... — clear all of this user's history for a vault
+app.delete("/api/vault-history", requireAuth, async (req, res) => {
+  try {
+    const { vault_id } = req.query;
+    if (!vault_id) return res.status(400).json({ error: "vault_id is required" });
+    const { error } = await supabase
+      .from("vault_question_history")
+      .delete()
+      .eq("user_id", req.user.id)
+      .eq("vault_id", vault_id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    return serverError(res, err, "DELETE /api/vault-history");
+  }
+});
+
+// DELETE /api/vault-history/:id — remove a single history entry
+app.delete("/api/vault-history/:id", requireAuth, async (req, res) => {
+  try {
+    const { error } = await supabase
+      .from("vault_question_history")
+      .delete()
+      .eq("user_id", req.user.id)
+      .eq("id", req.params.id);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) {
+    return serverError(res, err, "DELETE /api/vault-history/:id");
+  }
+});
+
 // ── Quiz endpoints ────────────────────────────────────────────────────────────
 
 // GET /api/quiz/questions — fetch questions for quiz
@@ -4612,6 +4700,23 @@ app.get("/api/quiz/questions", requireAuth, async (req, res) => {
     res.json({ questions: data });
   } catch (err) {
     return serverError(res, err, "GET /api/quiz/questions");
+  }
+});
+
+// GET /api/quiz/settings — read-only quiz config for any signed-in user
+// (mirrors the admin route below, but without requireAdmin so regular users
+//  can discover which vault holds the Approved Documents questions)
+app.get("/api/quiz/settings", requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("key, value")
+      .eq("key", "quiz_ad_vault_name")
+      .single();
+    if (error && error.code !== "PGRST116") throw error; // PGRST116 = no rows
+    res.json({ quiz_ad_vault_name: data ? data.value : null });
+  } catch (err) {
+    return serverError(res, err, "GET /api/quiz/settings");
   }
 });
 
