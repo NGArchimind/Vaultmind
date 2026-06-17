@@ -1461,8 +1461,26 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
     // by further digits or dots (so "3.3" never matches "3.36" or "3.3.1")
     const escaped = clause.replace(/\./g, "\\.");
     const clauseRe = new RegExp(`(^|\\n)\\s*${escaped}(?![\\d.])`);
-    const hit = pages.find(p => clauseRe.test(p.text));
-    return hit ? hit.page : null;
+
+    // A clause number can appear at a line start on several pages. The first one is
+    // often a reference/contents table that LISTS the clause rather than the page
+    // that DEFINES it — e.g. NHBC chapters open with a "Figure Reference Table" that
+    // packs dozens of clause numbers (one per line) onto a single page, which sits
+    // before the real clause. mupdf linearises that table cell-by-cell, so every
+    // clause number lands at a line start there. The real clause page is sparse, so
+    // among the matching pages pick the one with the FEWEST clause-style numbers.
+    // Ties keep the earliest page (the original "first match" behaviour). This leaves
+    // Approved Documents unchanged — they have no such dense tables (density 0).
+    const clauseToken = /\d+(?:\.\d+){2,}/g;
+    const matches = pages.filter(p => clauseRe.test(p.text));
+    if (matches.length === 0) return null;
+    let best = matches[0];
+    let bestDensity = (best.text.match(clauseToken) || []).length;
+    for (const p of matches.slice(1)) {
+      const density = (p.text.match(clauseToken) || []).length;
+      if (density < bestDensity) { best = p; bestDensity = density; }
+    }
+    return best.page;
   };
 
   // ── Open PDF viewer at page from citation ────────────────────────────────────
