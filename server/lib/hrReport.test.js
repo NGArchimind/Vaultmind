@@ -19,9 +19,14 @@ test("folds in zero-loggers, maps status, totals & sorts", () => {
   });
 
   assert.deepEqual(model.people, [
-    { userId: "u3", name: "James Okoro", hours: 0, overtime: 0, status: "Not started" },
-    { userId: "u1", name: "Sarah Jones", hours: 15, overtime: 2, status: "Submitted" },
-    { userId: "u2", name: "Tom Reilly", hours: 7.5, overtime: 0, status: "Draft" },
+    { userId: "u3", name: "James Okoro", hours: 0, overtime: 0, status: "Not started", projects: [] },
+    { userId: "u1", name: "Sarah Jones", hours: 15, overtime: 2, status: "Submitted", projects: [
+      { label: "24009 — Woolwich", hours: 7.5, overtime: 2 },
+      { label: "24014 — Deptford", hours: 7.5, overtime: 0 },
+    ] },
+    { userId: "u2", name: "Tom Reilly", hours: 7.5, overtime: 0, status: "Draft", projects: [
+      { label: "24009 — Woolwich", hours: 7.5, overtime: 0 },
+    ] },
   ]);
   assert.deepEqual(model.byProject, [
     { label: "24009 — Woolwich", hours: 15 },

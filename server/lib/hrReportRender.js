@@ -27,7 +27,7 @@ function renderReportPdf(model, weekLabel) {
       doc.font(opts.bold ? "Helvetica-Bold" : "Helvetica").fontSize(9.5).fillColor("#262830");
       let x = left;
       cells.forEach((c, i) => {
-        doc.fillColor("#262830").text(String(c), x + 4, y, { width: personCols[i] - 8, align: i === 0 || i === 3 ? "left" : "right" });
+        doc.fillColor(opts.color || "#262830").text(String(c), x + 4, y, { width: personCols[i] - 8, align: i === 0 || i === 3 ? "left" : "right" });
         x += personCols[i];
       });
       y += 16; pageBreak();
@@ -35,7 +35,10 @@ function renderReportPdf(model, weekLabel) {
 
     doc.font("Helvetica-Bold").fontSize(10).fillColor("#33414d").text("By person", left, y); y += 16;
     drawPerson(["Staff", "Hours", "Overtime", "Status"], { bold: true, bg: "#f1f4f6" });
-    for (const p of model.people) drawPerson([p.name, fmt(p.hours), fmt(p.overtime), p.status]);
+    for (const p of model.people) {
+      drawPerson([p.name, fmt(p.hours), fmt(p.overtime), p.status]);
+      for (const pr of p.projects) drawPerson([`    ${pr.label}`, fmt(pr.hours), fmt(pr.overtime), ""], { color: "#8a98a2" });
+    }
     drawPerson(["Total", fmt(model.totals.hours), fmt(model.totals.overtime), ""], { bold: true, bg: "#f7f9fa" });
 
     y += 14;
@@ -69,7 +72,10 @@ async function renderReportExcel(model, detailRows, weekLabel) {
   sum.getRow(4).values = ["Staff", "Hours", "Overtime", "Status"];
   sum.getRow(4).font = { bold: true, name: "Arial", size: 10 };
   let r = 5;
-  for (const p of model.people) { sum.getRow(r++).values = [p.name, p.hours, p.overtime, p.status]; }
+  for (const p of model.people) {
+    sum.getRow(r++).values = [p.name, p.hours, p.overtime, p.status];
+    for (const pr of p.projects) sum.getRow(r++).values = [`    ${pr.label}`, pr.hours, pr.overtime, ""];
+  }
   sum.getRow(r).values = ["Total", model.totals.hours, model.totals.overtime, ""];
   sum.getRow(r).font = { bold: true, name: "Arial", size: 10 };
   r += 2;

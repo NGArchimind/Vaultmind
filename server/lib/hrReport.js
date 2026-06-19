@@ -15,7 +15,7 @@ function statusLabel(s) {
 function buildHrReportModel({ entries, expected, statusByUser }) {
   const byUser = new Map();
   const ensure = (userId, name) => {
-    if (!byUser.has(userId)) byUser.set(userId, { userId, name: name || "Unknown", hours: 0, overtime: 0 });
+    if (!byUser.has(userId)) byUser.set(userId, { userId, name: name || "Unknown", hours: 0, overtime: 0, projects: new Map() });
     const row = byUser.get(userId);
     if (name && (!row.name || row.name === "Unknown")) row.name = name;
     return row;
@@ -25,14 +25,24 @@ function buildHrReportModel({ entries, expected, statusByUser }) {
   const projects = new Map();
   for (const e of entries || []) {
     const row = ensure(e.userId, e.name);
-    row.hours += Number(e.hours) || 0;
-    row.overtime += Number(e.overtime) || 0;
+    const h = Number(e.hours) || 0, ot = Number(e.overtime) || 0;
+    row.hours += h;
+    row.overtime += ot;
     const label = e.projectLabel || "Unassigned";
-    projects.set(label, (projects.get(label) || 0) + (Number(e.hours) || 0));
+    const pr = row.projects.get(label) || { hours: 0, overtime: 0 };
+    pr.hours += h; pr.overtime += ot;
+    row.projects.set(label, pr);
+    projects.set(label, (projects.get(label) || 0) + h);
   }
 
   const people = [...byUser.values()]
-    .map((r) => ({ userId: r.userId, name: r.name, hours: round1(r.hours), overtime: round1(r.overtime), status: statusLabel((statusByUser || {})[r.userId]) }))
+    .map((r) => ({
+      userId: r.userId, name: r.name, hours: round1(r.hours), overtime: round1(r.overtime),
+      status: statusLabel((statusByUser || {})[r.userId]),
+      projects: [...r.projects.entries()]
+        .map(([label, v]) => ({ label, hours: round1(v.hours), overtime: round1(v.overtime) }))
+        .sort((a, b) => b.hours - a.hours || a.label.localeCompare(b.label)),
+    }))
     .sort((a, b) => a.name.localeCompare(b.name));
 
   const byProject = [...projects.entries()]
