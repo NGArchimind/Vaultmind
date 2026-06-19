@@ -109,6 +109,17 @@ All client data access goes through the server (service key, bypasses RLS); the 
 
 ---
 
+### Weekly HR timesheet report (2026-06-19, live on main)
+- **What:** every week a PDF + Excel of everyone's logged hours is emailed to HR (`getHrEmails()`). Default **Monday 08:00 UK**, covering the **previous** week; day/time/coverage (previous/current) all configurable.
+- **Pure logic:** `server/lib/timesheetReminder.js` gained `addWeeks(monday,n)`; `server/lib/hrReport.js` has `buildHrReportModel({entries,expected,statusByUser})` → `{people, byProject, totals}` (+ `round1`, `statusLabel`). Both `node --test`-covered (`hrReport.test.js`). **`expected`** = non-admin/HR staff (`isRemindableRole`) so zero-loggers show **0 / Not started**; anyone who logged hours is folded in regardless of role. Hours are decimals.
+- **Renderers:** `server/lib/hrReportRender.js` — `renderReportPdf` (**pdfkit**, new dep, committed into `server/node_modules` per repo convention) and `renderReportExcel` (ExcelJS): Summary sheet (per-person + by-project, mirrors the PDF) + Detail sheet (every entry).
+- **Orchestration (`index.js`):** `gatherHrReportData` → `runHrReport(onlyEmail?)` → `sendEmail` (now accepts an `attachments` passthrough to Resend). Second 15-min `setInterval` (`hrReportTick`, beside `reminderTick`) reuses `isReminderDue`; idempotent via `app_settings` key `hr_report_state` (`last_sent_week` = send-week Monday).
+- **Settings keys (no SQL):** `hr_report` `{enabled,day,time,coverage}` (defaults Mon/08:00/previous) and `hr_report_state`.
+- **Admin UI:** `HrReportSettings` in AdminSection → Notifications tab (third panel) — enabled, day, time, week-covered, and **"Send a test report to my email"** (`POST /api/admin/hr-report/test` → `runHrReport(req.user.email)`, sends only to the requester). Endpoints: `GET/PUT /api/admin/hr-report`.
+- **`sendEmail` change:** signature now `{to,subject,html,text,attachments}`; existing callers (no attachments) unaffected. Spec/plan: `docs/superpowers/*/2026-06-19-weekly-hr-timesheet-report*`.
+
+---
+
 ## Outstanding issues (as of 2026-06-19)
 
 1. **Clause-number citation can hit a cross-reference** (LOW, accepted) — `findPageByClauseNumber` opens the first page where a line starts with the clause number; occasionally a cross-reference/table entry. Future fix: prefer match followed by sentence text, or nearest the section's vault-index heading.
