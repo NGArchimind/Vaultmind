@@ -59,3 +59,8 @@ test("isReminderDue: due only on configured day, at/after time, once per week", 
   assert.equal(R.isReminderDue({ ...base, lastSentWeek: "2026-06-15" }), false); // already sent
   assert.equal(R.isReminderDue({ ...base, nowTime: "18:30" }), true);    // later same day
 });
+
+test("addWeeks shifts by whole weeks (negative ok)", () => {
+  assert.equal(R.addWeeks("2026-06-22", -1), "2026-06-15");
+  assert.equal(R.addWeeks("2026-06-15", 2), "2026-06-29");
+});

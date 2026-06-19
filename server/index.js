@@ -10,6 +10,9 @@ const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
 const { Resend } = require("resend");
 const reminderLib = require("./lib/timesheetReminder");
+const hrReport = require("./lib/hrReport");
+const { renderReportPdf, renderReportExcel } = require("./lib/hrReportRender");
+const HR_REPORT_DEFAULTS = { enabled: true, day: 1, time: "08:00", coverage: "previous" };
 const APP_URL = process.env.PUBLIC_APP_URL || "https://archimind.co.uk";
 const REMINDER_DEFAULTS = { enabled: true, day: 5, time: "16:00", track_from: "2026-07-01" };
 
@@ -20,7 +23,7 @@ function getResend() {
   return _resend;
 }
 
-async function sendEmail({ to, subject, html, text }) {
+async function sendEmail({ to, subject, html, text, attachments }) {
   const resend = getResend();
   if (!resend) {
     console.warn("[email] RESEND_API_KEY not set — skipping:", subject);
@@ -33,6 +36,7 @@ async function sendEmail({ to, subject, html, text }) {
       subject,
       html,
       text,
+      ...(attachments && attachments.length ? { attachments } : {}),
     });
   } catch (err) {
     console.error("[email] Send failed:", err.message);
@@ -228,6 +232,125 @@ async function reminderTick() {
     console.log(`[Reminder] Sent timesheet reminders to ${count} staff for week ${currentWeekMonday}`);
   } catch (e) {
     console.error("[Reminder] tick failed:", e.message);
+  }
+}
+
+async function getHrReportSettings() {
+  const { data } = await supabase.from("app_settings").select("value").eq("key", "hr_report").maybeSingle();
+  let parsed = {};
+  try { parsed = data?.value ? JSON.parse(data.value) : {}; } catch { parsed = {}; }
+  return { ...HR_REPORT_DEFAULTS, ...parsed };
+}
+async function getHrReportState() {
+  const { data } = await supabase.from("app_settings").select("value").eq("key", "hr_report_state").maybeSingle();
+  try { return data?.value ? JSON.parse(data.value) : {}; } catch { return {}; }
+}
+async function setHrReportState(state) {
+  await supabase.from("app_settings").upsert(
+    { key: "hr_report_state", value: JSON.stringify(state), updated_at: new Date().toISOString() },
+    { onConflict: "key" }
+  );
+}
+
+function hrProjectLabel(e) {
+  if (e.projects) return `${e.projects.job_number ? e.projects.job_number + " — " : ""}${e.projects.name}`;
+  if (e.category === "internal") return "Practice / Internal";
+  return e.category ? e.category.charAt(0).toUpperCase() + e.category.slice(1) : "Unassigned";
+}
+function hrToHours(h, m) { return (Number(h || 0) * 60 + Number(m || 0)) / 60; }
+
+async function gatherHrReportData(reportWeekMonday) {
+  const end = new Date(reportWeekMonday + "T12:00:00Z");
+  end.setUTCDate(end.getUTCDate() + 6);
+  const reportWeekEnd = end.toISOString().slice(0, 10);
+
+  const [{ data: rawEntries }, { data: subs }, { data: usersData }] = await Promise.all([
+    supabase.from("timesheets")
+      .select("user_id, entry_date, hours, minutes, overtime_hours, overtime_minutes, category, notes, projects(name, job_number)")
+      .gte("entry_date", reportWeekMonday).lte("entry_date", reportWeekEnd),
+    supabase.from("timesheet_submissions").select("user_id, status").eq("week_start", reportWeekMonday),
+    supabase.auth.admin.listUsers(),
+  ]);
+
+  const users = usersData?.users || [];
+  const nameById = {};
+  for (const u of users) nameById[u.id] = u.user_metadata?.full_name || u.email || "Unknown";
+
+  const entries = (rawEntries || []).map((e) => ({
+    userId: e.user_id, name: nameById[e.user_id] || "Unknown",
+    projectLabel: hrProjectLabel(e), hours: hrToHours(e.hours, e.minutes), overtime: hrToHours(e.overtime_hours, e.overtime_minutes),
+  }));
+
+  const detailRows = (rawEntries || []).map((e) => ({
+    date: new Date(e.entry_date + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+    name: nameById[e.user_id] || "Unknown", projectLabel: hrProjectLabel(e),
+    hours: hrReport.round1(hrToHours(e.hours, e.minutes)), overtime: hrReport.round1(hrToHours(e.overtime_hours, e.overtime_minutes)),
+    notes: e.notes || "",
+  })).sort((a, b) => a.name.localeCompare(b.name) || a.date.localeCompare(b.date));
+
+  const expected = users
+    .filter((u) => reminderLib.isRemindableRole(u.app_metadata?.role))
+    .map((u) => ({ userId: u.id, name: nameById[u.id] }));
+
+  const statusByUser = {};
+  for (const s of subs || []) statusByUser[s.user_id] = s.status;
+
+  return { entries, detailRows, expected, statusByUser };
+}
+
+async function runHrReport(onlyEmail) {
+  const settings = await getHrReportSettings();
+  const ukNow = reminderLib.ukParts(new Date());
+  const sendWeekMonday = reminderLib.mondayOf(ukNow.dateStr);
+  const reportWeekMonday = settings.coverage === "current" ? sendWeekMonday : reminderLib.addWeeks(sendWeekMonday, -1);
+
+  const { entries, detailRows, expected, statusByUser } = await gatherHrReportData(reportWeekMonday);
+  const model = hrReport.buildHrReportModel({ entries, expected, statusByUser });
+  const weekLabel = formatWeekRange(reportWeekMonday);
+
+  const [pdf, xlsx] = await Promise.all([
+    renderReportPdf(model, weekLabel),
+    renderReportExcel(model, detailRows, weekLabel),
+  ]);
+
+  const recipients = onlyEmail ? [onlyEmail] : await getHrEmails();
+  if (!recipients.length) return 0;
+
+  const fileBase = `weekly-timesheet-report-${reportWeekMonday}`;
+  const body = `<p style="margin:0 0 14px;font-size:15px;color:#262830;">The weekly timesheet report for <strong>${escapeHtml(weekLabel)}</strong> is attached (PDF + Excel).</p>`
+    + `<p style="margin:0;font-size:13px;color:#5a6b76;">Total: <strong>${model.totals.hours}</strong> hours`
+    + (model.totals.overtime ? `, including <strong>${model.totals.overtime}</strong> overtime` : "")
+    + ` across ${model.people.length} staff.</p>`;
+
+  await sendEmail({
+    to: recipients,
+    subject: `Weekly timesheet report — ${weekLabel}`,
+    html: notificationEmailHtml("Timesheets", body),
+    text: `The weekly timesheet report for ${weekLabel} is attached (PDF + Excel). Total ${model.totals.hours} hours across ${model.people.length} staff.`,
+    attachments: [
+      { filename: `${fileBase}.pdf`, content: pdf.toString("base64") },
+      { filename: `${fileBase}.xlsx`, content: xlsx.toString("base64") },
+    ],
+  });
+  return recipients.length;
+}
+
+async function hrReportTick() {
+  try {
+    const settings = await getHrReportSettings();
+    if (!settings.enabled) return;
+    const ukNow = reminderLib.ukParts(new Date());
+    const sendWeekMonday = reminderLib.mondayOf(ukNow.dateStr);
+    const state = await getHrReportState();
+    if (!reminderLib.isReminderDue({
+      nowDay: ukNow.day, nowTime: ukNow.time, cfgDay: settings.day, cfgTime: settings.time,
+      currentWeekMonday: sendWeekMonday, lastSentWeek: state.last_sent_week,
+    })) return;
+    const count = await runHrReport();
+    await setHrReportState({ last_sent_week: sendWeekMonday });
+    console.log(`[HR report] Sent weekly report to ${count} HR recipient(s) for send-week ${sendWeekMonday}`);
+  } catch (e) {
+    console.error("[HR report] tick failed:", e.message);
   }
 }
 
@@ -4694,6 +4817,39 @@ app.post("/api/admin/timesheet-reminder/test", requireAuth, requireAdmin, async 
   }
 });
 
+// GET /api/admin/hr-report
+app.get("/api/admin/hr-report", requireAuth, requireAdmin, async (req, res) => {
+  res.json(await getHrReportSettings());
+});
+
+// PUT /api/admin/hr-report
+app.put("/api/admin/hr-report", requireAuth, requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const cur = await getHrReportSettings();
+  const settings = {
+    enabled: typeof b.enabled === "boolean" ? b.enabled : cur.enabled,
+    day: [1, 2, 3, 4, 5].includes(Number(b.day)) ? Number(b.day) : cur.day,
+    time: /^([01]\d|2[0-3]):(00|30)$/.test(b.time) ? b.time : cur.time,
+    coverage: ["previous", "current"].includes(b.coverage) ? b.coverage : cur.coverage,
+  };
+  const { error } = await supabase.from("app_settings").upsert(
+    { key: "hr_report", value: JSON.stringify(settings), updated_at: new Date().toISOString() },
+    { onConflict: "key" }
+  );
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(settings);
+});
+
+// POST /api/admin/hr-report/test → generate now and send only to the requesting admin
+app.post("/api/admin/hr-report/test", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const sent = await runHrReport(req.user.email);
+    res.json({ ok: true, sent });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/admin/expenses
 app.get("/api/admin/expenses", requireAuth, requireAdmin, async (req, res) => {
   const { status, user_id, from, to } = req.query;
@@ -5797,4 +5953,5 @@ app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Archimind server running on port ${PORT}`));
 setInterval(reminderTick, 15 * 60 * 1000);
+setInterval(hrReportTick, 15 * 60 * 1000);
 
