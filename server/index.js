@@ -9,6 +9,9 @@ const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 const { createClient } = require("@supabase/supabase-js");
 const ExcelJS = require("exceljs");
 const { Resend } = require("resend");
+const reminderLib = require("./lib/timesheetReminder");
+const APP_URL = process.env.PUBLIC_APP_URL || "https://archimind.co.uk";
+const REMINDER_DEFAULTS = { enabled: true, day: 5, time: "16:00", track_from: "2026-07-01" };
 
 let _resend = null;
 function getResend() {
@@ -125,6 +128,107 @@ async function getUserEmail(userId) {
 // Branded wrapper shared by notification emails.
 function notificationEmailHtml(headerLabel, bodyHtml) {
   return `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — ${headerLabel}</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;">${bodyHtml}</div></div>`;
+}
+
+async function getReminderSettings() {
+  const { data } = await supabase.from("app_settings").select("value").eq("key", "timesheet_reminder").maybeSingle();
+  let parsed = {};
+  try { parsed = data?.value ? JSON.parse(data.value) : {}; } catch { parsed = {}; }
+  return { ...REMINDER_DEFAULTS, ...parsed };
+}
+async function getReminderState() {
+  const { data } = await supabase.from("app_settings").select("value").eq("key", "timesheet_reminder_state").maybeSingle();
+  try { return data?.value ? JSON.parse(data.value) : {}; } catch { return {}; }
+}
+async function setReminderState(state) {
+  await supabase.from("app_settings").upsert(
+    { key: "timesheet_reminder_state", value: JSON.stringify(state), updated_at: new Date().toISOString() },
+    { onConflict: "key" }
+  );
+}
+
+// Branded reminder email body (uses the shared notificationEmailHtml wrapper).
+function reminderEmailHtml(firstName, weeks) {
+  const rows = weeks.map((w, i) => {
+    const colour = w.label === "Draft" ? "#8a6a3a" : "#c0392b";
+    const bg = i % 2 === 0 ? "#f6f8f9" : "#ffffff";
+    return `<tr style="background:${bg};"><td style="padding:9px 12px;color:#262830;border:1px solid #e3e9ec;">${escapeHtml(formatWeekRange(w.week))}</td>`
+      + `<td style="padding:9px 12px;color:${colour};border:1px solid #e3e9ec;width:110px;">${w.label}</td></tr>`;
+  }).join("");
+  const body = `<p style="margin:0 0 14px;font-size:15px;color:#262830;">Hi ${escapeHtml(firstName)},</p>`
+    + `<p style="margin:0 0 16px;font-size:14px;color:#262830;">The following timesheets are <strong>not yet submitted</strong>:</p>`
+    + `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">${rows}</table>`
+    + `<p style="margin:0 0 22px;font-size:13px;line-height:1.6;color:#5a6b76;">Please ensure timesheets are completed at the end of each week. These are critical to ensuring fees are tracked effectively and jobs are priced correctly.</p>`
+    + `<a href="${APP_URL}" style="display:inline-block;background:#4c6278;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:11px 22px;">Open Archimind &rarr;</a>`
+    + `<p style="margin:22px 0 0;font-size:12px;color:#8a9aa8;">You're receiving this because your timesheet is outstanding. Once submitted, you'll drop off next week's reminder.</p>`;
+  return notificationEmailHtml("Timesheets", body);
+}
+
+// Build recipients. onlyUserId (optional) = test mode: target just that user and
+// bypass the admin/HR role filter so an admin can preview against their own account.
+async function computeReminderRecipients(settings, onlyUserId) {
+  const trackFromMonday = reminderLib.mondayOf(settings.track_from);
+  const ukNow = reminderLib.ukParts(new Date());
+  const currentWeekMonday = reminderLib.mondayOf(ukNow.dateStr);
+
+  const { data: subs } = await supabase
+    .from("timesheet_submissions").select("user_id, week_start, status")
+    .gte("week_start", trackFromMonday);
+  const byUser = {};
+  for (const s of subs || []) (byUser[s.user_id] ||= {})[s.week_start] = s.status;
+
+  const { data: usersData } = await supabase.auth.admin.listUsers();
+  const recipients = [];
+  for (const u of usersData?.users || []) {
+    if (onlyUserId && u.id !== onlyUserId) continue;
+    if (!onlyUserId && !reminderLib.isRemindableRole(u.app_metadata?.role)) continue;
+    const createdMonday = reminderLib.mondayOf((u.created_at || settings.track_from).slice(0, 10));
+    const start = reminderLib.laterMonday(trackFromMonday, createdMonday);
+    if (start > currentWeekMonday) continue;
+    const weeks = reminderLib.computeOutstandingWeeks(
+      reminderLib.enumerateWeekStarts(start, currentWeekMonday), byUser[u.id] || {});
+    if (!weeks.length || !u.email) continue;
+    const firstName = (u.user_metadata?.full_name || u.email || "there").split(/[ @]/)[0];
+    recipients.push({ email: u.email, firstName, weeks });
+  }
+  return recipients;
+}
+
+async function runTimesheetReminders(onlyUserId) {
+  const settings = await getReminderSettings();
+  const recipients = await computeReminderRecipients(settings, onlyUserId);
+  for (const r of recipients) {
+    const n = r.weeks.length;
+    await sendEmail({
+      to: r.email,
+      subject: `Timesheet reminder — you have ${n} outstanding timesheet${n === 1 ? "" : "s"}`,
+      html: reminderEmailHtml(r.firstName, r.weeks),
+      text: `Hi ${r.firstName},\n\nThe following timesheets are not yet submitted:\n`
+        + r.weeks.map((w) => `- ${formatWeekRange(w.week)} (${w.label})`).join("\n")
+        + `\n\nPlease ensure timesheets are completed at the end of each week. These are critical to ensuring fees are tracked effectively and jobs are priced correctly.\n\nOpen Archimind: ${APP_URL}`,
+    });
+  }
+  return recipients.length;
+}
+
+// 15-minute scheduler — fires once on the configured UK day at/after the configured time.
+async function reminderTick() {
+  try {
+    const settings = await getReminderSettings();
+    if (!settings.enabled) return;
+    const ukNow = reminderLib.ukParts(new Date());
+    const currentWeekMonday = reminderLib.mondayOf(ukNow.dateStr);
+    const state = await getReminderState();
+    if (!reminderLib.isReminderDue({
+      nowDay: ukNow.day, nowTime: ukNow.time, cfgDay: settings.day, cfgTime: settings.time,
+      currentWeekMonday, lastSentWeek: state.last_sent_week,
+    })) return;
+    const count = await runTimesheetReminders();
+    await setReminderState({ last_sent_week: currentWeekMonday });
+    console.log(`[Reminder] Sent timesheet reminders to ${count} staff for week ${currentWeekMonday}`);
+  } catch (e) {
+    console.error("[Reminder] tick failed:", e.message);
+  }
 }
 
 // "8 Jun – 12 Jun 2026" from a Monday week_start string.
@@ -4557,6 +4661,39 @@ app.put("/api/admin/notification-settings", requireAuth, requireAdmin, async (re
   res.json(settings);
 });
 
+// GET /api/admin/timesheet-reminder
+app.get("/api/admin/timesheet-reminder", requireAuth, requireAdmin, async (req, res) => {
+  res.json(await getReminderSettings());
+});
+
+// PUT /api/admin/timesheet-reminder
+app.put("/api/admin/timesheet-reminder", requireAuth, requireAdmin, async (req, res) => {
+  const b = req.body || {};
+  const cur = await getReminderSettings();
+  const settings = {
+    enabled: typeof b.enabled === "boolean" ? b.enabled : cur.enabled,
+    day: [1, 2, 3, 4, 5].includes(Number(b.day)) ? Number(b.day) : cur.day,
+    time: /^([01]\d|2[0-3]):(00|30)$/.test(b.time) ? b.time : cur.time,
+    track_from: /^\d{4}-\d{2}-\d{2}$/.test(b.track_from) ? b.track_from : cur.track_from,
+  };
+  const { error } = await supabase.from("app_settings").upsert(
+    { key: "timesheet_reminder", value: JSON.stringify(settings), updated_at: new Date().toISOString() },
+    { onConflict: "key" }
+  );
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(settings);
+});
+
+// POST /api/admin/timesheet-reminder/test → send only to the requesting admin
+app.post("/api/admin/timesheet-reminder/test", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const sent = await runTimesheetReminders(req.user.id);
+    res.json({ ok: true, sent });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // GET /api/admin/expenses
 app.get("/api/admin/expenses", requireAuth, requireAdmin, async (req, res) => {
   const { status, user_id, from, to } = req.query;
@@ -5659,4 +5796,5 @@ app.get("*", (req, res) => res.status(404).json({ error: "Not found" }));
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Archimind server running on port ${PORT}`));
+setInterval(reminderTick, 15 * 60 * 1000);
 
