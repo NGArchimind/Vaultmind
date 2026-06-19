@@ -177,16 +177,19 @@ function DraftRow({ projects, onCreate }) {
         style={{ ...ss, flex: 1, minWidth: 0 }}>
         <ProjectOptions projects={projects} />
       </select>
-      <select value={hours} disabled={saving}
-        onChange={e => { const v = parseInt(e.target.value); setHours(v); save(sel, v, minutes, notes); }}
-        style={{ ...ss, width: 62 }}>
-        {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}h</option>)}
-      </select>
-      <select value={minutes} disabled={saving}
-        onChange={e => { const v = parseInt(e.target.value); setMinutes(v); save(sel, hours, v, notes); }}
-        style={{ ...ss, width: 62 }}>
-        {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
-      </select>
+      <div style={{ width: 132, display: "flex", gap: 8 }}>
+        <select value={hours} disabled={saving}
+          onChange={e => { const v = parseInt(e.target.value); setHours(v); save(sel, v, minutes, notes); }}
+          style={{ ...ss, flex: 1, minWidth: 0 }}>
+          {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}h</option>)}
+        </select>
+        <select value={minutes} disabled={saving}
+          onChange={e => { const v = parseInt(e.target.value); setMinutes(v); save(sel, hours, v, notes); }}
+          style={{ ...ss, flex: 1, minWidth: 0 }}>
+          {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
+        </select>
+      </div>
+      <div style={{ width: 132 }} />
       <input placeholder="Notes (optional)" value={notes}
         onChange={e => setNotes(e.target.value)}
         onBlur={() => save(sel, hours, minutes, notes)}
@@ -223,31 +226,40 @@ function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
       <select value={currentValue} onChange={handleProjectChange} disabled={locked} style={{ ...ss, flex: 1, minWidth: 0 }}>
         <ProjectOptions projects={projects} />
       </select>
-      <select value={entry.hours ?? 0}
-        onChange={e => onUpdate(entry.id, { hours: parseInt(e.target.value) })}
-        disabled={locked} style={{ ...ss, width: 62 }}>
-        {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}h</option>)}
-      </select>
-      <select value={entry.minutes ?? 0}
-        onChange={e => onUpdate(entry.id, { minutes: parseInt(e.target.value) })}
-        disabled={locked} style={{ ...ss, width: 62 }}>
-        {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
-      </select>
-      {isProject && (
-        <>
-          <span style={{ fontSize: 11, color: "#8a9aa8", fontWeight: 600, letterSpacing: "0.04em" }} title="Overtime">OT</span>
-          <select value={entry.overtime_hours ?? 0}
-            onChange={e => onUpdate(entry.id, { overtime_hours: parseInt(e.target.value) })}
-            disabled={locked} style={{ ...ss, width: 56 }} title="Overtime hours">
-            {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}h</option>)}
-          </select>
-          <select value={entry.overtime_minutes ?? 0}
-            onChange={e => onUpdate(entry.id, { overtime_minutes: parseInt(e.target.value) })}
-            disabled={locked} style={{ ...ss, width: 56 }} title="Overtime minutes">
-            {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
-          </select>
-        </>
-      )}
+      {/* Time worked */}
+      <div style={{ width: 132, display: "flex", gap: 8 }}>
+        <select value={entry.hours ?? 0}
+          onChange={e => onUpdate(entry.id, { hours: parseInt(e.target.value) })}
+          disabled={locked} style={{ ...ss, flex: 1, minWidth: 0 }}>
+          {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}h</option>)}
+        </select>
+        <select value={entry.minutes ?? 0}
+          onChange={e => onUpdate(entry.id, { minutes: parseInt(e.target.value) })}
+          disabled={locked} style={{ ...ss, flex: 1, minWidth: 0 }}>
+          {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
+        </select>
+      </div>
+      {/* Overtime — project rows only; placeholder keeps columns aligned */}
+      <div style={{ width: 132, display: "flex", gap: 8 }}>
+        {isProject ? (
+          <>
+            <select value={entry.overtime_hours ?? 0}
+              onChange={e => onUpdate(entry.id, { overtime_hours: parseInt(e.target.value) })}
+              disabled={locked} title="Overtime hours"
+              style={{ ...ss, flex: 1, minWidth: 0, background: "#fbf3e6", borderColor: "#e3cfa6", color: "#8a6a3a" }}>
+              {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}h</option>)}
+            </select>
+            <select value={entry.overtime_minutes ?? 0}
+              onChange={e => onUpdate(entry.id, { overtime_minutes: parseInt(e.target.value) })}
+              disabled={locked} title="Overtime minutes"
+              style={{ ...ss, flex: 1, minWidth: 0, background: "#fbf3e6", borderColor: "#e3cfa6", color: "#8a6a3a" }}>
+              {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
+            </select>
+          </>
+        ) : (
+          <span style={{ flex: 1, textAlign: "center", alignSelf: "center", color: "#b6c0c8", fontSize: 12 }}>n/a</span>
+        )}
+      </div>
       <input placeholder="Notes (optional)" value={notes}
         onChange={e => setNotes(e.target.value)}
         onBlur={() => { if (notes !== (entry.notes || "")) onUpdate(entry.id, { notes: notes || null }); }}
@@ -1057,8 +1069,8 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                 {/* Column headers */}
                 <div style={{ display: "flex", gap: 8, padding: "0 14px 6px", fontSize: 11, color: "#8a9aa8", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em" }}>
                   <span style={{ flex: 1 }}>Project / Category</span>
-                  <span style={{ width: 62 }}>Hours</span>
-                  <span style={{ width: 62 }}>Mins</span>
+                  <span style={{ width: 132, textAlign: "center" }}>Time worked</span>
+                  <span style={{ width: 132, textAlign: "center", color: "#8a6a3a" }}>Overtime</span>
                   <span style={{ flex: 1 }}>Notes</span>
                   <span style={{ width: 28 }} />
                 </div>
