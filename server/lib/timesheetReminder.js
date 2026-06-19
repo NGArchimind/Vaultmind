@@ -29,6 +29,13 @@ function enumerateWeekStarts(fromMonday, toMonday) {
   return out;
 }
 
+// Monday string shifted by n weeks (n may be negative).
+function addWeeks(monday, n) {
+  const d = parseISODateUTCNoon(monday);
+  d.setUTCDate(d.getUTCDate() + n * 7);
+  return toISODate(d);
+}
+
 // Later of two 'YYYY-MM-DD' strings (lexicographic == chronological for ISO dates).
 function laterMonday(a, b) {
   return a >= b ? a : b;
@@ -67,6 +74,6 @@ function isReminderDue({ nowDay, nowTime, cfgDay, cfgTime, currentWeekMonday, la
 }
 
 module.exports = {
-  parseISODateUTCNoon, toISODate, mondayOf, enumerateWeekStarts,
+  parseISODateUTCNoon, toISODate, mondayOf, enumerateWeekStarts, addWeeks,
   laterMonday, isRemindableRole, computeOutstandingWeeks, ukParts, isReminderDue,
 };

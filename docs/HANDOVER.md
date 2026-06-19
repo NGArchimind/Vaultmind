@@ -98,12 +98,34 @@ All client data access goes through the server (service key, bypasses RLS); the 
 
 ---
 
-## Outstanding issues (as of 2026-06-13)
+### Timesheet clarity + weekly reminder (2026-06-19, live on main)
+- **Entry page (Option C):** `TimesheetsSection.jsx` header + `EntryRow` + `DraftRow` use two fixed **132px** column groups — "Time worked" and "Overtime" (amber `#8a6a3a` text, `#fbf3e6`/`#e3cfa6` boxes). Project rows show OT boxes; category/leave rows show a muted `n/a`; widths are identical across header/entry/draft so columns line up. **Presentational only** — overtime is still project-only and excluded from the weekly total.
+- **Weekly reminder — pure logic:** `server/lib/timesheetReminder.js` (+ `node --test` suite `timesheetReminder.test.js`). A 15-min `setInterval` (`reminderTick`, just after `app.listen`) fires **once** on the configured UK day at/after the configured time, guarded by `app_settings` key `timesheet_reminder_state` (`last_sent_week` = the week's Monday) so restarts/ticks never double-send. UK time via `Intl` `Europe/London` (BST-safe).
+- **Recipients:** non-admin/HR staff (`isRemindableRole`) with ≥1 outstanding week (status not `submitted`/`approved`) from the cut-off up to the current week. Cut-off = `app_settings` key `timesheet_reminder` `.track_from` (default `2026-07-01`), floored per user at their account-creation week. Per-week label: Draft / Not started.
+- **Email:** built with the existing `notificationEmailHtml("Timesheets", …)` wrapper; toned-down (non-caps, unhighlighted) "please complete timesheets each week…" note; "Open Archimind" button → `PUBLIC_APP_URL` env (default `archimind.co.uk`).
+- **Admin UI:** `TimesheetReminderSettings` in AdminSection → Notifications tab — enabled toggle, day (Mon–Fri), time (30-min steps), cut-off date, and a **"Send a test reminder to my email"** button. Endpoints (all `requireAdmin`): `GET/PUT /api/admin/timesheet-reminder` and `POST /api/admin/timesheet-reminder/test` (sends only to the requester and **bypasses the role filter** so an admin can preview against their own account).
+- **Settings keys (no SQL):** `timesheet_reminder` `{enabled,day,time,track_from}` and `timesheet_reminder_state` `{last_sent_week}` in `app_settings`.
+- **Limitations (accepted):** if the server is down for the **whole** configured day, that week is skipped (no catch-up). Note: with a future cut-off (e.g. default 1 Jul before July), the test/scheduler correctly find zero outstanding weeks — set the cut-off earlier to test the email now. Spec/plan: `docs/superpowers/*/2026-06-19-timesheet-clarity-and-reminder*`.
 
-1. **PDF Compare** (NEEDS TESTING) — image-based rewrite on Railway; needs first Revit schedule test.
-2. **Clause-number citation can hit a cross-reference** (LOW, accepted) — `findPageByClauseNumber` opens the first page where a line starts with the clause number; occasionally a cross-reference/table entry. Future fix: prefer match followed by sentence text, or nearest the section's vault-index heading.
-3. **Re-index stale vaults** (operational, no code) — vaults indexed before the title@page dedupe fix can steer Pass 1 to the wrong chapter. Part M done; Part B / other Approved Doc vaults may still be stale — re-index if mis-steering shows.
-4. **Multi-clause blocks not combining** (LOW) — same-subject clauses across sections stay separate citation blocks.
-5. **Wide table extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column structure.
-6. **Email work** (PARKED) — summaries not stored in DB; relevance threshold (0.35) needs tuning.
-7. **Timesheets follow-up** (deferred) — the unlock-*granted* email still isn't sent (only the 5 routed events).
+---
+
+### Weekly HR timesheet report (2026-06-19, live on main)
+- **What:** every week a PDF + Excel of everyone's logged hours is emailed to HR (`getHrEmails()`). Default **Monday 08:00 UK**, covering the **previous** week; day/time/coverage (previous/current) all configurable.
+- **Pure logic:** `server/lib/timesheetReminder.js` gained `addWeeks(monday,n)`; `server/lib/hrReport.js` has `buildHrReportModel({entries,expected,statusByUser})` → `{people, byProject, totals}` (+ `round1`, `statusLabel`). Each `people[]` entry carries a **`projects[]`** per-person breakdown (`{label, hours, overtime}`, sorted by hours) — added 2026-06-19 so the report shows what each person worked on. Both `node --test`-covered (`hrReport.test.js`). **`expected`** = non-admin/HR staff (`isRemindableRole`) so zero-loggers show **0 / Not started**; anyone who logged hours is folded in regardless of role. Hours are decimals.
+- **Renderers:** `server/lib/hrReportRender.js` — `renderReportPdf` (**pdfkit**, new dep, committed into `server/node_modules` per repo convention) and `renderReportExcel` (ExcelJS). PDF + Excel **Summary** "By person" list each person then **indented sub-rows per job** (`person.projects`); a practice-wide "Hours by project" table follows; Excel **Detail** sheet has every entry.
+- **Orchestration (`index.js`):** `gatherHrReportData` → `runHrReport(onlyEmail?)` → `sendEmail` (now accepts an `attachments` passthrough to Resend). Second 15-min `setInterval` (`hrReportTick`, beside `reminderTick`) reuses `isReminderDue`; idempotent via `app_settings` key `hr_report_state` (`last_sent_week` = send-week Monday).
+- **Settings keys (no SQL):** `hr_report` `{enabled,day,time,coverage}` (defaults Mon/08:00/previous) and `hr_report_state`.
+- **Admin UI:** `HrReportSettings` in AdminSection → Notifications tab (third panel) — enabled, day, time, week-covered, and **"Send a test report to my email"** (`POST /api/admin/hr-report/test` → `runHrReport(req.user.email)`, sends only to the requester). Endpoints: `GET/PUT /api/admin/hr-report`.
+- **`sendEmail` change:** signature now `{to,subject,html,text,attachments}`; existing callers (no attachments) unaffected. Spec/plan: `docs/superpowers/*/2026-06-19-weekly-hr-timesheet-report*`.
+
+---
+
+## Outstanding issues (as of 2026-06-19)
+
+1. **Clause-number citation can hit a cross-reference** (LOW, accepted) — `findPageByClauseNumber` opens the first page where a line starts with the clause number; occasionally a cross-reference/table entry. Future fix: prefer match followed by sentence text, or nearest the section's vault-index heading.
+2. **Multi-clause blocks not combining** (LOW) — same-subject clauses across sections stay separate citation blocks.
+3. **Wide table extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column structure.
+4. **Email work** (PARKED) — summaries not stored in DB; relevance threshold (0.35) needs tuning.
+5. **Timesheets follow-up** (deferred) — the unlock-*granted* email still isn't sent (only the 5 routed events).
+
+_Closed 2026-06-19: PDF Compare (Revit schedule test passed) and stale Approved-Doc vault re-indexing — both previously items 1 & 3._

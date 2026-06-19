@@ -172,6 +172,85 @@ function TimesheetReminderSettings() {
   );
 }
 
+function HrReportSettings() {
+  const [cfg, setCfg]       = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast]   = useState(null);
+
+  useEffect(() => { api("/api/admin/hr-report").then(setCfg).catch(() => {}); }, []);
+
+  const save = async (patch) => {
+    if (!cfg || saving) return;
+    const prev = cfg, next = { ...cfg, ...patch };
+    setCfg(next); setSaving(true);
+    try {
+      const saved = await api("/api/admin/hr-report", { method: "PUT", body: next });
+      setCfg(saved); setToast("Saved"); setTimeout(() => setToast(null), 1500);
+    } catch {
+      setCfg(prev); setToast("Could not save"); setTimeout(() => setToast(null), 2000);
+    } finally { setSaving(false); }
+  };
+
+  const sendTest = async () => {
+    setSaving(true);
+    try {
+      const r = await api("/api/admin/hr-report/test", { method: "POST" });
+      setToast(r.sent ? "Test report sent to your email" : "No HR recipients / nothing to send");
+    } catch { setToast("Could not send test"); }
+    finally { setSaving(false); setTimeout(() => setToast(null), 2500); }
+  };
+
+  const DAYS = [[1, "Monday"], [2, "Tuesday"], [3, "Wednesday"], [4, "Thursday"], [5, "Friday"]];
+  const TIMES = [];
+  for (let h = 7; h <= 20; h++) { const hh = String(h).padStart(2, "0"); TIMES.push(`${hh}:00`, `${hh}:30`); }
+  const inp = { fontSize: 13, padding: "6px 8px", border: "1px solid #d0d8de", background: "#fff", color: DESIGN_SHELL, fontFamily: "Inter, Arial, sans-serif" };
+
+  return (
+    <div style={{ marginBottom: 48 }}>
+      <h2 style={{ fontSize: 16, fontWeight: 300, color: DESIGN_SHELL, marginBottom: 4 }}>Weekly HR Report</h2>
+      <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 20 }}>
+        Emails HR a PDF + Excel of everyone's logged hours, on the day &amp; time below.
+        {toast && <span style={{ marginLeft: 10, color: DESIGN_SHELL, fontWeight: 600 }}>{toast}</span>}
+      </p>
+      <div style={{ background: "#fff", border: "1px solid #e0dbd4", borderTop: `3px solid ${DESIGN_SHELL}`, padding: "18px 24px", maxWidth: 640 }}>
+        {!cfg && <p style={{ fontSize: 13, color: "#9a9088" }}>Loading…</p>}
+        {cfg && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 13, color: DESIGN_SHELL }}>
+              <input type="checkbox" checked={cfg.enabled} disabled={saving} onChange={e => save({ enabled: e.target.checked })} />
+              Send weekly report to HR
+            </label>
+            <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+              <label style={{ fontSize: 12, color: "#9a9088" }}>Day<br />
+                <select value={cfg.day} disabled={saving} onChange={e => save({ day: Number(e.target.value) })} style={inp}>
+                  {DAYS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </label>
+              <label style={{ fontSize: 12, color: "#9a9088" }}>Time (UK)<br />
+                <select value={cfg.time} disabled={saving} onChange={e => save({ time: e.target.value })} style={inp}>
+                  {TIMES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </label>
+              <label style={{ fontSize: 12, color: "#9a9088" }}>Week covered<br />
+                <select value={cfg.coverage} disabled={saving} onChange={e => save({ coverage: e.target.value })} style={inp}>
+                  <option value="previous">Previous week</option>
+                  <option value="current">Current week</option>
+                </select>
+              </label>
+            </div>
+            <div>
+              <button type="button" onClick={sendTest} disabled={saving}
+                style={{ fontSize: 12, padding: "8px 16px", border: `1px solid ${DESIGN_SHELL}`, background: "#fff", color: DESIGN_SHELL, cursor: saving ? "default" : "pointer" }}>
+                Send a test report to my email
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminSection() {
   const [users, setUsers] = useState([]);
   const [adminTab, setAdminTab] = useState("users");
@@ -659,7 +738,7 @@ export default function AdminSection() {
 
       </>)}
 
-      {adminTab === "notifications" && (<><NotificationSettings /><TimesheetReminderSettings /></>)}
+      {adminTab === "notifications" && (<><NotificationSettings /><TimesheetReminderSettings /><HrReportSettings /></>)}
 
       {adminTab === "branding" && (<>
       {/* ── Practice Logo ─────────────────────────────────────────────────── */}
