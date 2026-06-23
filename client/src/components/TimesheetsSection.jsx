@@ -13,6 +13,7 @@ const MINUTE_OPTIONS = [0, 15, 30, 45];
 const DAYS           = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const FULL_DAY       = { hours: 7, minutes: 30 };
 const HALF_DAY       = { hours: 3, minutes: 45 };
+const DAY_CAP_MINS   = 7 * 60 + 30;  // 450 — max "time worked" (overtime excluded) per day
 const MIN_WEEK_MINS  = 37.5 * 60;  // 2250
 const OVER_WEEK_MINS = 45 * 60;    // 2700
 
@@ -62,6 +63,10 @@ function formatMins(totalMins) {
   if (m === 0) return `${h}h`;
   if (h === 0) return `${m}m`;
   return `${h}h ${m}m`;
+}
+
+function dayName(isoDate) {
+  return new Date(isoDate + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "long" });
 }
 
 function entryMins(e) { return (e.hours || 0) * 60 + (e.minutes || 0); }
@@ -345,6 +350,14 @@ function DayCard({ dayLabel, date, entries, projects, recentIds, locked, onAdd, 
                   onUpdate={onUpdate} onDelete={onDelete} />
               ))
           }
+        </div>
+      )}
+
+      {dayTotal > DAY_CAP_MINS && (
+        <div style={{ padding: "0 14px 10px" }}>
+          <div style={{ background: "#fdf0ee", borderLeft: "3px solid #c0392b", padding: "6px 10px", fontSize: 12, color: "#9e2d1e" }}>
+            {formatMins(dayTotal)} of time worked — {formatMins(dayTotal - DAY_CAP_MINS)} over the 7h 30m daily limit. Log the extra as Overtime.
+          </div>
         </div>
       )}
 
@@ -925,7 +938,17 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
     }
   }, [unlockReason, weekKey, showToast]);
 
+  const overCapDays = (() => {
+    const byDay = {};
+    entries.forEach(e => { byDay[e.entry_date] = (byDay[e.entry_date] || 0) + entryMins(e); });
+    return Object.keys(byDay).filter(d => byDay[d] > DAY_CAP_MINS).sort();
+  })();
+
   const handleSubmitClick = () => {
+    if (overCapDays.length) {
+      showToast("Some days are over the 7h 30m daily limit — move the extra to Overtime.");
+      return;
+    }
     const total = totalMins(entries);
     if (total > OVER_WEEK_MINS) {
       setDialog({
@@ -1161,11 +1184,16 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                         ⚠ Below 37.5h minimum
                       </span>
                     )}
+                    {overCapDays.length > 0 && !isLocked && (
+                      <span style={{ marginLeft: 12, fontSize: 12, color: "#c0392b", fontWeight: 600 }}>
+                        ⚠ {overCapDays.map(dayName).join(", ")} over the 7h 30m daily limit — move extra to Overtime
+                      </span>
+                    )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     {!isLocked && (
-                      <button onClick={handleSubmitClick} disabled={submitting || entries.length === 0}
-                        style={{ ...btnBase, background: entries.length === 0 ? "#ccc" : TIMESHEETS_FULL, color: "#fff", padding: "8px 24px", fontSize: 13, cursor: entries.length === 0 ? "default" : "pointer" }}>
+                      <button onClick={handleSubmitClick} disabled={submitting || entries.length === 0 || overCapDays.length > 0}
+                        style={{ ...btnBase, background: (entries.length === 0 || overCapDays.length > 0) ? "#ccc" : TIMESHEETS_FULL, color: "#fff", padding: "8px 24px", fontSize: 13, cursor: (entries.length === 0 || overCapDays.length > 0) ? "default" : "pointer" }}>
                         {submitting ? "Submitting…" : "Submit for Approval"}
                       </button>
                     )}

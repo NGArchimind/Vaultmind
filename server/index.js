@@ -13,6 +13,7 @@ const reminderLib = require("./lib/timesheetReminder");
 const hrReport = require("./lib/hrReport");
 const { renderReportPdf, renderReportExcel } = require("./lib/hrReportRender");
 const { recentProjectIds } = require("./lib/recentProjects");
+const { daysOverCap } = require("./lib/timesheetValidation");
 const HR_REPORT_DEFAULTS = { enabled: true, day: 1, time: "08:00", coverage: "previous" };
 const APP_URL = process.env.PUBLIC_APP_URL || "https://archimind.co.uk";
 const REMINDER_DEFAULTS = { enabled: true, day: 5, time: "16:00", track_from: "2026-07-01" };
@@ -4302,6 +4303,24 @@ app.post("/api/timesheets/submit", requireAuth, async (req, res) => {
     .maybeSingle();
   if (existing?.status === "approved") {
     return res.status(403).json({ error: "This week has already been approved and cannot be resubmitted" });
+  }
+
+  // Daily cap: "time worked" (overtime excluded) must not exceed 7h 30m on any day.
+  {
+    const fri = new Date(week);
+    fri.setDate(fri.getDate() + 4);
+    const weekEnd = fri.toISOString().split("T")[0];
+    const { data: weekEntries } = await supabase
+      .from("timesheets")
+      .select("entry_date, hours, minutes")
+      .eq("user_id", req.user.id)
+      .gte("entry_date", week)
+      .lte("entry_date", weekEnd);
+    const over = daysOverCap(weekEntries || []);
+    if (over.length) {
+      const days = over.map(o => o.date).join(", ");
+      return res.status(400).json({ error: `One or more days exceed the 7.5 hour daily limit for time worked (${days}). Move the extra time into Overtime before submitting.` });
+    }
   }
 
   const { data, error } = await supabase
