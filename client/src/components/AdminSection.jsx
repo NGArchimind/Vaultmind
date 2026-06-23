@@ -261,6 +261,9 @@ export default function AdminSection() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [newEmail, setNewEmail] = useState("");
   const [newPassword, setNewPassword] = useState("");
+  const [resetPw, setResetPw] = useState(null);        // { uid, password } shown once after a reset
+  const [resettingId, setResettingId] = useState(null);
+  const [pwCopied, setPwCopied] = useState(false);
   const [newRole, setNewRole] = useState("user");
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState("");
@@ -354,6 +357,24 @@ export default function AdminSection() {
       setUsers(prev => prev.filter(u => u.id !== uid));
     } catch (e) { alert("Failed to delete user: " + e.message); }
     setDeletingId(null);
+  };
+
+  const handleSuggestPassword = async () => {
+    try { const { password } = await api("/api/admin/suggest-password"); setNewPassword(password); setAddError(""); }
+    catch { setAddError("Could not generate a password."); }
+  };
+
+  const handleResetPassword = async (uid) => {
+    setResettingId(uid); setResetPw(null); setPwCopied(false);
+    try {
+      const { password } = await api(`/api/admin/users/${uid}/password`, { method: "POST" });
+      setResetPw({ uid, password });
+    } catch (e) { alert("Failed to reset password: " + e.message); }
+    setResettingId(null);
+  };
+
+  const copyPw = async (pw) => {
+    try { await navigator.clipboard.writeText(pw); setPwCopied(true); setTimeout(() => setPwCopied(false), 2000); } catch {}
   };
 
   // ── Logo ───────────────────────────────────────────────────────────────────
@@ -676,8 +697,14 @@ export default function AdminSection() {
           <input type="email" value={newEmail} onChange={e => { setNewEmail(e.target.value); setAddError(""); }}
             onKeyDown={e => e.key === "Enter" && handleAddUser()} autoFocus style={inputStyle(!!addError)} />
           <label style={labelStyle}>Password</label>
-          <input type="password" value={newPassword} onChange={e => { setNewPassword(e.target.value); setAddError(""); }}
-            onKeyDown={e => e.key === "Enter" && handleAddUser()} style={inputStyle(!!addError)} />
+          <div style={{ display: "flex", gap: 8, alignItems: "stretch", marginBottom: 16 }}>
+            <input type="text" value={newPassword} onChange={e => { setNewPassword(e.target.value); setAddError(""); }}
+              onKeyDown={e => e.key === "Enter" && handleAddUser()} style={{ ...inputStyle(!!addError), flex: 1, marginBottom: 0 }} />
+            <button type="button" onClick={handleSuggestPassword}
+              style={{ background: "none", border: `1px solid ${DESIGN_SHELL}`, color: DESIGN_SHELL, padding: "0 14px", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "Inter, Arial, sans-serif" }}>
+              ↻ Generate
+            </button>
+          </div>
           <label style={labelStyle}>Role</label>
           <select value={newRole} onChange={e => setNewRole(e.target.value)}
             style={{ ...inputStyle(false), cursor: "pointer" }}>
@@ -700,8 +727,8 @@ export default function AdminSection() {
       )}
 
       <div style={{ background: "#fff", border: "1px solid #e0dbd4", marginBottom: 8 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px 80px", padding: "10px 20px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
-          {["Email", "Role", "Created", ""].map(h => (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 120px 170px 40px", padding: "10px 20px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
+          {["Email", "Role", "Created", "Password", ""].map(h => (
             <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</span>
           ))}
         </div>
@@ -710,7 +737,7 @@ export default function AdminSection() {
         ) : users.length === 0 ? (
           <div style={{ padding: "24px 20px", fontSize: 13, color: "#9a9088" }}>No users found.</div>
         ) : users.map(u => (
-          <div key={u.id} style={{ display: "grid", gridTemplateColumns: "1fr 120px 160px 80px", padding: "12px 20px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
+          <div key={u.id} style={{ display: "grid", gridTemplateColumns: "1fr 110px 120px 170px 40px", padding: "12px 20px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
             <span style={{ fontSize: 13, color: DESIGN_SHELL, letterSpacing: "0.01em" }}>{u.email}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <select value={u.role} onChange={e => handleChangeRole(u.id, e.target.value)} disabled={updatingRole === u.id}
@@ -724,6 +751,22 @@ export default function AdminSection() {
             <span style={{ fontSize: 12, color: "#9a9088" }}>
               {u.created_at ? new Date(u.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
             </span>
+            {resetPw?.uid === u.id ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <code style={{ fontSize: 12, fontWeight: 700, color: "#2e4a1e" }}>{resetPw.password}</code>
+                <button onClick={() => copyPw(resetPw.password)} title="Copy"
+                  style={{ background: "none", border: "1px solid #b9d3a6", color: "#2e7d32", fontSize: 10, padding: "2px 6px", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif" }}>
+                  {pwCopied ? "✓" : "Copy"}
+                </button>
+                <button onClick={() => setResetPw(null)} title="Dismiss"
+                  style={{ background: "none", border: "none", color: "#bbb", cursor: "pointer", fontSize: 14, lineHeight: 1 }}>×</button>
+              </div>
+            ) : (
+              <button onClick={() => handleResetPassword(u.id)} disabled={resettingId === u.id}
+                style={{ background: "none", border: "1px solid #ccc", color: "#505a5f", fontSize: 10, padding: "3px 8px", cursor: resettingId === u.id ? "not-allowed" : "pointer", fontFamily: "Inter, Arial, sans-serif", whiteSpace: "nowrap" }}>
+                {resettingId === u.id ? <Spinner size={10} /> : "Reset password"}
+              </button>
+            )}
             <button onClick={() => handleDeleteUser(u.id, u.email)} disabled={deletingId === u.id} title="Delete user"
               style={{ background: "none", border: "none", color: "#c0b8b0", fontSize: 14, cursor: deletingId === u.id ? "not-allowed" : "pointer", padding: "2px 6px", fontFamily: "Inter, Arial, sans-serif", transition: "color 0.15s" }}
               onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.target.style.color = "#c0b8b0"}>

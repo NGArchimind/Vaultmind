@@ -16,6 +16,7 @@ const { recentProjectIds } = require("./lib/recentProjects");
 const { daysOverCap } = require("./lib/timesheetValidation");
 const { claimTotalPence } = require("./lib/expenseClaims");
 const { buildClaimPdf } = require("./lib/expenseClaimPdf");
+const { generatePassword } = require("./lib/passwordGen");
 const HR_REPORT_DEFAULTS = { enabled: true, day: 1, time: "08:00", coverage: "previous" };
 const APP_URL = process.env.PUBLIC_APP_URL || "https://archimind.co.uk";
 const REMINDER_DEFAULTS = { enabled: true, day: 5, time: "16:00", track_from: "2026-07-01" };
@@ -3663,6 +3664,23 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
     });
   } catch (err) {
     return serverError(res, err, "POST /api/admin/users");
+  }
+});
+
+// GET /api/admin/suggest-password — a fresh generated password (not set on anyone yet)
+app.get("/api/admin/suggest-password", requireAuth, requireAdmin, (req, res) => {
+  res.json({ password: generatePassword() });
+});
+
+// POST /api/admin/users/:uid/password — generate + set a new password, returned once to show the admin
+app.post("/api/admin/users/:uid/password", requireAuth, requireAdmin, async (req, res) => {
+  const password = generatePassword();
+  try {
+    const { data, error } = await supabase.auth.admin.updateUserById(req.params.uid, { password });
+    if (error) throw error;
+    res.json({ password, email: data.user.email });
+  } catch (err) {
+    return serverError(res, err, "POST /api/admin/users/:uid/password");
   }
 });
 
