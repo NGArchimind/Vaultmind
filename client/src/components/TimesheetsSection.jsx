@@ -370,45 +370,49 @@ function DayCard({ dayLabel, date, entries, projects, recentIds, locked, onAdd, 
 // ── Admin expenses panel ──────────────────────────────────────────────────────
 
 function AdminExpensesPanel({ users }) {
-  const [expenses,      setExpenses]      = useState([]);
+  const [claims,        setClaims]        = useState([]);
   const [loading,       setLoading]       = useState(false);
   const [mileageRate,   setMileageRate]   = useState(45);
   const [editingRate,   setEditingRate]   = useState(false);
   const [newRate,       setNewRate]       = useState("");
-  const [filterStatus,  setFilterStatus]  = useState("pending");
+  const [filterStatus,  setFilterStatus]  = useState("submitted");
+  const [expanded,      setExpanded]      = useState(null);
   const [rejectingId,   setRejectingId]   = useState(null);
   const [rejectReason,  setRejectReason]  = useState("");
   const [toast,         setToast]         = useState(null);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
-  const userEmail = (uid) => users.find(u => u.id === uid)?.email || uid.slice(0, 8) + "…";
+  const userEmail = (uid) => users.find(u => u.id === uid)?.email || (uid ? uid.slice(0, 8) + "…" : "—");
+  const fmtMoney = (pence) => `£${((pence || 0) / 100).toFixed(2)}`;
 
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      api(`/api/admin/expenses?status=${filterStatus}`),
+      api(`/api/admin/expense-claims?status=${filterStatus}`),
       api("/api/admin/expenses/settings"),
-    ]).then(([exp, settings]) => {
-      setExpenses(exp || []);
+    ]).then(([cl, settings]) => {
+      setClaims(cl || []);
       setMileageRate(settings?.mileage_rate_ppm || 45);
       setNewRate(String(settings?.mileage_rate_ppm || 45));
     }).catch(() => {}).finally(() => setLoading(false));
   }, [filterStatus]);
 
-  const handleApprove = async (exp) => {
-    await api(`/api/admin/expenses/${exp.id}/approve`, { method: "POST" });
-    setExpenses(prev => prev.map(e => e.id === exp.id ? { ...e, status: "approved" } : e));
-    showToast("Expense approved.");
+  const refresh = () => api(`/api/admin/expense-claims?status=${filterStatus}`).then(cl => setClaims(cl || [])).catch(() => {});
+
+  const handleApprove = async (claim) => {
+    await api(`/api/admin/expense-claims/${claim.id}/approve`, { method: "POST" });
+    await refresh();
+    showToast("Claim approved.");
   };
 
-  const handleReject = async (exp) => {
+  const handleReject = async (claim) => {
     if (!rejectReason.trim()) return;
-    await api(`/api/admin/expenses/${exp.id}/reject`, { method: "POST", body: { reason: rejectReason.trim() } });
-    setExpenses(prev => prev.map(e => e.id === exp.id ? { ...e, status: "rejected", rejection_reason: rejectReason.trim() } : e));
+    await api(`/api/admin/expense-claims/${claim.id}/reject`, { method: "POST", body: { reason: rejectReason.trim() } });
     setRejectingId(null);
     setRejectReason("");
-    showToast("Expense rejected.");
+    await refresh();
+    showToast("Claim returned.");
   };
 
   const handleSaveRate = async () => {
@@ -463,7 +467,7 @@ function AdminExpensesPanel({ users }) {
       {/* Filter */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
         <span style={{ fontSize: 12, color: "#6a8a9a", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em" }}>Filter:</span>
-        {["pending", "approved", "rejected", "all"].map(s => (
+        {["submitted", "approved", "rejected", "all"].map(s => (
           <button key={s} onClick={() => setFilterStatus(s)}
             style={{ fontSize: 11, padding: "3px 12px", border: `1px solid ${filterStatus === s ? TIMESHEETS_FULL : "#d0d8de"}`, background: filterStatus === s ? TIMESHEETS_FULL : "#fff", color: filterStatus === s ? "#fff" : "#6a8a9a", cursor: "pointer", textTransform: "capitalize" }}>
             {s}
@@ -472,45 +476,42 @@ function AdminExpensesPanel({ users }) {
       </div>
 
       {loading && <p style={{ color: "#6a8a9a", fontSize: 13 }}>Loading…</p>}
-      {!loading && expenses.length === 0 && <p style={{ color: "#6a8a9a", fontSize: 13 }}>No expenses found.</p>}
+      {!loading && claims.length === 0 && <p style={{ color: "#6a8a9a", fontSize: 13 }}>No claims found.</p>}
 
-      {expenses.map(exp => (
-        <div key={exp.id} style={{ background: "#fff", border: "1px solid #dde4e8", marginBottom: 8, padding: "10px 16px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, minWidth: 120 }}>{userEmail(exp.user_id)}</span>
-            <span style={{ fontSize: 12, color: "#6a8a9a" }}>{typeLbl[exp.expense_type] || exp.expense_type}</span>
-            <span style={{ fontSize: 12, color: "#6a8a9a" }}>{fmtDate(exp.expense_date)}</span>
-            <span style={{ fontSize: 12, color: TIMESHEETS_FULL, fontWeight: 600 }}>{formatAmt(exp)}</span>
-            <span style={{ fontSize: 12, color: "#6a8a9a", flex: 1 }}>
-              {exp.projects?.job_number ? `${exp.projects.job_number} — ${exp.projects.name}` : exp.projects?.name}
-            </span>
-            <span style={{ fontSize: 12, color: "#6a8a9a", fontStyle: "italic" }}>{exp.description}</span>
-            {exp.receipt_key && (
-              <button onClick={() => openReceipt(exp.id)}
-                style={{ fontSize: 12, color: TIMESHEETS_FULL, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                📎 receipt
-              </button>
-            )}
+      {claims.map(claim => {
+        const items = claim.project_expenses || [];
+        const isOpen = expanded === claim.id;
+        return (
+        <div key={claim.id} style={{ background: "#fff", border: "1px solid #dde4e8", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 16px" }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, minWidth: 140 }}>{userEmail(claim.user_id)}</span>
+            <span style={{ fontSize: 12, color: "#6a8a9a" }}>{items.length} item(s)</span>
+            <span style={{ fontSize: 12, color: "#6a8a9a" }}>{claim.submitted_at ? fmtDate(claim.submitted_at.slice(0, 10)) : ""}</span>
+            <span style={{ fontSize: 13, color: TIMESHEETS_FULL, fontWeight: 700 }}>{fmtMoney(claim.total_pence)}</span>
+            <button onClick={() => setExpanded(isOpen ? null : claim.id)}
+              style={{ fontSize: 11, color: "#6a8a9a", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+              {isOpen ? "Hide items" : "View items"}
+            </button>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-              {exp.status === "pending" && rejectingId !== exp.id && (
+              {claim.status === "submitted" && rejectingId !== claim.id && (
                 <>
-                  <button onClick={() => handleApprove(exp)}
+                  <button onClick={() => handleApprove(claim)}
                     style={{ background: TIMESHEETS_FULL, color: "#fff", border: "none", padding: "4px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
                     Approve
                   </button>
-                  <button onClick={() => { setRejectingId(exp.id); setRejectReason(""); }}
+                  <button onClick={() => { setRejectingId(claim.id); setRejectReason(""); }}
                     style={{ background: "#fff", border: `1px solid ${COMPARE_FULL}`, color: COMPARE_FULL, padding: "4px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
                     Reject
                   </button>
                 </>
               )}
-              {exp.status === "pending" && rejectingId === exp.id && (
+              {claim.status === "submitted" && rejectingId === claim.id && (
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <input autoFocus value={rejectReason} onChange={e => setRejectReason(e.target.value)}
                     placeholder="Reason…"
                     style={{ fontSize: 11, padding: "3px 8px", border: "1px solid #d0d8de", width: 180 }}
                   />
-                  <button onClick={() => handleReject(exp)} disabled={!rejectReason.trim()}
+                  <button onClick={() => handleReject(claim)} disabled={!rejectReason.trim()}
                     style={{ background: rejectReason.trim() ? COMPARE_FULL : "#ccc", color: "#fff", border: "none", padding: "3px 10px", fontSize: 11, cursor: rejectReason.trim() ? "pointer" : "default", fontWeight: 600 }}>
                     Send
                   </button>
@@ -518,20 +519,38 @@ function AdminExpensesPanel({ users }) {
                     style={{ background: "none", border: "none", color: "#aaa", fontSize: 16, cursor: "pointer" }}>×</button>
                 </div>
               )}
-              {exp.status !== "pending" && (
-                <span style={{ fontSize: 11, fontWeight: 600, color: exp.status === "approved" ? "#2e7d32" : "#9e4a3a", textTransform: "uppercase" }}>
-                  {exp.status}
+              {claim.status !== "submitted" && (
+                <span style={{ fontSize: 11, fontWeight: 600, color: claim.status === "approved" ? "#2e7d32" : "#9e4a3a", textTransform: "uppercase" }}>
+                  {claim.status === "rejected" ? "returned" : claim.status}
                 </span>
               )}
             </div>
           </div>
-          {exp.rejection_reason && (
-            <div style={{ marginTop: 6, padding: "5px 10px", background: "#fdf0ee", borderLeft: "3px solid #9e4a3a", fontSize: 11, color: "#9e4a3a" }}>
-              <strong>Reason: </strong>{exp.rejection_reason}
+          {claim.status === "rejected" && claim.rejection_reason && (
+            <div style={{ margin: "0 16px 10px", padding: "5px 10px", background: "#fdf0ee", borderLeft: "3px solid #9e4a3a", fontSize: 11, color: "#9e4a3a" }}>
+              <strong>Returned: </strong>{claim.rejection_reason}
             </div>
           )}
+          {isOpen && items.map(item => (
+            <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "8px 16px", borderTop: "1px solid #eef2f4" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: DESIGN_TEXT, minWidth: 90 }}>{typeLbl[item.expense_type] || item.expense_type}</span>
+              <span style={{ fontSize: 11, color: "#6a8a9a" }}>{fmtDate(item.expense_date)}</span>
+              <span style={{ fontSize: 12, color: TIMESHEETS_FULL, fontWeight: 600 }}>{formatAmt(item)}</span>
+              <span style={{ fontSize: 11, color: "#8a9aa8", minWidth: 120 }}>
+                {item.projects?.job_number ? `${item.projects.job_number} — ${item.projects.name}` : item.projects?.name}
+              </span>
+              <span style={{ fontSize: 11, color: "#6a8a9a", flex: 1, fontStyle: "italic" }}>{item.description}</span>
+              {item.receipt_key && (
+                <button onClick={() => openReceipt(item.id)}
+                  style={{ fontSize: 12, color: TIMESHEETS_FULL, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                  📎 receipt
+                </button>
+              )}
+            </div>
+          ))}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
