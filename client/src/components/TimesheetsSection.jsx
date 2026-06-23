@@ -219,14 +219,13 @@ function EntryRow({ entry, projects, recentIds = [], locked, onUpdate, onDelete 
     ? entry.project_id
     : entry.category ? `cat:${entry.category}` : "";
 
-  const isProject = !!entry.project_id;
   const isFull = entry.hours === FULL_DAY.hours && entry.minutes === FULL_DAY.minutes;
   const isHalf = entry.hours === HALF_DAY.hours && entry.minutes === HALF_DAY.minutes;
 
   const handleProjectChange = (e) => {
     const val = e.target.value;
-    // Switching to a category clears any overtime (overtime is job-only).
-    if (val.startsWith("cat:")) onUpdate(entry.id, { project_id: null,  category: val.replace("cat:", ""), overtime_hours: 0, overtime_minutes: 0 });
+    // Overtime can be logged on any row (project or category), so it is not cleared here.
+    if (val.startsWith("cat:")) onUpdate(entry.id, { project_id: null, category: val.replace("cat:", "") });
     else                        onUpdate(entry.id, { project_id: val || null, category: null });
   };
 
@@ -261,26 +260,20 @@ function EntryRow({ entry, projects, recentIds = [], locked, onUpdate, onDelete 
           {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
         </select>
       </div>
-      {/* Overtime — project rows only; placeholder keeps columns aligned */}
+      {/* Overtime — available on any row (project or category) */}
       <div style={{ width: 132, display: "flex", gap: 8 }}>
-        {isProject ? (
-          <>
-            <select value={entry.overtime_hours ?? 0}
-              onChange={e => onUpdate(entry.id, { overtime_hours: parseInt(e.target.value) })}
-              disabled={locked} title="Overtime hours"
-              style={{ ...ss, flex: 1, minWidth: 0, background: "#fbf3e6", borderColor: "#e3cfa6", color: "#8a6a3a" }}>
-              {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}h</option>)}
-            </select>
-            <select value={entry.overtime_minutes ?? 0}
-              onChange={e => onUpdate(entry.id, { overtime_minutes: parseInt(e.target.value) })}
-              disabled={locked} title="Overtime minutes"
-              style={{ ...ss, flex: 1, minWidth: 0, background: "#fbf3e6", borderColor: "#e3cfa6", color: "#8a6a3a" }}>
-              {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
-            </select>
-          </>
-        ) : (
-          <span style={{ flex: 1, textAlign: "center", alignSelf: "center", color: "#b6c0c8", fontSize: 12 }}>n/a</span>
-        )}
+        <select value={entry.overtime_hours ?? 0}
+          onChange={e => onUpdate(entry.id, { overtime_hours: parseInt(e.target.value) })}
+          disabled={locked} title="Overtime hours"
+          style={{ ...ss, flex: 1, minWidth: 0, background: "#fbf3e6", borderColor: "#e3cfa6", color: "#8a6a3a" }}>
+          {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}h</option>)}
+        </select>
+        <select value={entry.overtime_minutes ?? 0}
+          onChange={e => onUpdate(entry.id, { overtime_minutes: parseInt(e.target.value) })}
+          disabled={locked} title="Overtime minutes"
+          style={{ ...ss, flex: 1, minWidth: 0, background: "#fbf3e6", borderColor: "#e3cfa6", color: "#8a6a3a" }}>
+          {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
+        </select>
       </div>
       <input placeholder="Notes (optional)" value={notes}
         onChange={e => setNotes(e.target.value)}
