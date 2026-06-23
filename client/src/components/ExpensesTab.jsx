@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from "react";
 import { api, apiBlob } from "../api/client";
 import { DESIGN_TEXT, TIMESHEETS_FULL, COMPARE_FULL } from "../constants";
+import ProjectPicker from "./ProjectPicker";
 
 const EXPENSE_TYPES = [
   { value: "train",   label: "Train" },
@@ -47,7 +48,7 @@ function StatusBadge({ status }) {
   );
 }
 
-export default function ExpensesTab({ projects }) {
+export default function ExpensesTab({ projects, recentIds = [] }) {
   const [expenses,    setExpenses]    = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [filter,      setFilter]      = useState("all");
@@ -196,10 +197,14 @@ export default function ExpensesTab({ projects }) {
             </div>
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>Project</div>
-              <select value={fProject} onChange={e => setFProject(e.target.value)} style={{ ...ss, width: "100%" }}>
-                <option value="">— Select —</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.job_number ? `${p.job_number} — ${p.name}` : p.name}</option>)}
-              </select>
+              <ProjectPicker
+                value={fProject}
+                onChange={setFProject}
+                projects={projects}
+                recentIds={recentIds}
+                hideOther
+                style={{ width: "100%" }}
+              />
             </div>
             <div>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: ".06em", marginBottom: 4 }}>Date</div>

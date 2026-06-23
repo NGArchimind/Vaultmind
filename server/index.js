@@ -12,6 +12,7 @@ const { Resend } = require("resend");
 const reminderLib = require("./lib/timesheetReminder");
 const hrReport = require("./lib/hrReport");
 const { renderReportPdf, renderReportExcel } = require("./lib/hrReportRender");
+const { recentProjectIds } = require("./lib/recentProjects");
 const HR_REPORT_DEFAULTS = { enabled: true, day: 1, time: "08:00", coverage: "previous" };
 const APP_URL = process.env.PUBLIC_APP_URL || "https://archimind.co.uk";
 const REMINDER_DEFAULTS = { enabled: true, day: 5, time: "16:00", track_from: "2026-07-01" };
@@ -4234,6 +4235,23 @@ app.get("/api/timesheets/submission", requireAuth, async (req, res) => {
     .eq("week_start", week)
     .single();
   res.json(data || null);
+});
+
+// GET /api/timesheets/recent-projects — the user's most-recently-used project ids (must be before /:id)
+app.get("/api/timesheets/recent-projects", requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("timesheets")
+      .select("project_id, entry_date")
+      .eq("user_id", req.user.id)
+      .not("project_id", "is", null)
+      .order("entry_date", { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    res.json({ project_ids: recentProjectIds(data || [], 8) });
+  } catch (err) {
+    return serverError(res, err, "GET /api/timesheets/recent-projects");
+  }
 });
 
 // POST /api/timesheets

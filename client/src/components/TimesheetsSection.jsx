@@ -5,14 +5,8 @@ import TimesheetHistory from "./TimesheetHistory";
 import TimesheetReport from "./TimesheetReport";
 import FeeReview from "./FeeReview";
 import ExpensesTab from "./ExpensesTab";
-
-const CATEGORIES = [
-  { value: "holiday",      label: "Holiday" },
-  { value: "sickness",     label: "Sickness" },
-  { value: "bank_holiday", label: "Bank Holiday" },
-  { value: "training",     label: "Training / CPD" },
-  { value: "internal",     label: "Internal / Non-billable" },
-];
+import { CATEGORIES } from "../categories";
+import ProjectPicker from "./ProjectPicker";
 
 const HOUR_OPTIONS   = Array.from({ length: 17 }, (_, i) => i);
 const MINUTE_OPTIONS = [0, 15, 30, 45];
@@ -127,27 +121,11 @@ function selStyle(locked) {
 
 // ── Project/category dropdown options ─────────────────────────────────────────
 
-function ProjectOptions({ projects }) {
-  return (
-    <>
-      <option value="">— Select —</option>
-      <optgroup label="Projects">
-        {projects.map(p => (
-          <option key={p.id} value={p.id}>
-            {p.job_number ? `${p.job_number} — ${p.name}` : p.name}
-          </option>
-        ))}
-      </optgroup>
-      <optgroup label="Other">
-        {CATEGORIES.map(c => <option key={c.value} value={`cat:${c.value}`}>{c.label}</option>)}
-      </optgroup>
-    </>
-  );
-}
+// (ProjectPicker replaces the old ProjectOptions <select> dropdown)
 
 // ── Draft entry row (unsaved, shown on empty days) ────────────────────────────
 
-function DraftRow({ projects, onCreate }) {
+function DraftRow({ projects, recentIds = [], onCreate }) {
   const [sel,     setSel]     = useState("");
   const [hours,   setHours]   = useState(0);
   const [minutes, setMinutes] = useState(0);
@@ -172,11 +150,14 @@ function DraftRow({ projects, onCreate }) {
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #eef2f4" }}>
-      <select value={sel} disabled={saving}
-        onChange={e => { setSel(e.target.value); save(e.target.value, hours, minutes, notes); }}
-        style={{ ...ss, flex: 1, minWidth: 0 }}>
-        <ProjectOptions projects={projects} />
-      </select>
+      <ProjectPicker
+        value={sel}
+        onChange={(val) => { setSel(val); save(val, hours, minutes, notes); }}
+        projects={projects}
+        recentIds={recentIds}
+        disabled={saving}
+        style={{ flex: 1, minWidth: 0 }}
+      />
       <div style={{ width: 132, display: "flex", gap: 8 }}>
         <select value={hours} disabled={saving}
           onChange={e => { const v = parseInt(e.target.value); setHours(v); save(sel, v, minutes, notes); }}
@@ -202,7 +183,7 @@ function DraftRow({ projects, onCreate }) {
 
 // ── Saved entry row ────────────────────────────────────────────────────────────
 
-function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
+function EntryRow({ entry, projects, recentIds = [], locked, onUpdate, onDelete }) {
   const [notes, setNotes] = useState(entry.notes || "");
   useEffect(() => { setNotes(entry.notes || ""); }, [entry.notes]);
 
@@ -223,9 +204,14 @@ function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #eef2f4" }}>
-      <select value={currentValue} onChange={handleProjectChange} disabled={locked} style={{ ...ss, flex: 1, minWidth: 0 }}>
-        <ProjectOptions projects={projects} />
-      </select>
+      <ProjectPicker
+        value={currentValue}
+        onChange={(val) => handleProjectChange({ target: { value: val } })}
+        projects={projects}
+        recentIds={recentIds}
+        disabled={locked}
+        style={{ flex: 1, minWidth: 0 }}
+      />
       {/* Time worked */}
       <div style={{ width: 132, display: "flex", gap: 8 }}>
         <select value={entry.hours ?? 0}
@@ -277,7 +263,7 @@ function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
 
 // ── Day card ───────────────────────────────────────────────────────────────────
 
-function DayCard({ dayLabel, date, entries, projects, locked, onAdd, onUpdate, onDelete, onQuickFill, onDraftCreate }) {
+function DayCard({ dayLabel, date, entries, projects, recentIds, locked, onAdd, onUpdate, onDelete, onQuickFill, onDraftCreate }) {
   const dayTotal  = totalMins(entries);
   const hasReal   = entries.length > 0;
   const showDraft = !hasReal && !locked;
@@ -322,9 +308,9 @@ function DayCard({ dayLabel, date, entries, projects, locked, onAdd, onUpdate, o
       {(hasReal || showDraft) && (
         <div style={{ padding: "4px 14px 0" }}>
           {showDraft
-            ? <DraftRow projects={projects} onCreate={(data) => onDraftCreate(date, data)} />
+            ? <DraftRow projects={projects} recentIds={recentIds} onCreate={(data) => onDraftCreate(date, data)} />
             : entries.map(e => (
-                <EntryRow key={e.id} entry={e} projects={projects} locked={locked}
+                <EntryRow key={e.id} entry={e} projects={projects} recentIds={recentIds} locked={locked}
                   onUpdate={onUpdate} onDelete={onDelete} />
               ))
           }
@@ -759,6 +745,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
   const [view,       setView]       = useState("mine");
   const [monday,     setMonday]     = useState(getMonday(new Date()));
   const [projects,   setProjects]   = useState([]);
+  const [recentIds,  setRecentIds]  = useState([]);
   const [entries,    setEntries]    = useState([]);
   const [submission, setSubmission] = useState(null);
   const [loading,    setLoading]    = useState(false);
@@ -782,6 +769,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
 
   useEffect(() => {
     api("/api/projects").then(data => setProjects(data?.projects || [])).catch(() => {});
+    api("/api/timesheets/recent-projects").then(r => setRecentIds(r?.project_ids || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -1086,10 +1074,13 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                     </button>
                     {fillOpen && (
                       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px 12px", borderTop: "1px solid #eef2f4", flexWrap: "wrap" }}>
-                        <select value={fillProject} onChange={e => setFillProject(e.target.value)}
-                          style={{ flex: 1, minWidth: 220, padding: "6px 8px", fontSize: 13, border: "1px solid #d0d8de", background: "#fff", color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" }}>
-                          <ProjectOptions projects={projects} />
-                        </select>
+                        <ProjectPicker
+                          value={fillProject}
+                          onChange={setFillProject}
+                          projects={projects}
+                          recentIds={recentIds}
+                          style={{ flex: 1, minWidth: 220 }}
+                        />
                         <span style={{ fontSize: 12, color: "#8a9aa8" }}>Full day (7h 30m) on empty days only</span>
                         <button
                           onClick={handleFillWeek}
@@ -1112,6 +1103,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                       date={date}
                       entries={dayEntries(date)}
                       projects={projects}
+                      recentIds={recentIds}
                       locked={isLocked}
                       onAdd={handleAdd}
                       onUpdate={handleUpdate}
@@ -1185,7 +1177,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
           </div>
           )}
           {activeTab === "expenses" && (
-            <ExpensesTab projects={projects} />
+            <ExpensesTab projects={projects} recentIds={recentIds} />
           )}
           </>
         )}
