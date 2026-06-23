@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { api, callClaude, fileToBase64, supabase } from "./api/client";
+import { api, askGemini, fileToBase64, supabase } from "./api/client";
 import AnswerRenderer from "./components/common/AnswerRenderer";
 import { Spinner, ProgressBar } from "./components/common/Spinner";
 import VaultManagementModal from "./components/VaultManagementModal";
@@ -597,7 +597,7 @@ export default function App() {
             setStatusMsg(`Indexing ${pdfName} — pages ${startMatch?.[1] ?? "?"}–${endMatch ? String(Number(endMatch[1]) - 1) : "end"}…`);
           }
           try {
-            const { text: result } = await callClaude(
+            const { text: result } = await askGemini(
               [{ role: "user", content: TEXT_PROMPT + "\n\n" + chunkText }],
               SYSTEM, 65000, 2, "gemini-2.5-flash-lite"
             );
@@ -608,7 +608,7 @@ export default function App() {
             if (e.message?.includes("503") || e.message?.includes("UNAVAILABLE")) {
               try {
                 await new Promise(r => setTimeout(r, 3000));
-                const { text: result2 } = await callClaude(
+                const { text: result2 } = await askGemini(
                   [{ role: "user", content: TEXT_PROMPT + "\n\n" + chunkText }],
                   SYSTEM, 65000, 1, "gemini-2.5-flash-lite"
                 );
@@ -632,7 +632,7 @@ export default function App() {
     const INDEX_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables, figures and diagrams (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations", "Diagram 3.1 Guarding design"). Include table, figure and diagram titles as they are essential navigation landmarks.\r\n\r\nAlso include unnumbered named sub-headings — category labels that introduce a distinct block of content even without a clause number (e.g. "Siting of pedestrian guarding", "Design of guarding", "In dwellings", "For all buildings when used by children"). In regulatory documents these are structural headings even though they carry no number.\r\n\r\nImportant: diagram and table captions often appear at the very bottom of a table block. Do not treat them as table row content — they are structural titles and must be extracted as headings.\r\n\r\nDo not extract body text, bullet points, or individual table row content.\r\n\r\nFor pageHint, use only the position of the page within this PDF file — page 1 is the first page of this file, page 2 is the second, etc. Ignore all printed page numbers on the pages.\r\n\r\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
 
     try {
-      const { text: result } = await callClaude(
+      const { text: result } = await askGemini(
         [{ role: "user", content: [
           { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 }, title: pdfName },
           { type: "text", text: INDEX_PROMPT }
@@ -879,7 +879,7 @@ export default function App() {
       const scoringPrompt = `You are an expert technical document analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain the answer to the question.\n\nDOCUMENT INDEX (headings, sections and page numbers extracted from vault documents):\nINDEX FORMAT: each heading is indented to show its level in the document structure — deeper indentation means a sub-section of the heading above it. When you score any heading, also score its parent headings (less indented, above it) at the same or similar probability, as parent sections contain requirements that govern their sub-sections.\n${indexSummary}\n${conversationContext}\n\nQUESTION: ${q}\n${recentHistory.length > 0 ? "NOTE: This may be a follow-up question. Use the conversation history above to understand the full context before scoring." : ""}\n\nAnalyse the index carefully. For every section that could possibly be relevant — even tangentially — assign a probability score. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections. Be CONSERVATIVE — it is better to include a borderline section than to miss critical information.\n\nNOTE: Select ALL sections that are relevant to the question — do not limit to just one section if multiple sections are relevant.\n\nTABLES AND FIGURES: If the question relates to a requirement that is likely defined or quantified in a table or figure (e.g. fire resistance ratings, dimensions, classifications), you MUST also select any table or figure entries in the index that are likely to contain that data. For example, if the index contains "Table 3 — Fire resistance of cavity barriers" or "Table 5 — Minimum fire resistance", select those entries with high probability. Never rely solely on clause text pages when the actual values are in a table.\n\nDUTY CLAUSES AND IMPLEMENTATION SECTIONS: Building regulations pair high-level duty clauses (e.g. K2 'Protection from falling', B3 'Internal fire spread') with practical implementation sections that follow later in the same document (e.g. 'Section 3: Protection from falling', 'Design of guarding', 'Siting of pedestrian guarding'). The duty clause states the legal obligation only — the specific heights, dimensions, and values are always in the implementation sections. For any question asking for a specific measurement, height, distance, or threshold, you MUST select BOTH the duty clause AND the implementation sections from the same document. Never select only the duty clause and assume it contains the values — it does not.\n\nRespond ONLY as compact JSON — no other text, no explanations, no reasons:\n{\n  "selectedDocs": [\n    {\n      "docName": "exact filename from index",\n      "sections": [\n        {"heading": "exact heading from index", "pageHint": 42, "probability": 0.95}\n      ]\n    }\n  ]\n}\n\nRules:\n- Include sections with probability > 0.5\n- pageHint MUST be a plain integer. Never use "p.12" or "page 12". Use 1 if unknown.\n- Omit "styleNotes", "reason" and "crossRefs" fields entirely — keep JSON compact`;
 
 const { text: scoringText, usage: scoringUsage } = await withRetry(
-        () => callClaude(
+        () => askGemini(
           [{ role: "user", content: scoringPrompt }],
           "You are a technical document analyst. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
           65000, 0, "gemini-2.5-flash"
@@ -1296,7 +1296,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
       console.log(`[Pass3] Sending ~${(pass3Bytes / 1048576).toFixed(1)} MB to the answer model (${docBlocks.length} document blocks)`);
 
       const { text: finalAnswer, usage: answerUsage } = await withRetry(
-        () => callClaude(
+        () => askGemini(
           [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
           `You are an expert building regulations consultant writing for architectural specialists. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Contradictions & Conflicts, (4) ## Practical Conclusion. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. In Detailed Analysis, start each document's citations with a ### Document Name header on its own line and group ALL citations from that document together before moving to the next. Draw from ALL provided documents.`,
           65536, 0, "gemini-2.5-flash"

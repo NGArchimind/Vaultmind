@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { api, callClaude, fileToBase64 } from "../api/client";
+import { api, askGemini, fileToBase64 } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner, ProgressBar } from "./common/Spinner";
 import { DESIGN_GROUND, DESIGN_TEXT, DESIGN_MUTED, COMPARE_FULL, isBoilerplate } from "../constants";
@@ -115,8 +115,8 @@ Concise guidance on when to use each product. Include scenarios where one is cle
 
       setCompareStatus("Analysing both documents…");
       const [resultA, resultB] = await Promise.all([
-        callClaude([{ role: "user", content: contentA }], COMPARE_SYSTEM, 8000, 2, "gemini-2.5-flash", 240000, COMPARE_OPTIONS),
-        callClaude([{ role: "user", content: contentB }], COMPARE_SYSTEM, 8000, 2, "gemini-2.5-flash", 240000, COMPARE_OPTIONS),
+        askGemini([{ role: "user", content: contentA }], COMPARE_SYSTEM, 8000, 2, "gemini-2.5-flash", 240000, COMPARE_OPTIONS),
+        askGemini([{ role: "user", content: contentB }], COMPARE_SYSTEM, 8000, 2, "gemini-2.5-flash", 240000, COMPARE_OPTIONS),
       ]);
 
       const text = `${resultA.text}\n\n${resultB.text}`;
@@ -153,7 +153,7 @@ Return ONLY a JSON object in this exact format — no preamble, no markdown:
 
 Extract every relevant technical attribute you can find: dimensions, weights, thermal values, fire ratings, acoustic ratings, compressive strength, standards compliance, application temperature ranges, finishes, colours, certifications, installation requirements — anything technical and specific. Do not include marketing language. If a value has a unit, separate it into the unit field.`;
 
-            const result = await callClaude(
+            const result = await askGemini(
               [{ role: "user", content: [
                 { type: "document", source: { type: "base64", media_type: "application/pdf", data: doc.base64 } },
                 { type: "text", text: extractionPrompt }
@@ -203,7 +203,7 @@ Rules:
 Return ONLY a JSON array of 3 strings, no other text:
 ["question 1", "question 2", "question 3"]`;
 
-        const { text: qText } = await callClaude(
+        const { text: qText } = await askGemini(
           [{ role: "user", content: questionPrompt }],
           "You are a building regulations specialist. Return pure JSON only.",
           1000, 1, "gemini-2.5-flash-lite"
@@ -246,7 +246,7 @@ Return ONLY a JSON array of 3 strings, no other text:
     const messages = [...historyMessages, { role: "user", content: q }];
 
     try {
-      const { text } = await callClaude(
+      const { text } = await askGemini(
         messages,
         "You are a technical product comparison specialist. You are continuing a conversation about two documents the user has uploaded. Be specific, use tables where helpful.",
         65000, 2, "gemini-2.5-flash", 240000
@@ -331,7 +331,7 @@ Rules: probability > 0.5 only, pageHint must be integer, pure JSON only.`;
 
       let scoring = { selectedDocs: [] };
       try {
-        const { text: scoringText } = await callClaude(
+        const { text: scoringText } = await askGemini(
           [{ role: "user", content: scoringPrompt }],
           "You are a technical document analyst. Return pure JSON only.",
           8000, 2, "gemini-2.5-flash-lite"
@@ -467,7 +467,7 @@ Key clauses cited in this assessment.
 Use only the provided document pages. Do not speculate beyond what the documents state.`;
 
       try {
-        const { text: complianceText } = await callClaude(
+        const { text: complianceText } = await askGemini(
           [{ role: "user", content: [...docBlocks, { type: "text", text: compliancePrompt }] }],
           "You are a building regulations consultant. Be concise and direct. Use only the provided document pages.",
           65536, 2, "gemini-2.5-flash"

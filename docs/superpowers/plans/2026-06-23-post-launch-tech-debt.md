@@ -7,13 +7,13 @@ The pre-launch audit's P0 and safe P1 items were done on 2026-06-23 (dead-code r
 
 ## P1 — deferred (do soon after launch, with staging tests)
 
-### 1. Gemini API key: move from URL query to header
+### 1. Gemini API key: move from URL query to header — ✅ DONE 2026-06-23 (all 5 sites; verified on staging)
 `?key=${apiKey}` appears in ~10 server call sites (e.g. `/api/claude` and the embed/agreement/email-ask paths). Keys in URLs can leak into logs. Several Gemini calls in this codebase **already** use the `x-goog-api-key` header successfully, so the pattern is proven.
 - **Approach:** for each Gemini `fetch`, drop `?key=` from the URL and add `headers: { "x-goog-api-key": process.env.GEMINI_API_KEY }`.
 - **Risk:** these are the product's core Q&A calls — a mistake breaks answering. **Must** be tested live on staging (ask a real question, run an agreement/email extract) before merging to main.
 - **Why deferred:** can't unit-test live Gemini; not worth risking the core pipeline in the launch window.
 
-### 2. Rename `callClaude` → (e.g.) `askGemini`
+### 2. Rename `callClaude` → `askGemini` — ✅ DONE 2026-06-23 (all 23 references)
 `callClaude` is misnamed — it calls Gemini. ~30 call sites across `App.js`, `ProjectsSection.jsx`, `CompareSection.jsx`, `DatasheetsLibrarySection.jsx`.
 - **Approach:** mechanical rename across the client; verify build.
 - **Why deferred:** cosmetic; HANDOVER already advises "rename in a dedicated session, not mid-feature." A 30-site diff is needless churn during launch.

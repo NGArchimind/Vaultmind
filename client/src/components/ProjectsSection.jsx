@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { api, callClaude } from "../api/client";
+import { api, askGemini } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
 import { DESIGN_GROUND, DESIGN_TEXT, PROJECTS_FULL, COMPARE_FULL, AD_GREEN } from "../constants";
@@ -1726,7 +1726,7 @@ Rules:
 - Do not include any text outside the JSON object`;
 
     try {
-      const { text } = await callClaude(
+      const { text } = await askGemini(
         [{ role: "user", content: `${ctx}\n\n---\n\nQUESTION: ${q}` }],
         systemPrompt, 3000, 1, "gemini-2.5-flash"
       );

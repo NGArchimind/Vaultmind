@@ -12,9 +12,9 @@ XSS fix in PDF viewer, 82 error-leak routes standardised, duplicate CORS removed
 
 ## Parked refactoring items
 
-- **B3** Rate limiter (`server/index.js` ~line 64) — plain `Map`, resets on Railway restart. Fix: `express-rate-limit` or Redis.
+- **B3** Rate limiter — plain in-memory `Map`. 2026-06-23: added a 10-min eviction sweep (`_rateLimitSweep`, `.unref()`) so it can't grow unbounded; still resets on restart and isn't shared across instances (use `express-rate-limit`/Redis only if you scale to multiple instances).
 - **B6** No PDF magic byte check on upload — add `if (buffer.slice(0,4).toString() !== "%PDF")` check after base64 decode.
-- **C1** `callClaude` misnamed (calls Gemini) — ~30 call sites. Rename in a dedicated session, not mid-feature.
+- **C1** ✅ DONE (2026-06-23): `callClaude` renamed to `askGemini` across all 23 references (client only; the `/api/claude` route name is unchanged).
 - **C4** `api()`/`apiBlob()` duplicate auth logic — extract shared `authorisedFetch()` base.
 - **D1** App.js god component (1,800+ lines) — split into `AuthContext`, `VaultContext`, `useQA`, `useVaultPdfs`.
 - **D2** ProjectsSection.jsx (3,700+ lines) — split into one file per tab.
