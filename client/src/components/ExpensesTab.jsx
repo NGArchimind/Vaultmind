@@ -112,7 +112,7 @@ export default function ExpensesTab({ projects, recentIds = [] }) {
 
   const handleSave = async () => {
     if (!fProject) return showToast("Please select a project.");
-    if (!fDesc.trim()) return showToast("Please enter a description.");
+    if (!fDesc.trim()) return showToast("Please enter a description / reason.");
     if (fType === "mileage" && (!fMiles || Number(fMiles) <= 0)) return showToast("Please enter miles.");
     if (fType !== "mileage" && (!fAmount || Number(fAmount) <= 0)) return showToast("Please enter an amount.");
 
@@ -214,7 +214,7 @@ export default function ExpensesTab({ projects, recentIds = [] }) {
           {isMileage && calcAmt && <div style={{ fontSize: 10, color: TIMESHEETS_FULL, marginTop: 3, fontWeight: 600 }}>{calcAmt} @ {mileageRate}p/mi</div>}
         </div>
         <div>
-          <div style={lbl}>Description</div>
+          <div style={lbl}>Description / Reason</div>
           <input type="text" value={fDesc} onChange={e => setFDesc(e.target.value)} placeholder="What was it for?" style={{ ...ss, width: "100%", boxSizing: "border-box" }} />
         </div>
       </div>

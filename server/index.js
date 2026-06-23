@@ -674,7 +674,7 @@ app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => 
       contents.push({ role: msg.role === "assistant" ? "model" : "user", parts });
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${requestedModel}:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${requestedModel}:generateContent`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
@@ -697,7 +697,7 @@ app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => 
       payloadMB = (Buffer.byteLength(payload) / 1048576).toFixed(1);
       response = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         signal: controller.signal,
         body: payload,
       });
@@ -2087,10 +2087,10 @@ app.delete("/api/projects/:id/agreements/:aid", requireAuth, async (req, res) =>
 // Helper: generate embedding via Gemini
 async function generateEmbedding(text, taskType = "RETRIEVAL_DOCUMENT") {
   const apiKey = process.env.GEMINI_API_KEY;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent`;
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({
       model: "models/gemini-embedding-001",
       content: { parts: [{ text: text.slice(0, 8000) }] },
@@ -2133,7 +2133,7 @@ function sleep(ms) {
 
 async function generateStructuredSummary(subject, fromName, fromAddress, body) {
   const apiKey = process.env.GEMINI_API_KEY;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
   const prompt = `Analyse this email from an architectural practice.
 
 Subject: ${subject}
@@ -2147,7 +2147,7 @@ Return JSON with exactly two fields:
 Return only valid JSON. No preamble or explanation.`;
   const response = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: { temperature: 0, maxOutputTokens: 300 },
@@ -2172,14 +2172,14 @@ Return only valid JSON. No preamble or explanation.`;
 // Expand a user's search query with related terms and synonyms before embedding.
 async function expandSearchQuery(query) {
   const apiKey = process.env.GEMINI_API_KEY;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
   const prompt = `Expand this search query into related technical terms and synonyms for searching professional architectural project emails. Include relevant construction, planning, or building regulation terminology. Output as a single comma-separated line only. Maximum 40 words. No explanation.
 
 Query: ${query}`;
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: { temperature: 0, maxOutputTokens: 100 },
@@ -2442,7 +2442,7 @@ app.post("/api/projects/:id/emails/ask", requireAuth, async (req, res) => {
 
     let summary = null;
     const apiKey = process.env.GEMINI_API_KEY;
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent`;
     try {
       const prompt = `You are reviewing emails from an architectural practice project. Your job is to answer the question below by finding the specific evidence in each email — not to write a general summary.
 
@@ -2466,7 +2466,7 @@ ${emailsText}`;
 
       const geminiRes = await fetch(geminiUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: { temperature: 0.1, maxOutputTokens: 1500 },
