@@ -367,24 +367,6 @@ function formatWeekRange(week) {
   return `${weekDate.toLocaleDateString("en-GB", o)} – ${fri.toLocaleDateString("en-GB", { ...o, year: "numeric" })}`;
 }
 
-// Notify the configured manager role(s) when an admin approves/rejects an expense.
-async function notifyExpenseDecision(expense, outcome, reason) {
-  if (!expense) return;
-  const recipients = await notificationRecipients("expense_decided");
-  if (!recipients.length) return;
-  const who = (await getUserEmail(expense.user_id)) || "A staff member";
-  const amtStr = `£${(expense.amount_pence / 100).toFixed(2)}`;
-  const reasonHtml = outcome === "rejected" && reason
-    ? `<p style="margin:14px 0 0;font-size:13px;color:#6a8a9a;">Reason:</p><p style="margin:4px 0 0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason)}</p>`
-    : "";
-  await sendEmail({
-    to: recipients,
-    subject: `Expense ${outcome} — ${amtStr}`,
-    html: notificationEmailHtml("Expenses", `<p style="margin:0;font-size:15px;color:#262830;">The expense of <strong>${amtStr}</strong> from <strong>${escapeHtml(who)}</strong> has been <strong>${outcome}</strong>.</p>${reasonHtml}`),
-    text: `The expense of ${amtStr} from ${who} has been ${outcome}.${outcome === "rejected" && reason ? `\nReason: ${reason}` : ""}`,
-  });
-}
-
 // Notify the configured role(s) when an admin approves/rejects an expense CLAIM.
 async function notifyClaimDecision(claim, outcome, reason) {
   if (!claim) return;
@@ -440,6 +422,13 @@ function rateLimit(maxRequests, windowMs) {
     next();
   };
 }
+
+// Evict stale rate-limit entries so the map can't grow unbounded on a long-lived server.
+const _rateLimitSweep = setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of rateLimitMap) if (now - v.start > 600_000) rateLimitMap.delete(k);
+}, 600_000);
+if (_rateLimitSweep.unref) _rateLimitSweep.unref();
 
 app.use(express.json({ limit: "100mb" }));
 
@@ -4654,7 +4643,8 @@ app.get("/api/expense-claims", requireAuth, async (req, res) => {
     .from("expense_claims")
     .select("*, project_expenses(*, projects(id, name, job_number))")
     .eq("user_id", req.user.id)
-    .order("created_at", { ascending: false });
+    .order("created_at", { ascending: false })
+    .limit(200);
   if (error) return serverError(res, error, "GET /api/expense-claims");
   res.json((data || []).map(c => ({ ...c, total_pence: claimTotalPence(c.project_expenses) })));
 });
@@ -4715,17 +4705,6 @@ app.post("/api/expense-claims/:id/submit", requireAuth, async (req, res) => {
 // GET /api/expenses/settings  — must be before /api/expenses/:id
 app.get("/api/expenses/settings", requireAuth, async (req, res) => {
   res.json({ mileage_rate_ppm: await getMileageRatePpm() });
-});
-
-// GET /api/expenses
-app.get("/api/expenses", requireAuth, async (req, res) => {
-  const { data, error } = await supabase
-    .from("project_expenses")
-    .select("*, projects(id, name, job_number)")
-    .eq("user_id", req.user.id)
-    .order("created_at", { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
 });
 
 // POST /api/expenses
@@ -4988,43 +4967,6 @@ app.post("/api/admin/hr-report/test", requireAuth, requireAdmin, async (req, res
   }
 });
 
-// GET /api/admin/expenses
-app.get("/api/admin/expenses", requireAuth, requireAdmin, async (req, res) => {
-  const { status, user_id, from, to } = req.query;
-  let query = supabase.from("project_expenses").select("*, projects(id, name, job_number)").order("created_at", { ascending: false });
-  if (status)  query = query.eq("status", status);
-  if (user_id) query = query.eq("user_id", user_id);
-  if (from)    query = query.gte("expense_date", from);
-  if (to)      query = query.lte("expense_date", to);
-  const { data, error } = await query;
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
-});
-
-// POST /api/admin/expenses/:id/approve
-app.post("/api/admin/expenses/:id/approve", requireAuth, requireAdmin, async (req, res) => {
-  const { data, error } = await supabase
-    .from("project_expenses")
-    .update({ status: "approved", reviewed_by: req.user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq("id", req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  await notifyExpenseDecision(data, "approved");
-  res.json(data);
-});
-
-// POST /api/admin/expenses/:id/reject
-app.post("/api/admin/expenses/:id/reject", requireAuth, requireAdmin, async (req, res) => {
-  const { reason } = req.body;
-  if (!reason?.trim()) return res.status(400).json({ error: "reason required" });
-  const { data, error } = await supabase
-    .from("project_expenses")
-    .update({ status: "rejected", rejection_reason: reason.trim(), reviewed_by: req.user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-    .eq("id", req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-  await notifyExpenseDecision(data, "rejected", reason.trim());
-  res.json(data);
-});
-
 // ── Admin expense claims ───────────────────────────────────────────────────────
 
 // GET /api/admin/expense-claims?status=submitted
@@ -5033,7 +4975,8 @@ app.get("/api/admin/expense-claims", requireAuth, requireAdmin, async (req, res)
   let query = supabase
     .from("expense_claims")
     .select("*, project_expenses(*, projects(id, name, job_number))")
-    .order("submitted_at", { ascending: false });
+    .order("submitted_at", { ascending: false })
+    .limit(500);
   if (status && status !== "all") query = query.eq("status", status);
   const { data, error } = await query;
   if (error) return serverError(res, error, "GET /api/admin/expense-claims");

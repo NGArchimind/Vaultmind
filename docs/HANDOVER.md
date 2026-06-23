@@ -120,6 +120,20 @@ All client data access goes through the server (service key, bypasses RLS); the 
 
 ---
 
+### Pre-launch timesheets/expenses batch (2026-06-23, live on main)
+
+Specs/plans: `docs/superpowers/specs/2026-06-23-timesheets-expenses-prelaunch-tweaks-design.md`, `docs/superpowers/plans/2026-06-23-searchable-project-picker.md`, `…-expense-claims.md`.
+
+- **Searchable project picker** — `client/src/components/ProjectPicker.jsx` replaces the old `<select>` everywhere projects are chosen (timesheet rows, expenses form, quick-fill). Type-to-search on job number + name; recently-used pinned top via `GET /api/timesheets/recent-projects` (pure helper `server/lib/recentProjects.js`). Categories moved to `client/src/categories.js` (now 11 labels incl. Maternity/Paternity/Compassionate/Medical/Unpaid/Unauthorised/Other), reached via an "Other" bar (pass `hideOther` for projects-only, as the expenses form does). Categories are **labels only** — no pay/allowance logic.
+- **Per-row Full day / Half day** buttons on every entry row (`DayShortcut`) — set that row's time worked to 7h30 / 3h45. Presentational; the day-level quick-fill is unchanged.
+- **Daily 7.5h cap (NEW INVARIANT — do not regress):** a single day's **time worked** (overtime EXCLUDED) must not exceed **7h 30m**. Client shows a per-day warning + **blocks the week's Submit**; server **rejects** an over-cap week in `POST /api/timesheets/submit`. Pure helper + tests: `server/lib/timesheetValidation.js` (`daysOverCap`). Excess belongs in Overtime.
+- **Overtime now allowed on ALL rows (REVERSES the old "overtime is project-only" rule):** every entry row (project *and* category) has overtime fields; switching to a category no longer clears overtime. Overtime is still tracked separately and excluded from the daily cap and weekly total.
+- **Expense claims (replaces one-at-a-time expenses):** new `expense_claims` table (RLS **deny-all**, server-only — never add a permissive policy); `project_expenses.claim_id` links line items. Lifecycle `draft → submitted → approved | rejected` (claim owns status; per-expense `status/reviewed_*` columns are now legacy/unused). Staff build a draft claim (`ExpensesTab.jsx`) and submit once; admin approves/rejects the **whole claim** (`AdminExpensesPanel`). Endpoints under `/api/expense-claims` (staff) and `/api/admin/expense-claims` (admin). On submit, admins get **one PDF** (summary + each receipt on its own page) via `server/lib/expenseClaimPdf.js` (pdf-lib; JPG/PNG embedded, PDF merged, **HEIC/WEBP attached separately**). Admin PDF at `GET /api/admin/expense-claims/:id/pdf`. All prior expense data was test data, cleared at migration.
+- **Admin password generator (Option A — show once, never stored):** `server/lib/passwordGen.js` (two construction words + letter→digit swaps, all lowercase). `GET /api/admin/suggest-password` fills the new-user field; `POST /api/admin/users/:uid/password` resets an existing user and returns the new password once.
+- **Cleanup/audit:** removed the dead `GET /api/expenses` (staff list), `GET /api/admin/expenses`, per-expense admin approve/reject + `notifyExpenseDecision` (superseded by claims). Added a periodic eviction sweep to the in-memory `rateLimitMap`. Audit confirmed every `/api` route is `requireAuth` except the intentional public `GET /api/shared-answers/:id`; client uses Supabase for auth only (RLS lockdown intact); no hardcoded secrets.
+
+---
+
 ## Outstanding issues (as of 2026-06-19)
 
 1. **Clause-number citation can hit a cross-reference** (LOW, accepted) — `findPageByClauseNumber` opens the first page where a line starts with the clause number; occasionally a cross-reference/table entry. Future fix: prefer match followed by sentence text, or nearest the section's vault-index heading.
