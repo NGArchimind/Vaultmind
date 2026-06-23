@@ -12,6 +12,11 @@ const { Resend } = require("resend");
 const reminderLib = require("./lib/timesheetReminder");
 const hrReport = require("./lib/hrReport");
 const { renderReportPdf, renderReportExcel } = require("./lib/hrReportRender");
+const { recentProjectIds } = require("./lib/recentProjects");
+const { daysOverCap } = require("./lib/timesheetValidation");
+const { claimTotalPence } = require("./lib/expenseClaims");
+const { buildClaimPdf } = require("./lib/expenseClaimPdf");
+const { generatePassword } = require("./lib/passwordGen");
 const HR_REPORT_DEFAULTS = { enabled: true, day: 1, time: "08:00", coverage: "previous" };
 const APP_URL = process.env.PUBLIC_APP_URL || "https://archimind.co.uk";
 const REMINDER_DEFAULTS = { enabled: true, day: 5, time: "16:00", track_from: "2026-07-01" };
@@ -377,6 +382,24 @@ async function notifyExpenseDecision(expense, outcome, reason) {
     subject: `Expense ${outcome} — ${amtStr}`,
     html: notificationEmailHtml("Expenses", `<p style="margin:0;font-size:15px;color:#262830;">The expense of <strong>${amtStr}</strong> from <strong>${escapeHtml(who)}</strong> has been <strong>${outcome}</strong>.</p>${reasonHtml}`),
     text: `The expense of ${amtStr} from ${who} has been ${outcome}.${outcome === "rejected" && reason ? `\nReason: ${reason}` : ""}`,
+  });
+}
+
+// Notify the configured role(s) when an admin approves/rejects an expense CLAIM.
+async function notifyClaimDecision(claim, outcome, reason) {
+  if (!claim) return;
+  const recipients = await notificationRecipients("expense_decided");
+  if (!recipients.length) return;
+  const who = (await getUserEmail(claim.user_id)) || "A staff member";
+  const amtStr = `£${(claimTotalPence(claim.project_expenses || []) / 100).toFixed(2)}`;
+  const reasonHtml = outcome === "rejected" && reason
+    ? `<p style="margin:14px 0 0;font-size:13px;color:#6a8a9a;">Reason:</p><p style="margin:4px 0 0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason)}</p>`
+    : "";
+  await sendEmail({
+    to: recipients,
+    subject: `Expense claim ${outcome} — ${amtStr}`,
+    html: notificationEmailHtml("Expenses", `<p style="margin:0;font-size:15px;color:#262830;">The expense claim of <strong>${amtStr}</strong> from <strong>${escapeHtml(who)}</strong> has been <strong>${outcome}</strong>.</p>${reasonHtml}`),
+    text: `The expense claim of ${amtStr} from ${who} has been ${outcome}.${outcome === "rejected" && reason ? `\nReason: ${reason}` : ""}`,
   });
 }
 
@@ -3644,6 +3667,23 @@ app.post("/api/admin/users", requireAuth, requireAdmin, async (req, res) => {
   }
 });
 
+// GET /api/admin/suggest-password — a fresh generated password (not set on anyone yet)
+app.get("/api/admin/suggest-password", requireAuth, requireAdmin, (req, res) => {
+  res.json({ password: generatePassword() });
+});
+
+// POST /api/admin/users/:uid/password — generate + set a new password, returned once to show the admin
+app.post("/api/admin/users/:uid/password", requireAuth, requireAdmin, async (req, res) => {
+  const password = generatePassword();
+  try {
+    const { data, error } = await supabase.auth.admin.updateUserById(req.params.uid, { password });
+    if (error) throw error;
+    res.json({ password, email: data.user.email });
+  } catch (err) {
+    return serverError(res, err, "POST /api/admin/users/:uid/password");
+  }
+});
+
 app.patch("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res) => {
   const { role } = req.body;
   const validRole = ["admin", "hr"].includes(role) ? role : "user";
@@ -4236,6 +4276,23 @@ app.get("/api/timesheets/submission", requireAuth, async (req, res) => {
   res.json(data || null);
 });
 
+// GET /api/timesheets/recent-projects — the user's most-recently-used project ids (must be before /:id)
+app.get("/api/timesheets/recent-projects", requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("timesheets")
+      .select("project_id, entry_date")
+      .eq("user_id", req.user.id)
+      .not("project_id", "is", null)
+      .order("entry_date", { ascending: false })
+      .limit(200);
+    if (error) throw error;
+    res.json({ project_ids: recentProjectIds(data || [], 8) });
+  } catch (err) {
+    return serverError(res, err, "GET /api/timesheets/recent-projects");
+  }
+});
+
 // POST /api/timesheets
 app.post("/api/timesheets", requireAuth, async (req, res) => {
   const { project_id, category, entry_date, hours = 0, minutes = 0, notes, overtime_hours = 0, overtime_minutes = 0 } = req.body;
@@ -4284,6 +4341,24 @@ app.post("/api/timesheets/submit", requireAuth, async (req, res) => {
     .maybeSingle();
   if (existing?.status === "approved") {
     return res.status(403).json({ error: "This week has already been approved and cannot be resubmitted" });
+  }
+
+  // Daily cap: "time worked" (overtime excluded) must not exceed 7h 30m on any day.
+  {
+    const fri = new Date(week);
+    fri.setDate(fri.getDate() + 4);
+    const weekEnd = fri.toISOString().split("T")[0];
+    const { data: weekEntries } = await supabase
+      .from("timesheets")
+      .select("entry_date, hours, minutes")
+      .eq("user_id", req.user.id)
+      .gte("entry_date", week)
+      .lte("entry_date", weekEnd);
+    const over = daysOverCap(weekEntries || []);
+    if (over.length) {
+      const days = over.map(o => o.date).join(", ");
+      return res.status(400).json({ error: `One or more days exceed the 7.5 hour daily limit for time worked (${days}). Move the extra time into Overtime before submitting.` });
+    }
   }
 
   const { data, error } = await supabase
@@ -4564,6 +4639,79 @@ async function getMileageRatePpm() {
   return parseInt(data?.value) || 45;
 }
 
+// Fetch a receipt object from R2 as { bytes, contentType } (used to assemble claim PDFs).
+async function fetchReceipt(key) {
+  const obj = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+  const chunks = []; for await (const c of obj.Body) chunks.push(c);
+  return { bytes: Buffer.concat(chunks), contentType: obj.ContentType || "application/octet-stream" };
+}
+
+// ── Expense claims (staff) ─────────────────────────────────────────────────────
+
+// GET /api/expense-claims — all of this user's claims (newest first) with line items
+app.get("/api/expense-claims", requireAuth, async (req, res) => {
+  const { data, error } = await supabase
+    .from("expense_claims")
+    .select("*, project_expenses(*, projects(id, name, job_number))")
+    .eq("user_id", req.user.id)
+    .order("created_at", { ascending: false });
+  if (error) return serverError(res, error, "GET /api/expense-claims");
+  res.json((data || []).map(c => ({ ...c, total_pence: claimTotalPence(c.project_expenses) })));
+});
+
+// POST /api/expense-claims — return this user's open draft claim, creating one if needed
+app.post("/api/expense-claims", requireAuth, async (req, res) => {
+  const { data: existing } = await supabase.from("expense_claims")
+    .select("id").eq("user_id", req.user.id).eq("status", "draft").maybeSingle();
+  if (existing) return res.json(existing);
+  const { data, error } = await supabase.from("expense_claims")
+    .insert({ user_id: req.user.id, status: "draft" }).select().single();
+  if (error) return serverError(res, error, "POST /api/expense-claims");
+  res.json(data);
+});
+
+// POST /api/expense-claims/:id/submit — lock the claim and notify admins
+app.post("/api/expense-claims/:id/submit", requireAuth, async (req, res) => {
+  const { data: claim } = await supabase.from("expense_claims")
+    .select("*, project_expenses(*, projects(id, name, job_number))")
+    .eq("id", req.params.id).single();
+  if (!claim) return res.status(404).json({ error: "Not found" });
+  if (claim.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
+  if (!["draft", "rejected"].includes(claim.status)) return res.status(403).json({ error: "Claim already submitted" });
+  const items = claim.project_expenses || [];
+  if (items.length === 0) return res.status(400).json({ error: "Add at least one expense before submitting" });
+
+  const { data, error } = await supabase.from("expense_claims")
+    .update({ status: "submitted", submitted_at: new Date().toISOString(), rejection_reason: null, updated_at: new Date().toISOString() })
+    .eq("id", req.params.id).select().single();
+  if (error) return serverError(res, error, "submit claim");
+
+  const recipients = await notificationRecipients("expense_submitted");
+  if (recipients.length) {
+    const total = `£${(claimTotalPence(items) / 100).toFixed(2)}`;
+    const rows = items.map(i => {
+      const proj = i.projects?.job_number ? `${i.projects.job_number} — ${i.projects.name}` : (i.projects?.name || "—");
+      return `<tr><td style="padding:4px 8px;border-top:1px solid #eee;">${escapeHtml(proj)}</td><td style="padding:4px 8px;border-top:1px solid #eee;">${escapeHtml(i.description || "")}</td><td style="padding:4px 8px;border-top:1px solid #eee;text-align:right;">£${((i.amount_pence || 0) / 100).toFixed(2)}</td></tr>`;
+    }).join("");
+    let attachments;
+    try {
+      const { pdfBytes, unembeddable } = await buildClaimPdf({ claim: data, items, submitterEmail: req.user.email, fetchReceipt });
+      attachments = [{ filename: "expense-claim.pdf", content: Buffer.from(pdfBytes).toString("base64") }];
+      for (const u of unembeddable) attachments.push({ filename: u.filename, content: Buffer.from(u.bytes).toString("base64") });
+    } catch (e) {
+      console.error("[expense-claim PDF] build failed:", e.message);
+    }
+    await sendEmail({
+      to: recipients,
+      subject: `Expense claim — ${req.user.email.split("@")[0]} · ${items.length} item(s) · ${total}`,
+      html: notificationEmailHtml("Expenses", `<p style="margin:0 0 12px;font-size:15px;color:#262830;"><strong>${escapeHtml(req.user.email)}</strong> submitted an expense claim of <strong>${total}</strong> (${items.length} item(s)). The full claim and receipts are attached as a PDF.</p><table style="width:100%;border-collapse:collapse;font-size:13px;"><tr><td style="padding:4px 8px;color:#6a8a9a;">Project</td><td style="padding:4px 8px;color:#6a8a9a;">Description</td><td style="padding:4px 8px;color:#6a8a9a;text-align:right;">Amount</td></tr>${rows}</table>`),
+      text: `${req.user.email} submitted an expense claim of ${total} (${items.length} items).`,
+      attachments,
+    });
+  }
+  res.json(data);
+});
+
 // GET /api/expenses/settings  — must be before /api/expenses/:id
 app.get("/api/expenses/settings", requireAuth, async (req, res) => {
   res.json({ mileage_rate_ppm: await getMileageRatePpm() });
@@ -4582,8 +4730,9 @@ app.get("/api/expenses", requireAuth, async (req, res) => {
 
 // POST /api/expenses
 app.post("/api/expenses", requireAuth, rateLimit(10, 60_000), async (req, res) => {
-  const { project_id, expense_type, expense_date, amount_pence, miles, description } = req.body;
+  const { project_id, expense_type, expense_date, amount_pence, miles, description, claim_id } = req.body;
   if (!project_id) return res.status(400).json({ error: "project_id required" });
+  if (!claim_id) return res.status(400).json({ error: "claim_id required" });
   if (!VALID_EXPENSE_TYPES.includes(expense_type)) return res.status(400).json({ error: "Invalid expense_type" });
   if (!expense_date || !/^\d{4}-\d{2}-\d{2}$/.test(expense_date)) return res.status(400).json({ error: "expense_date required (YYYY-MM-DD)" });
   const expD = new Date(expense_date + "T12:00:00Z");
@@ -4591,6 +4740,11 @@ app.post("/api/expenses", requireAuth, rateLimit(10, 60_000), async (req, res) =
   const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
   if (expD > tomorrow) return res.status(400).json({ error: "expense_date cannot be in the future" });
   if (!description?.trim()) return res.status(400).json({ error: "description required" });
+
+  // The line item must attach to one of this user's editable (draft/rejected) claims.
+  const { data: claim } = await supabase.from("expense_claims").select("user_id, status").eq("id", claim_id).maybeSingle();
+  if (!claim || claim.user_id !== req.user.id) return res.status(403).json({ error: "Invalid claim" });
+  if (!["draft", "rejected"].includes(claim.status)) return res.status(403).json({ error: "Claim already submitted" });
 
   let computedPence;
   let computedMiles = null;
@@ -4610,6 +4764,7 @@ app.post("/api/expenses", requireAuth, rateLimit(10, 60_000), async (req, res) =
     .from("project_expenses")
     .insert({
       user_id: req.user.id,
+      claim_id,
       project_id,
       expense_type,
       expense_date,
@@ -4621,32 +4776,15 @@ app.post("/api/expenses", requireAuth, rateLimit(10, 60_000), async (req, res) =
     .select("*, projects(id, name, job_number)")
     .single();
   if (error) return res.status(500).json({ error: error.message });
-
-  // Notify the configured role(s)
-  const adminEmails = await notificationRecipients("expense_submitted");
-  if (adminEmails.length) {
-    const typeLbl = { train:"Train",mileage:"Car Mileage",meals:"Meals",taxi:"Taxi",parking:"Parking" }[expense_type] || expense_type;
-    const amtStr  = `£${(computedPence / 100).toFixed(2)}`;
-    const miStr   = computedMiles ? ` (${computedMiles} miles)` : "";
-    const projStr = data.projects?.job_number ? `${data.projects.job_number} — ${data.projects.name}` : data.projects?.name || "—";
-    const dateStr = expD.toLocaleDateString("en-GB", { day:"numeric", month:"long", year:"numeric" });
-    await sendEmail({
-      to: adminEmails,
-      subject: `New expense — ${req.user.email.split("@")[0]} · ${typeLbl} · ${amtStr}`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — Expenses</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;"><p style="margin:0 0 20px;font-size:15px;color:#262830;"><strong>${escapeHtml(req.user.email)}</strong> submitted an expense for review.</p><table style="width:100%;font-size:13px;border-collapse:collapse;"><tr><td style="padding:5px 0;color:#6a8a9a;width:110px;">Type</td><td style="padding:5px 0;color:#262830;font-weight:600;">${typeLbl}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Date</td><td style="padding:5px 0;color:#262830;">${dateStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Project</td><td style="padding:5px 0;color:#262830;">${escapeHtml(projStr)}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Amount</td><td style="padding:5px 0;color:#262830;font-weight:600;">${amtStr}${miStr}</td></tr><tr><td style="padding:5px 0;color:#6a8a9a;">Description</td><td style="padding:5px 0;color:#262830;">${escapeHtml(data.description)}</td></tr></table></div></div>`,
-      text: `New expense from ${req.user.email}\nType: ${typeLbl}\nDate: ${dateStr}\nProject: ${projStr}\nAmount: ${amtStr}${miStr}\nDescription: ${data.description}`,
-    });
-  }
-
   res.json(data);
 });
 
 // PUT /api/expenses/:id
 app.put("/api/expenses/:id", requireAuth, async (req, res) => {
-  const { data: existing } = await supabase.from("project_expenses").select("user_id, status, expense_type, miles").eq("id", req.params.id).single();
+  const { data: existing } = await supabase.from("project_expenses").select("user_id, expense_type, miles, expense_claims(status)").eq("id", req.params.id).single();
   if (!existing) return res.status(404).json({ error: "Not found" });
   if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
-  if (existing.status !== "pending") return res.status(403).json({ error: "Only pending expenses can be edited" });
+  if (!["draft", "rejected"].includes(existing.expense_claims?.status)) return res.status(403).json({ error: "Only items in a draft or returned claim can be edited" });
 
   const newType = req.body.expense_type || existing.expense_type;
   if ("expense_type" in req.body && !VALID_EXPENSE_TYPES.includes(req.body.expense_type)) {
@@ -4676,10 +4814,10 @@ app.put("/api/expenses/:id", requireAuth, async (req, res) => {
 
 // DELETE /api/expenses/:id
 app.delete("/api/expenses/:id", requireAuth, async (req, res) => {
-  const { data: existing } = await supabase.from("project_expenses").select("user_id, status, receipt_key").eq("id", req.params.id).single();
+  const { data: existing } = await supabase.from("project_expenses").select("user_id, receipt_key, expense_claims(status)").eq("id", req.params.id).single();
   if (!existing) return res.status(404).json({ error: "Not found" });
   if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
-  if (existing.status !== "pending") return res.status(403).json({ error: "Only pending expenses can be deleted" });
+  if (!["draft", "rejected"].includes(existing.expense_claims?.status)) return res.status(403).json({ error: "Only items in a draft or returned claim can be deleted" });
 
   if (existing.receipt_key) {
     try { await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: existing.receipt_key })); }
@@ -4710,10 +4848,10 @@ function sniffReceiptType(buf) {
 app.post("/api/expenses/:id/receipt", requireAuth, async (req, res) => {
   const { content, filename } = req.body;
   if (!content || !filename) return res.status(400).json({ error: "content and filename required" });
-  const { data: existing } = await supabase.from("project_expenses").select("user_id, status").eq("id", req.params.id).single();
+  const { data: existing } = await supabase.from("project_expenses").select("user_id, expense_claims(status)").eq("id", req.params.id).single();
   if (!existing) return res.status(404).json({ error: "Not found" });
   if (existing.user_id !== req.user.id) return res.status(403).json({ error: "Not authorised" });
-  if (existing.status !== "pending") return res.status(403).json({ error: "Only pending expenses can have receipts updated" });
+  if (!["draft", "rejected"].includes(existing.expense_claims?.status)) return res.status(403).json({ error: "Only items in a draft or returned claim can have receipts updated" });
 
   const buffer = Buffer.from(content.replace(/^data:[^;]+;base64,/, ""), "base64");
   if (buffer.length > MAX_RECEIPT_BYTES) return res.status(400).json({ error: "Receipt must be 10 MB or smaller" });
@@ -4885,6 +5023,60 @@ app.post("/api/admin/expenses/:id/reject", requireAuth, requireAdmin, async (req
   if (error) return res.status(500).json({ error: error.message });
   await notifyExpenseDecision(data, "rejected", reason.trim());
   res.json(data);
+});
+
+// ── Admin expense claims ───────────────────────────────────────────────────────
+
+// GET /api/admin/expense-claims?status=submitted
+app.get("/api/admin/expense-claims", requireAuth, requireAdmin, async (req, res) => {
+  const { status } = req.query;
+  let query = supabase
+    .from("expense_claims")
+    .select("*, project_expenses(*, projects(id, name, job_number))")
+    .order("submitted_at", { ascending: false });
+  if (status && status !== "all") query = query.eq("status", status);
+  const { data, error } = await query;
+  if (error) return serverError(res, error, "GET /api/admin/expense-claims");
+  res.json((data || []).map(c => ({ ...c, total_pence: claimTotalPence(c.project_expenses) })));
+});
+
+// POST /api/admin/expense-claims/:id/approve
+app.post("/api/admin/expense-claims/:id/approve", requireAuth, requireAdmin, async (req, res) => {
+  const { data, error } = await supabase.from("expense_claims")
+    .update({ status: "approved", reviewed_by: req.user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", req.params.id).select("*, project_expenses(amount_pence)").single();
+  if (error) return serverError(res, error, "approve claim");
+  await notifyClaimDecision(data, "approved");
+  res.json(data);
+});
+
+// POST /api/admin/expense-claims/:id/reject
+app.post("/api/admin/expense-claims/:id/reject", requireAuth, requireAdmin, async (req, res) => {
+  const { reason } = req.body;
+  if (!reason?.trim()) return res.status(400).json({ error: "reason required" });
+  const { data, error } = await supabase.from("expense_claims")
+    .update({ status: "rejected", rejection_reason: reason.trim(), reviewed_by: req.user.id, reviewed_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq("id", req.params.id).select("*, project_expenses(amount_pence)").single();
+  if (error) return serverError(res, error, "reject claim");
+  await notifyClaimDecision(data, "rejected", reason.trim());
+  res.json(data);
+});
+
+// GET /api/admin/expense-claims/:id/pdf — assembled claim PDF (summary + receipts)
+app.get("/api/admin/expense-claims/:id/pdf", requireAuth, requireAdmin, async (req, res) => {
+  const { data: claim } = await supabase.from("expense_claims")
+    .select("*, project_expenses(*, projects(id, name, job_number))")
+    .eq("id", req.params.id).single();
+  if (!claim) return res.status(404).json({ error: "Not found" });
+  try {
+    const submitterEmail = await getUserEmail(claim.user_id);
+    const { pdfBytes } = await buildClaimPdf({ claim, items: claim.project_expenses || [], submitterEmail, fetchReceipt });
+    res.set("Content-Type", "application/pdf");
+    res.set("Content-Disposition", `inline; filename="expense-claim-${String(claim.id).slice(0, 8)}.pdf"`);
+    res.send(Buffer.from(pdfBytes));
+  } catch (e) {
+    return serverError(res, e, "GET /api/admin/expense-claims/:id/pdf");
+  }
 });
 
 // ── Vault question history ────────────────────────────────────────────────────

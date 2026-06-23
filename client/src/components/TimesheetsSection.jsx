@@ -5,20 +5,15 @@ import TimesheetHistory from "./TimesheetHistory";
 import TimesheetReport from "./TimesheetReport";
 import FeeReview from "./FeeReview";
 import ExpensesTab from "./ExpensesTab";
-
-const CATEGORIES = [
-  { value: "holiday",      label: "Holiday" },
-  { value: "sickness",     label: "Sickness" },
-  { value: "bank_holiday", label: "Bank Holiday" },
-  { value: "training",     label: "Training / CPD" },
-  { value: "internal",     label: "Internal / Non-billable" },
-];
+import { CATEGORIES } from "../categories";
+import ProjectPicker from "./ProjectPicker";
 
 const HOUR_OPTIONS   = Array.from({ length: 17 }, (_, i) => i);
 const MINUTE_OPTIONS = [0, 15, 30, 45];
 const DAYS           = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const FULL_DAY       = { hours: 7, minutes: 30 };
 const HALF_DAY       = { hours: 3, minutes: 45 };
+const DAY_CAP_MINS   = 7 * 60 + 30;  // 450 — max "time worked" (overtime excluded) per day
 const MIN_WEEK_MINS  = 37.5 * 60;  // 2250
 const OVER_WEEK_MINS = 45 * 60;    // 2700
 
@@ -68,6 +63,10 @@ function formatMins(totalMins) {
   if (m === 0) return `${h}h`;
   if (h === 0) return `${m}m`;
   return `${h}h ${m}m`;
+}
+
+function dayName(isoDate) {
+  return new Date(isoDate + "T12:00:00Z").toLocaleDateString("en-GB", { weekday: "long" });
 }
 
 function entryMins(e) { return (e.hours || 0) * 60 + (e.minutes || 0); }
@@ -127,27 +126,28 @@ function selStyle(locked) {
 
 // ── Project/category dropdown options ─────────────────────────────────────────
 
-function ProjectOptions({ projects }) {
+// (ProjectPicker replaces the old ProjectOptions <select> dropdown)
+
+// Per-row Full day / Half day shortcut button
+function DayShortcut({ label, active, disabled, onClick }) {
   return (
-    <>
-      <option value="">— Select —</option>
-      <optgroup label="Projects">
-        {projects.map(p => (
-          <option key={p.id} value={p.id}>
-            {p.job_number ? `${p.job_number} — ${p.name}` : p.name}
-          </option>
-        ))}
-      </optgroup>
-      <optgroup label="Other">
-        {CATEGORIES.map(c => <option key={c.value} value={`cat:${c.value}`}>{c.label}</option>)}
-      </optgroup>
-    </>
+    <button onClick={() => !disabled && onClick()} disabled={disabled}
+      style={{
+        border: `1px solid ${active ? TIMESHEETS_FULL : "#cdd6dd"}`,
+        background: active ? TIMESHEETS_FULL : "#fff",
+        color: active ? "#fff" : "#6a8a9a",
+        padding: "4px 8px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap",
+        cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1,
+        fontFamily: "Inter, Arial, sans-serif",
+      }}>
+      {label}
+    </button>
   );
 }
 
 // ── Draft entry row (unsaved, shown on empty days) ────────────────────────────
 
-function DraftRow({ projects, onCreate }) {
+function DraftRow({ projects, recentIds = [], onCreate }) {
   const [sel,     setSel]     = useState("");
   const [hours,   setHours]   = useState(0);
   const [minutes, setMinutes] = useState(0);
@@ -172,11 +172,20 @@ function DraftRow({ projects, onCreate }) {
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #eef2f4" }}>
-      <select value={sel} disabled={saving}
-        onChange={e => { setSel(e.target.value); save(e.target.value, hours, minutes, notes); }}
-        style={{ ...ss, flex: 1, minWidth: 0 }}>
-        <ProjectOptions projects={projects} />
-      </select>
+      <ProjectPicker
+        value={sel}
+        onChange={(val) => { setSel(val); save(val, hours, minutes, notes); }}
+        projects={projects}
+        recentIds={recentIds}
+        disabled={saving}
+        style={{ flex: 1, minWidth: 0 }}
+      />
+      <div style={{ display: "flex", gap: 4 }}>
+        <DayShortcut label="Full day" active={hours === FULL_DAY.hours && minutes === FULL_DAY.minutes} disabled={saving}
+          onClick={() => { setHours(FULL_DAY.hours); setMinutes(FULL_DAY.minutes); save(sel, FULL_DAY.hours, FULL_DAY.minutes, notes); }} />
+        <DayShortcut label="Half day" active={hours === HALF_DAY.hours && minutes === HALF_DAY.minutes} disabled={saving}
+          onClick={() => { setHours(HALF_DAY.hours); setMinutes(HALF_DAY.minutes); save(sel, HALF_DAY.hours, HALF_DAY.minutes, notes); }} />
+      </div>
       <div style={{ width: 132, display: "flex", gap: 8 }}>
         <select value={hours} disabled={saving}
           onChange={e => { const v = parseInt(e.target.value); setHours(v); save(sel, v, minutes, notes); }}
@@ -202,7 +211,7 @@ function DraftRow({ projects, onCreate }) {
 
 // ── Saved entry row ────────────────────────────────────────────────────────────
 
-function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
+function EntryRow({ entry, projects, recentIds = [], locked, onUpdate, onDelete }) {
   const [notes, setNotes] = useState(entry.notes || "");
   useEffect(() => { setNotes(entry.notes || ""); }, [entry.notes]);
 
@@ -210,12 +219,13 @@ function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
     ? entry.project_id
     : entry.category ? `cat:${entry.category}` : "";
 
-  const isProject = !!entry.project_id;
+  const isFull = entry.hours === FULL_DAY.hours && entry.minutes === FULL_DAY.minutes;
+  const isHalf = entry.hours === HALF_DAY.hours && entry.minutes === HALF_DAY.minutes;
 
   const handleProjectChange = (e) => {
     const val = e.target.value;
-    // Switching to a category clears any overtime (overtime is job-only).
-    if (val.startsWith("cat:")) onUpdate(entry.id, { project_id: null,  category: val.replace("cat:", ""), overtime_hours: 0, overtime_minutes: 0 });
+    // Overtime can be logged on any row (project or category), so it is not cleared here.
+    if (val.startsWith("cat:")) onUpdate(entry.id, { project_id: null, category: val.replace("cat:", "") });
     else                        onUpdate(entry.id, { project_id: val || null, category: null });
   };
 
@@ -223,9 +233,20 @@ function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #eef2f4" }}>
-      <select value={currentValue} onChange={handleProjectChange} disabled={locked} style={{ ...ss, flex: 1, minWidth: 0 }}>
-        <ProjectOptions projects={projects} />
-      </select>
+      <ProjectPicker
+        value={currentValue}
+        onChange={(val) => handleProjectChange({ target: { value: val } })}
+        projects={projects}
+        recentIds={recentIds}
+        disabled={locked}
+        style={{ flex: 1, minWidth: 0 }}
+      />
+      <div style={{ display: "flex", gap: 4 }}>
+        <DayShortcut label="Full day" active={isFull} disabled={locked}
+          onClick={() => onUpdate(entry.id, { hours: FULL_DAY.hours, minutes: FULL_DAY.minutes })} />
+        <DayShortcut label="Half day" active={isHalf} disabled={locked}
+          onClick={() => onUpdate(entry.id, { hours: HALF_DAY.hours, minutes: HALF_DAY.minutes })} />
+      </div>
       {/* Time worked */}
       <div style={{ width: 132, display: "flex", gap: 8 }}>
         <select value={entry.hours ?? 0}
@@ -239,26 +260,20 @@ function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
           {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
         </select>
       </div>
-      {/* Overtime — project rows only; placeholder keeps columns aligned */}
+      {/* Overtime — available on any row (project or category) */}
       <div style={{ width: 132, display: "flex", gap: 8 }}>
-        {isProject ? (
-          <>
-            <select value={entry.overtime_hours ?? 0}
-              onChange={e => onUpdate(entry.id, { overtime_hours: parseInt(e.target.value) })}
-              disabled={locked} title="Overtime hours"
-              style={{ ...ss, flex: 1, minWidth: 0, background: "#fbf3e6", borderColor: "#e3cfa6", color: "#8a6a3a" }}>
-              {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}h</option>)}
-            </select>
-            <select value={entry.overtime_minutes ?? 0}
-              onChange={e => onUpdate(entry.id, { overtime_minutes: parseInt(e.target.value) })}
-              disabled={locked} title="Overtime minutes"
-              style={{ ...ss, flex: 1, minWidth: 0, background: "#fbf3e6", borderColor: "#e3cfa6", color: "#8a6a3a" }}>
-              {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
-            </select>
-          </>
-        ) : (
-          <span style={{ flex: 1, textAlign: "center", alignSelf: "center", color: "#b6c0c8", fontSize: 12 }}>n/a</span>
-        )}
+        <select value={entry.overtime_hours ?? 0}
+          onChange={e => onUpdate(entry.id, { overtime_hours: parseInt(e.target.value) })}
+          disabled={locked} title="Overtime hours"
+          style={{ ...ss, flex: 1, minWidth: 0, background: "#fbf3e6", borderColor: "#e3cfa6", color: "#8a6a3a" }}>
+          {HOUR_OPTIONS.map(h => <option key={h} value={h}>{h}h</option>)}
+        </select>
+        <select value={entry.overtime_minutes ?? 0}
+          onChange={e => onUpdate(entry.id, { overtime_minutes: parseInt(e.target.value) })}
+          disabled={locked} title="Overtime minutes"
+          style={{ ...ss, flex: 1, minWidth: 0, background: "#fbf3e6", borderColor: "#e3cfa6", color: "#8a6a3a" }}>
+          {MINUTE_OPTIONS.map(m => <option key={m} value={m}>{m}m</option>)}
+        </select>
       </div>
       <input placeholder="Notes (optional)" value={notes}
         onChange={e => setNotes(e.target.value)}
@@ -277,7 +292,7 @@ function EntryRow({ entry, projects, locked, onUpdate, onDelete }) {
 
 // ── Day card ───────────────────────────────────────────────────────────────────
 
-function DayCard({ dayLabel, date, entries, projects, locked, onAdd, onUpdate, onDelete, onQuickFill, onDraftCreate }) {
+function DayCard({ dayLabel, date, entries, projects, recentIds, locked, onAdd, onUpdate, onDelete, onQuickFill, onDraftCreate }) {
   const dayTotal  = totalMins(entries);
   const hasReal   = entries.length > 0;
   const showDraft = !hasReal && !locked;
@@ -322,12 +337,20 @@ function DayCard({ dayLabel, date, entries, projects, locked, onAdd, onUpdate, o
       {(hasReal || showDraft) && (
         <div style={{ padding: "4px 14px 0" }}>
           {showDraft
-            ? <DraftRow projects={projects} onCreate={(data) => onDraftCreate(date, data)} />
+            ? <DraftRow projects={projects} recentIds={recentIds} onCreate={(data) => onDraftCreate(date, data)} />
             : entries.map(e => (
-                <EntryRow key={e.id} entry={e} projects={projects} locked={locked}
+                <EntryRow key={e.id} entry={e} projects={projects} recentIds={recentIds} locked={locked}
                   onUpdate={onUpdate} onDelete={onDelete} />
               ))
           }
+        </div>
+      )}
+
+      {dayTotal > DAY_CAP_MINS && (
+        <div style={{ padding: "0 14px 10px" }}>
+          <div style={{ background: "#fdf0ee", borderLeft: "3px solid #c0392b", padding: "6px 10px", fontSize: 12, color: "#9e2d1e" }}>
+            {formatMins(dayTotal)} of time worked — {formatMins(dayTotal - DAY_CAP_MINS)} over the 7h 30m daily limit. Log the extra as Overtime.
+          </div>
         </div>
       )}
 
@@ -347,45 +370,49 @@ function DayCard({ dayLabel, date, entries, projects, locked, onAdd, onUpdate, o
 // ── Admin expenses panel ──────────────────────────────────────────────────────
 
 function AdminExpensesPanel({ users }) {
-  const [expenses,      setExpenses]      = useState([]);
+  const [claims,        setClaims]        = useState([]);
   const [loading,       setLoading]       = useState(false);
   const [mileageRate,   setMileageRate]   = useState(45);
   const [editingRate,   setEditingRate]   = useState(false);
   const [newRate,       setNewRate]       = useState("");
-  const [filterStatus,  setFilterStatus]  = useState("pending");
+  const [filterStatus,  setFilterStatus]  = useState("submitted");
+  const [expanded,      setExpanded]      = useState(null);
   const [rejectingId,   setRejectingId]   = useState(null);
   const [rejectReason,  setRejectReason]  = useState("");
   const [toast,         setToast]         = useState(null);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
-  const userEmail = (uid) => users.find(u => u.id === uid)?.email || uid.slice(0, 8) + "…";
+  const userEmail = (uid) => users.find(u => u.id === uid)?.email || (uid ? uid.slice(0, 8) + "…" : "—");
+  const fmtMoney = (pence) => `£${((pence || 0) / 100).toFixed(2)}`;
 
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      api(`/api/admin/expenses?status=${filterStatus}`),
+      api(`/api/admin/expense-claims?status=${filterStatus}`),
       api("/api/admin/expenses/settings"),
-    ]).then(([exp, settings]) => {
-      setExpenses(exp || []);
+    ]).then(([cl, settings]) => {
+      setClaims(cl || []);
       setMileageRate(settings?.mileage_rate_ppm || 45);
       setNewRate(String(settings?.mileage_rate_ppm || 45));
     }).catch(() => {}).finally(() => setLoading(false));
   }, [filterStatus]);
 
-  const handleApprove = async (exp) => {
-    await api(`/api/admin/expenses/${exp.id}/approve`, { method: "POST" });
-    setExpenses(prev => prev.map(e => e.id === exp.id ? { ...e, status: "approved" } : e));
-    showToast("Expense approved.");
+  const refresh = () => api(`/api/admin/expense-claims?status=${filterStatus}`).then(cl => setClaims(cl || [])).catch(() => {});
+
+  const handleApprove = async (claim) => {
+    await api(`/api/admin/expense-claims/${claim.id}/approve`, { method: "POST" });
+    await refresh();
+    showToast("Claim approved.");
   };
 
-  const handleReject = async (exp) => {
+  const handleReject = async (claim) => {
     if (!rejectReason.trim()) return;
-    await api(`/api/admin/expenses/${exp.id}/reject`, { method: "POST", body: { reason: rejectReason.trim() } });
-    setExpenses(prev => prev.map(e => e.id === exp.id ? { ...e, status: "rejected", rejection_reason: rejectReason.trim() } : e));
+    await api(`/api/admin/expense-claims/${claim.id}/reject`, { method: "POST", body: { reason: rejectReason.trim() } });
     setRejectingId(null);
     setRejectReason("");
-    showToast("Expense rejected.");
+    await refresh();
+    showToast("Claim returned.");
   };
 
   const handleSaveRate = async () => {
@@ -403,6 +430,14 @@ function AdminExpensesPanel({ users }) {
       const blob = await res.blob();
       window.open(URL.createObjectURL(blob), "_blank");
     } catch {}
+  };
+
+  const openClaimPdf = async (claimId) => {
+    try {
+      const res = await apiBlob(`/api/admin/expense-claims/${claimId}/pdf`, null, "GET");
+      const blob = await res.blob();
+      window.open(URL.createObjectURL(blob), "_blank");
+    } catch { showToast("Could not open the claim PDF."); }
   };
 
   const formatAmt = (exp) => {
@@ -440,7 +475,7 @@ function AdminExpensesPanel({ users }) {
       {/* Filter */}
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16 }}>
         <span style={{ fontSize: 12, color: "#6a8a9a", fontWeight: 700, textTransform: "uppercase", letterSpacing: ".06em" }}>Filter:</span>
-        {["pending", "approved", "rejected", "all"].map(s => (
+        {["submitted", "approved", "rejected", "all"].map(s => (
           <button key={s} onClick={() => setFilterStatus(s)}
             style={{ fontSize: 11, padding: "3px 12px", border: `1px solid ${filterStatus === s ? TIMESHEETS_FULL : "#d0d8de"}`, background: filterStatus === s ? TIMESHEETS_FULL : "#fff", color: filterStatus === s ? "#fff" : "#6a8a9a", cursor: "pointer", textTransform: "capitalize" }}>
             {s}
@@ -449,45 +484,46 @@ function AdminExpensesPanel({ users }) {
       </div>
 
       {loading && <p style={{ color: "#6a8a9a", fontSize: 13 }}>Loading…</p>}
-      {!loading && expenses.length === 0 && <p style={{ color: "#6a8a9a", fontSize: 13 }}>No expenses found.</p>}
+      {!loading && claims.length === 0 && <p style={{ color: "#6a8a9a", fontSize: 13 }}>No claims found.</p>}
 
-      {expenses.map(exp => (
-        <div key={exp.id} style={{ background: "#fff", border: "1px solid #dde4e8", marginBottom: 8, padding: "10px 16px" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, minWidth: 120 }}>{userEmail(exp.user_id)}</span>
-            <span style={{ fontSize: 12, color: "#6a8a9a" }}>{typeLbl[exp.expense_type] || exp.expense_type}</span>
-            <span style={{ fontSize: 12, color: "#6a8a9a" }}>{fmtDate(exp.expense_date)}</span>
-            <span style={{ fontSize: 12, color: TIMESHEETS_FULL, fontWeight: 600 }}>{formatAmt(exp)}</span>
-            <span style={{ fontSize: 12, color: "#6a8a9a", flex: 1 }}>
-              {exp.projects?.job_number ? `${exp.projects.job_number} — ${exp.projects.name}` : exp.projects?.name}
-            </span>
-            <span style={{ fontSize: 12, color: "#6a8a9a", fontStyle: "italic" }}>{exp.description}</span>
-            {exp.receipt_key && (
-              <button onClick={() => openReceipt(exp.id)}
-                style={{ fontSize: 12, color: TIMESHEETS_FULL, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-                📎 receipt
-              </button>
-            )}
+      {claims.map(claim => {
+        const items = claim.project_expenses || [];
+        const isOpen = expanded === claim.id;
+        return (
+        <div key={claim.id} style={{ background: "#fff", border: "1px solid #dde4e8", marginBottom: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 16px" }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, minWidth: 140 }}>{userEmail(claim.user_id)}</span>
+            <span style={{ fontSize: 12, color: "#6a8a9a" }}>{items.length} item(s)</span>
+            <span style={{ fontSize: 12, color: "#6a8a9a" }}>{claim.submitted_at ? fmtDate(claim.submitted_at.slice(0, 10)) : ""}</span>
+            <span style={{ fontSize: 13, color: TIMESHEETS_FULL, fontWeight: 700 }}>{fmtMoney(claim.total_pence)}</span>
+            <button onClick={() => setExpanded(isOpen ? null : claim.id)}
+              style={{ fontSize: 11, color: "#6a8a9a", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
+              {isOpen ? "Hide items" : "View items"}
+            </button>
+            <button onClick={() => openClaimPdf(claim.id)}
+              style={{ fontSize: 11, color: TIMESHEETS_FULL, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+              📄 PDF
+            </button>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
-              {exp.status === "pending" && rejectingId !== exp.id && (
+              {claim.status === "submitted" && rejectingId !== claim.id && (
                 <>
-                  <button onClick={() => handleApprove(exp)}
+                  <button onClick={() => handleApprove(claim)}
                     style={{ background: TIMESHEETS_FULL, color: "#fff", border: "none", padding: "4px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
                     Approve
                   </button>
-                  <button onClick={() => { setRejectingId(exp.id); setRejectReason(""); }}
+                  <button onClick={() => { setRejectingId(claim.id); setRejectReason(""); }}
                     style={{ background: "#fff", border: `1px solid ${COMPARE_FULL}`, color: COMPARE_FULL, padding: "4px 12px", fontSize: 11, cursor: "pointer", fontWeight: 600 }}>
                     Reject
                   </button>
                 </>
               )}
-              {exp.status === "pending" && rejectingId === exp.id && (
+              {claim.status === "submitted" && rejectingId === claim.id && (
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                   <input autoFocus value={rejectReason} onChange={e => setRejectReason(e.target.value)}
                     placeholder="Reason…"
                     style={{ fontSize: 11, padding: "3px 8px", border: "1px solid #d0d8de", width: 180 }}
                   />
-                  <button onClick={() => handleReject(exp)} disabled={!rejectReason.trim()}
+                  <button onClick={() => handleReject(claim)} disabled={!rejectReason.trim()}
                     style={{ background: rejectReason.trim() ? COMPARE_FULL : "#ccc", color: "#fff", border: "none", padding: "3px 10px", fontSize: 11, cursor: rejectReason.trim() ? "pointer" : "default", fontWeight: 600 }}>
                     Send
                   </button>
@@ -495,20 +531,38 @@ function AdminExpensesPanel({ users }) {
                     style={{ background: "none", border: "none", color: "#aaa", fontSize: 16, cursor: "pointer" }}>×</button>
                 </div>
               )}
-              {exp.status !== "pending" && (
-                <span style={{ fontSize: 11, fontWeight: 600, color: exp.status === "approved" ? "#2e7d32" : "#9e4a3a", textTransform: "uppercase" }}>
-                  {exp.status}
+              {claim.status !== "submitted" && (
+                <span style={{ fontSize: 11, fontWeight: 600, color: claim.status === "approved" ? "#2e7d32" : "#9e4a3a", textTransform: "uppercase" }}>
+                  {claim.status === "rejected" ? "returned" : claim.status}
                 </span>
               )}
             </div>
           </div>
-          {exp.rejection_reason && (
-            <div style={{ marginTop: 6, padding: "5px 10px", background: "#fdf0ee", borderLeft: "3px solid #9e4a3a", fontSize: 11, color: "#9e4a3a" }}>
-              <strong>Reason: </strong>{exp.rejection_reason}
+          {claim.status === "rejected" && claim.rejection_reason && (
+            <div style={{ margin: "0 16px 10px", padding: "5px 10px", background: "#fdf0ee", borderLeft: "3px solid #9e4a3a", fontSize: 11, color: "#9e4a3a" }}>
+              <strong>Returned: </strong>{claim.rejection_reason}
             </div>
           )}
+          {isOpen && items.map(item => (
+            <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "8px 16px", borderTop: "1px solid #eef2f4" }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: DESIGN_TEXT, minWidth: 90 }}>{typeLbl[item.expense_type] || item.expense_type}</span>
+              <span style={{ fontSize: 11, color: "#6a8a9a" }}>{fmtDate(item.expense_date)}</span>
+              <span style={{ fontSize: 12, color: TIMESHEETS_FULL, fontWeight: 600 }}>{formatAmt(item)}</span>
+              <span style={{ fontSize: 11, color: "#8a9aa8", minWidth: 120 }}>
+                {item.projects?.job_number ? `${item.projects.job_number} — ${item.projects.name}` : item.projects?.name}
+              </span>
+              <span style={{ fontSize: 11, color: "#6a8a9a", flex: 1, fontStyle: "italic" }}>{item.description}</span>
+              {item.receipt_key && (
+                <button onClick={() => openReceipt(item.id)}
+                  style={{ fontSize: 12, color: TIMESHEETS_FULL, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                  📎 receipt
+                </button>
+              )}
+            </div>
+          ))}
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -759,6 +813,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
   const [view,       setView]       = useState("mine");
   const [monday,     setMonday]     = useState(getMonday(new Date()));
   const [projects,   setProjects]   = useState([]);
+  const [recentIds,  setRecentIds]  = useState([]);
   const [entries,    setEntries]    = useState([]);
   const [submission, setSubmission] = useState(null);
   const [loading,    setLoading]    = useState(false);
@@ -782,6 +837,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
 
   useEffect(() => {
     api("/api/projects").then(data => setProjects(data?.projects || [])).catch(() => {});
+    api("/api/timesheets/recent-projects").then(r => setRecentIds(r?.project_ids || [])).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -906,7 +962,17 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
     }
   }, [unlockReason, weekKey, showToast]);
 
+  const overCapDays = (() => {
+    const byDay = {};
+    entries.forEach(e => { byDay[e.entry_date] = (byDay[e.entry_date] || 0) + entryMins(e); });
+    return Object.keys(byDay).filter(d => byDay[d] > DAY_CAP_MINS).sort();
+  })();
+
   const handleSubmitClick = () => {
+    if (overCapDays.length) {
+      showToast("Some days are over the 7h 30m daily limit — move the extra to Overtime.");
+      return;
+    }
     const total = totalMins(entries);
     if (total > OVER_WEEK_MINS) {
       setDialog({
@@ -1086,10 +1152,13 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                     </button>
                     {fillOpen && (
                       <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 14px 12px", borderTop: "1px solid #eef2f4", flexWrap: "wrap" }}>
-                        <select value={fillProject} onChange={e => setFillProject(e.target.value)}
-                          style={{ flex: 1, minWidth: 220, padding: "6px 8px", fontSize: 13, border: "1px solid #d0d8de", background: "#fff", color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" }}>
-                          <ProjectOptions projects={projects} />
-                        </select>
+                        <ProjectPicker
+                          value={fillProject}
+                          onChange={setFillProject}
+                          projects={projects}
+                          recentIds={recentIds}
+                          style={{ flex: 1, minWidth: 220 }}
+                        />
                         <span style={{ fontSize: 12, color: "#8a9aa8" }}>Full day (7h 30m) on empty days only</span>
                         <button
                           onClick={handleFillWeek}
@@ -1112,6 +1181,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                       date={date}
                       entries={dayEntries(date)}
                       projects={projects}
+                      recentIds={recentIds}
                       locked={isLocked}
                       onAdd={handleAdd}
                       onUpdate={handleUpdate}
@@ -1138,11 +1208,16 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                         ⚠ Below 37.5h minimum
                       </span>
                     )}
+                    {overCapDays.length > 0 && !isLocked && (
+                      <span style={{ marginLeft: 12, fontSize: 12, color: "#c0392b", fontWeight: 600 }}>
+                        ⚠ {overCapDays.map(dayName).join(", ")} over the 7h 30m daily limit — move extra to Overtime
+                      </span>
+                    )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     {!isLocked && (
-                      <button onClick={handleSubmitClick} disabled={submitting || entries.length === 0}
-                        style={{ ...btnBase, background: entries.length === 0 ? "#ccc" : TIMESHEETS_FULL, color: "#fff", padding: "8px 24px", fontSize: 13, cursor: entries.length === 0 ? "default" : "pointer" }}>
+                      <button onClick={handleSubmitClick} disabled={submitting || entries.length === 0 || overCapDays.length > 0}
+                        style={{ ...btnBase, background: (entries.length === 0 || overCapDays.length > 0) ? "#ccc" : TIMESHEETS_FULL, color: "#fff", padding: "8px 24px", fontSize: 13, cursor: (entries.length === 0 || overCapDays.length > 0) ? "default" : "pointer" }}>
                         {submitting ? "Submitting…" : "Submit for Approval"}
                       </button>
                     )}
@@ -1185,7 +1260,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
           </div>
           )}
           {activeTab === "expenses" && (
-            <ExpensesTab projects={projects} />
+            <ExpensesTab projects={projects} recentIds={recentIds} />
           )}
           </>
         )}
