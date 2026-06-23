@@ -56,8 +56,8 @@ export default function ProjectPicker({ value, onChange, projects, recentIds = [
                 style={{ width: "100%", boxSizing: "border-box", border: "none", borderBottom: "1px solid #eef2f4", padding: "8px 10px", fontSize: 13, outline: "none" }} />
               {!hideOther && (
                 <div onClick={() => { setMode("other"); setQuery(""); }}
-                  style={{ padding: "9px 10px", borderBottom: "1px solid #e3cfa6", background: "#fbf3e6", color: "#8a6a3a", fontSize: 13, fontWeight: 600, display: "flex", justifyContent: "space-between", cursor: "pointer" }}>
-                  <span>Other — non-project time</span><span>›</span>
+                  style={{ padding: "9px 10px", borderBottom: "1px solid #eef2f4", background: "#fff", color: DESIGN_TEXT, fontSize: 13, fontWeight: 600, display: "flex", justifyContent: "space-between", cursor: "pointer" }}>
+                  <span>Other — non-project time</span><span style={{ color: "#8a9aa8" }}>›</span>
                 </div>
               )}
               <div style={{ maxHeight: 240, overflowY: "auto" }}>
@@ -66,7 +66,7 @@ export default function ProjectPicker({ value, onChange, projects, recentIds = [
                 {otherProjects.length > 0 && <div style={grpHdr}>ALL PROJECTS</div>}
                 {otherProjects.map(p => <div key={p.id} style={row} onClick={() => pick(p.id)}>{projLabel(p)}</div>)}
                 {reasonMatches.length > 0 && <div style={grpHdr}>OTHER</div>}
-                {reasonMatches.map(c => <div key={c.value} style={{ ...row, color: "#8a6a3a" }} onClick={() => pick(`cat:${c.value}`)}>{c.label}</div>)}
+                {reasonMatches.map(c => <div key={c.value} style={row} onClick={() => pick(`cat:${c.value}`)}>{c.label}</div>)}
                 {recentProjects.length + otherProjects.length + reasonMatches.length === 0 &&
                   <div style={{ ...row, color: "#8a9aa8", cursor: "default" }}>No matches</div>}
               </div>

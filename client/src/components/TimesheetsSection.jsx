@@ -123,6 +123,23 @@ function selStyle(locked) {
 
 // (ProjectPicker replaces the old ProjectOptions <select> dropdown)
 
+// Per-row Full day / Half day shortcut button
+function DayShortcut({ label, active, disabled, onClick }) {
+  return (
+    <button onClick={() => !disabled && onClick()} disabled={disabled}
+      style={{
+        border: `1px solid ${active ? TIMESHEETS_FULL : "#cdd6dd"}`,
+        background: active ? TIMESHEETS_FULL : "#fff",
+        color: active ? "#fff" : "#6a8a9a",
+        padding: "4px 8px", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap",
+        cursor: disabled ? "default" : "pointer", opacity: disabled ? 0.5 : 1,
+        fontFamily: "Inter, Arial, sans-serif",
+      }}>
+      {label}
+    </button>
+  );
+}
+
 // ── Draft entry row (unsaved, shown on empty days) ────────────────────────────
 
 function DraftRow({ projects, recentIds = [], onCreate }) {
@@ -158,6 +175,12 @@ function DraftRow({ projects, recentIds = [], onCreate }) {
         disabled={saving}
         style={{ flex: 1, minWidth: 0 }}
       />
+      <div style={{ display: "flex", gap: 4 }}>
+        <DayShortcut label="Full day" active={hours === FULL_DAY.hours && minutes === FULL_DAY.minutes} disabled={saving}
+          onClick={() => { setHours(FULL_DAY.hours); setMinutes(FULL_DAY.minutes); save(sel, FULL_DAY.hours, FULL_DAY.minutes, notes); }} />
+        <DayShortcut label="Half day" active={hours === HALF_DAY.hours && minutes === HALF_DAY.minutes} disabled={saving}
+          onClick={() => { setHours(HALF_DAY.hours); setMinutes(HALF_DAY.minutes); save(sel, HALF_DAY.hours, HALF_DAY.minutes, notes); }} />
+      </div>
       <div style={{ width: 132, display: "flex", gap: 8 }}>
         <select value={hours} disabled={saving}
           onChange={e => { const v = parseInt(e.target.value); setHours(v); save(sel, v, minutes, notes); }}
@@ -192,6 +215,8 @@ function EntryRow({ entry, projects, recentIds = [], locked, onUpdate, onDelete 
     : entry.category ? `cat:${entry.category}` : "";
 
   const isProject = !!entry.project_id;
+  const isFull = entry.hours === FULL_DAY.hours && entry.minutes === FULL_DAY.minutes;
+  const isHalf = entry.hours === HALF_DAY.hours && entry.minutes === HALF_DAY.minutes;
 
   const handleProjectChange = (e) => {
     const val = e.target.value;
@@ -212,6 +237,12 @@ function EntryRow({ entry, projects, recentIds = [], locked, onUpdate, onDelete 
         disabled={locked}
         style={{ flex: 1, minWidth: 0 }}
       />
+      <div style={{ display: "flex", gap: 4 }}>
+        <DayShortcut label="Full day" active={isFull} disabled={locked}
+          onClick={() => onUpdate(entry.id, { hours: FULL_DAY.hours, minutes: FULL_DAY.minutes })} />
+        <DayShortcut label="Half day" active={isHalf} disabled={locked}
+          onClick={() => onUpdate(entry.id, { hours: HALF_DAY.hours, minutes: HALF_DAY.minutes })} />
+      </div>
       {/* Time worked */}
       <div style={{ width: 132, display: "flex", gap: 8 }}>
         <select value={entry.hours ?? 0}

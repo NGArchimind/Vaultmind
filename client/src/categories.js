@@ -11,6 +11,7 @@ export const CATEGORIES = [
   { value: "medical",       label: "Medical Appointment" },
   { value: "unpaid",        label: "Unpaid Leave" },
   { value: "unauthorised",  label: "Unauthorised" },
+  { value: "other",         label: "Other" },
 ];
 
 export function categoryLabel(value) {
