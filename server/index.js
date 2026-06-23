@@ -15,6 +15,7 @@ const { renderReportPdf, renderReportExcel } = require("./lib/hrReportRender");
 const { recentProjectIds } = require("./lib/recentProjects");
 const { daysOverCap } = require("./lib/timesheetValidation");
 const { claimTotalPence } = require("./lib/expenseClaims");
+const { buildClaimPdf } = require("./lib/expenseClaimPdf");
 const HR_REPORT_DEFAULTS = { enabled: true, day: 1, time: "08:00", coverage: "previous" };
 const APP_URL = process.env.PUBLIC_APP_URL || "https://archimind.co.uk";
 const REMINDER_DEFAULTS = { enabled: true, day: 5, time: "16:00", track_from: "2026-07-01" };
@@ -4620,6 +4621,13 @@ async function getMileageRatePpm() {
   return parseInt(data?.value) || 45;
 }
 
+// Fetch a receipt object from R2 as { bytes, contentType } (used to assemble claim PDFs).
+async function fetchReceipt(key) {
+  const obj = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+  const chunks = []; for await (const c of obj.Body) chunks.push(c);
+  return { bytes: Buffer.concat(chunks), contentType: obj.ContentType || "application/octet-stream" };
+}
+
 // ── Expense claims (staff) ─────────────────────────────────────────────────────
 
 // GET /api/expense-claims — all of this user's claims (newest first) with line items
@@ -4667,11 +4675,20 @@ app.post("/api/expense-claims/:id/submit", requireAuth, async (req, res) => {
       const proj = i.projects?.job_number ? `${i.projects.job_number} — ${i.projects.name}` : (i.projects?.name || "—");
       return `<tr><td style="padding:4px 8px;border-top:1px solid #eee;">${escapeHtml(proj)}</td><td style="padding:4px 8px;border-top:1px solid #eee;">${escapeHtml(i.description || "")}</td><td style="padding:4px 8px;border-top:1px solid #eee;text-align:right;">£${((i.amount_pence || 0) / 100).toFixed(2)}</td></tr>`;
     }).join("");
+    let attachments;
+    try {
+      const { pdfBytes, unembeddable } = await buildClaimPdf({ claim: data, items, submitterEmail: req.user.email, fetchReceipt });
+      attachments = [{ filename: "expense-claim.pdf", content: Buffer.from(pdfBytes).toString("base64") }];
+      for (const u of unembeddable) attachments.push({ filename: u.filename, content: Buffer.from(u.bytes).toString("base64") });
+    } catch (e) {
+      console.error("[expense-claim PDF] build failed:", e.message);
+    }
     await sendEmail({
       to: recipients,
       subject: `Expense claim — ${req.user.email.split("@")[0]} · ${items.length} item(s) · ${total}`,
-      html: notificationEmailHtml("Expenses", `<p style="margin:0 0 12px;font-size:15px;color:#262830;"><strong>${escapeHtml(req.user.email)}</strong> submitted an expense claim of <strong>${total}</strong> (${items.length} item(s)).</p><table style="width:100%;border-collapse:collapse;font-size:13px;"><tr><td style="padding:4px 8px;color:#6a8a9a;">Project</td><td style="padding:4px 8px;color:#6a8a9a;">Description</td><td style="padding:4px 8px;color:#6a8a9a;text-align:right;">Amount</td></tr>${rows}</table>`),
+      html: notificationEmailHtml("Expenses", `<p style="margin:0 0 12px;font-size:15px;color:#262830;"><strong>${escapeHtml(req.user.email)}</strong> submitted an expense claim of <strong>${total}</strong> (${items.length} item(s)). The full claim and receipts are attached as a PDF.</p><table style="width:100%;border-collapse:collapse;font-size:13px;"><tr><td style="padding:4px 8px;color:#6a8a9a;">Project</td><td style="padding:4px 8px;color:#6a8a9a;">Description</td><td style="padding:4px 8px;color:#6a8a9a;text-align:right;">Amount</td></tr>${rows}</table>`),
       text: `${req.user.email} submitted an expense claim of ${total} (${items.length} items).`,
+      attachments,
     });
   }
   res.json(data);
@@ -5025,6 +5042,23 @@ app.post("/api/admin/expense-claims/:id/reject", requireAuth, requireAdmin, asyn
   if (error) return serverError(res, error, "reject claim");
   await notifyClaimDecision(data, "rejected", reason.trim());
   res.json(data);
+});
+
+// GET /api/admin/expense-claims/:id/pdf — assembled claim PDF (summary + receipts)
+app.get("/api/admin/expense-claims/:id/pdf", requireAuth, requireAdmin, async (req, res) => {
+  const { data: claim } = await supabase.from("expense_claims")
+    .select("*, project_expenses(*, projects(id, name, job_number))")
+    .eq("id", req.params.id).single();
+  if (!claim) return res.status(404).json({ error: "Not found" });
+  try {
+    const submitterEmail = await getUserEmail(claim.user_id);
+    const { pdfBytes } = await buildClaimPdf({ claim, items: claim.project_expenses || [], submitterEmail, fetchReceipt });
+    res.set("Content-Type", "application/pdf");
+    res.set("Content-Disposition", `inline; filename="expense-claim-${String(claim.id).slice(0, 8)}.pdf"`);
+    res.send(Buffer.from(pdfBytes));
+  } catch (e) {
+    return serverError(res, e, "GET /api/admin/expense-claims/:id/pdf");
+  }
 });
 
 // ── Vault question history ────────────────────────────────────────────────────

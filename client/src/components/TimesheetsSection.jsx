@@ -432,6 +432,14 @@ function AdminExpensesPanel({ users }) {
     } catch {}
   };
 
+  const openClaimPdf = async (claimId) => {
+    try {
+      const res = await apiBlob(`/api/admin/expense-claims/${claimId}/pdf`, null, "GET");
+      const blob = await res.blob();
+      window.open(URL.createObjectURL(blob), "_blank");
+    } catch { showToast("Could not open the claim PDF."); }
+  };
+
   const formatAmt = (exp) => {
     const p = `£${(exp.amount_pence / 100).toFixed(2)}`;
     return exp.expense_type === "mileage" ? `${p} (${exp.miles} mi)` : p;
@@ -491,6 +499,10 @@ function AdminExpensesPanel({ users }) {
             <button onClick={() => setExpanded(isOpen ? null : claim.id)}
               style={{ fontSize: 11, color: "#6a8a9a", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>
               {isOpen ? "Hide items" : "View items"}
+            </button>
+            <button onClick={() => openClaimPdf(claim.id)}
+              style={{ fontSize: 11, color: TIMESHEETS_FULL, background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>
+              📄 PDF
             </button>
             <div style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
               {claim.status === "submitted" && rejectingId !== claim.id && (
