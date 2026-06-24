@@ -141,5 +141,6 @@ Specs/plans: `docs/superpowers/specs/2026-06-23-timesheets-expenses-prelaunch-tw
 3. **Wide table extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column structure.
 4. **Email work** (PARKED) — summaries not stored in DB; relevance threshold (0.35) needs tuning.
 5. **Timesheets follow-up** (deferred) — the unlock-*granted* email still isn't sent (only the 5 routed events).
+6. **Vault Q&A misses definitions on appendix pages** (TO INVESTIGATE, flagged 2026-06-24) — a definition lookup returned no answer when the term is defined on an **appendix page** of the document. Likely a coverage gap: appendix pages/headings may not be surfaced by the Pass-1 heading index, not pulled into Pass-2 page extraction, or not indexed at all. Pipeline-sensitive — diagnose **evidence-first on the real document** (reproduce extraction with the repo's mupdf, per `reference_mupdf_local_diagnostics`), confirm root cause before any change, and **staging-test before main**.
 
 _Closed 2026-06-19: PDF Compare (Revit schedule test passed) and stale Approved-Doc vault re-indexing — both previously items 1 & 3._
