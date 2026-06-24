@@ -21,123 +21,18 @@ const HR_REPORT_DEFAULTS = { enabled: true, day: 1, time: "08:00", coverage: "pr
 const APP_URL = process.env.PUBLIC_APP_URL || "https://archimind.co.uk";
 const REMINDER_DEFAULTS = { enabled: true, day: 5, time: "16:00", track_from: "2026-07-01" };
 
-let _resend = null;
-function getResend() {
-  if (!process.env.RESEND_API_KEY) return null;
-  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
-  return _resend;
-}
-
-async function sendEmail({ to, subject, html, text, attachments }) {
-  const resend = getResend();
-  if (!resend) {
-    console.warn("[email] RESEND_API_KEY not set — skipping:", subject);
-    return;
-  }
-  try {
-    await resend.emails.send({
-      from: process.env.RESEND_FROM || "Archimind <noreply@example.com>",
-      to: Array.isArray(to) ? to : [to],
-      subject,
-      html,
-      text,
-      ...(attachments && attachments.length ? { attachments } : {}),
-    });
-  } catch (err) {
-    console.error("[email] Send failed:", err.message);
-  }
-}
-
-async function getAdminEmails() {
-  const { data } = await supabase.auth.admin.listUsers();
-  return (data?.users || [])
-    .filter(u => u.app_metadata?.role === "admin")
-    .map(u => u.email)
-    .filter(Boolean);
-}
-
-async function getHrEmails() {
-  const { data } = await supabase.auth.admin.listUsers();
-  return (data?.users || [])
-    .filter(u => u.app_metadata?.role === "hr")
-    .map(u => u.email)
-    .filter(Boolean);
-}
-
-// Escape user-supplied text before interpolating into notification email HTML,
-// so a description/reason containing markup can't render as live content.
-function escapeHtml(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-// ── Notification settings ─────────────────────────────────────────────────────
-// Per-event email routing for the five notifications, stored as JSON in
-// app_settings (key "notification_settings"). New shape: each event maps to
-// { admin: bool, hr: bool } — the event emails whichever roles are on.
-// Backward-compatible: an old boolean value (or a missing key) is read using
-// the per-event default below, so the new server understands old stored data.
-const NOTIFICATION_KEYS = [
-  "timesheet_submitted",
-  "expense_submitted",
-  "unlock_requested",
-  "expense_decided",
-  "timesheet_rejected",
-];
-
-// Default routing per event (used for missing keys and legacy boolean values).
-const NOTIFICATION_DEFAULTS = {
-  timesheet_submitted: { admin: true,  hr: false },
-  expense_submitted:   { admin: true,  hr: false },
-  unlock_requested:    { admin: true,  hr: false },
-  expense_decided:     { admin: false, hr: false },
-  timesheet_rejected:  { admin: false, hr: false },
-};
-
-// Normalise one stored value (object | boolean | undefined) to { admin, hr }.
-function normaliseNotificationValue(key, stored) {
-  const def = NOTIFICATION_DEFAULTS[key] || { admin: false, hr: false };
-  if (stored && typeof stored === "object") {
-    return { admin: stored.admin === true, hr: stored.hr === true };
-  }
-  if (stored === false) return { admin: false, hr: false }; // legacy "off"
-  return { ...def }; // legacy true, or missing → default
-}
-
-async function getNotificationSettings() {
-  const { data } = await supabase.from("app_settings").select("value").eq("key", "notification_settings").maybeSingle();
-  let stored = {};
-  try { stored = data?.value ? JSON.parse(data.value) : {}; } catch { stored = {}; }
-  const out = {};
-  for (const k of NOTIFICATION_KEYS) out[k] = normaliseNotificationValue(k, stored[k]);
-  return out;
-}
-
-// Deduped recipient email list for an event, based on its admin/hr toggles.
-async function notificationRecipients(key) {
-  const settings = await getNotificationSettings();
-  const route = settings[key] || { admin: false, hr: false };
-  const emails = [];
-  if (route.admin) emails.push(...(await getAdminEmails()));
-  if (route.hr)    emails.push(...(await getHrEmails()));
-  return [...new Set(emails.filter(Boolean))];
-}
-
-async function getUserEmail(userId) {
-  try {
-    const { data } = await supabase.auth.admin.getUserById(userId);
-    return data?.user?.email || null;
-  } catch { return null; }
-}
-
-// Branded wrapper shared by notification emails.
-function notificationEmailHtml(headerLabel, bodyHtml) {
-  return `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — ${headerLabel}</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;">${bodyHtml}</div></div>`;
-}
+// ── Shared modules (extracted from this file; behaviour unchanged) ─────────────
+const { r2, BUCKET, supabase } = require("./helpers/clients");
+const { serverError } = require("./helpers/serverError");
+const { requireAuth, requireAdmin, requireTimesheetManager } = require("./middleware/auth");
+const { rateLimit } = require("./middleware/rateLimit");
+const {
+  getResend, sendEmail, getAdminEmails, getHrEmails, escapeHtml,
+  NOTIFICATION_KEYS, NOTIFICATION_DEFAULTS, normaliseNotificationValue,
+  getNotificationSettings, notificationRecipients, getUserEmail, notificationEmailHtml,
+} = require("./helpers/email");
+const { streamToBuffer, listAllKeys, movePrefix, deletePrefix } = require("./helpers/r2");
+const { GEMINI_BASE, geminiExtractDrawingText, geminiEmbed, indexDrawing } = require("./helpers/gemini");
 
 async function getReminderSettings() {
   const { data } = await supabase.from("app_settings").select("value").eq("key", "timesheet_reminder").maybeSingle();
@@ -404,32 +299,6 @@ app.options("*", cors(corsOptions));
 app.use(cors(corsOptions));
 app.use(helmet({ crossOriginResourcePolicy: false }));
 
-const rateLimitMap = new Map();
-function rateLimit(maxRequests, windowMs) {
-  return (req, res, next) => {
-    const key = req.user?.id || req.ip;
-    const now = Date.now();
-    const entry = rateLimitMap.get(key) || { count: 0, start: now };
-    if (now - entry.start > windowMs) {
-      entry.count = 0;
-      entry.start = now;
-    }
-    entry.count++;
-    rateLimitMap.set(key, entry);
-    if (entry.count > maxRequests) {
-      return res.status(429).json({ error: "Too many requests — please slow down." });
-    }
-    next();
-  };
-}
-
-// Evict stale rate-limit entries so the map can't grow unbounded on a long-lived server.
-const _rateLimitSweep = setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of rateLimitMap) if (now - v.start > 600_000) rateLimitMap.delete(k);
-}, 600_000);
-if (_rateLimitSweep.unref) _rateLimitSweep.unref();
-
 app.use(express.json({ limit: "100mb" }));
 
 // Extend timeout to 5 minutes to handle large Gemini requests
@@ -438,31 +307,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// ── R2 client ─────────────────────────────────────────────────────────────────
-const r2 = new S3Client({
-  region: "auto",
-  endpoint: process.env.R2_ENDPOINT,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  },
-});
-
-const BUCKET = process.env.R2_BUCKET || "archimind-docs";
-
-// ── Supabase client ───────────────────────────────────────────────────────────
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_KEY
-);
-
-async function streamToBuffer(stream) {
-  const chunks = [];
-  for await (const chunk of stream) chunks.push(chunk);
-  return Buffer.concat(chunks);
-}
-
-// ── CSV parser (handles quoted fields with embedded commas) ───────────────────
+// CSV parser (handles quoted fields with embedded commas)
 function parseCsvText(text) {
   const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
   return lines.filter(l => l.trim()).map(line => {
@@ -486,162 +331,8 @@ function parseCsvText(text) {
   });
 }
 
-// ── helpers ────────────────────────────────────────────────────────────────────
 
-// List all keys under a prefix (handles pagination)
-async function listAllKeys(prefix) {
-  const keys = [];
-  let continuationToken;
-  do {
-    const cmd = new ListObjectsV2Command({
-      Bucket: BUCKET,
-      Prefix: prefix,
-      ContinuationToken: continuationToken,
-    });
-    const result = await r2.send(cmd);
-    (result.Contents || []).forEach(o => keys.push(o.Key));
-    continuationToken = result.IsTruncated ? result.NextContinuationToken : undefined;
-  } while (continuationToken);
-  return keys;
-}
-
-// Copy all objects from one prefix to another, then delete originals
-async function movePrefix(fromPrefix, toPrefix) {
-  const keys = await listAllKeys(fromPrefix);
-  for (const key of keys) {
-    const newKey = toPrefix + key.slice(fromPrefix.length);
-    await r2.send(new CopyObjectCommand({
-      Bucket: BUCKET,
-      CopySource: `${BUCKET}/${key}`,
-      Key: newKey,
-    }));
-    await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
-  }
-}
-
-// Delete all objects under a prefix
-async function deletePrefix(prefix) {
-  const keys = await listAllKeys(prefix);
-  for (const key of keys) {
-    await r2.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
-  }
-}
-
-// ── Gemini helpers ────────────────────────────────────────────────────────────
-
-const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
-
-async function geminiExtractDrawingText(pdfBuffer) {
-  const response = await fetch(`${GEMINI_BASE}/gemini-2.5-flash:generateContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
-    body: JSON.stringify({
-      contents: [{ parts: [
-        { inline_data: { mime_type: "application/pdf", data: pdfBuffer.toString("base64") } },
-        { text: "Extract all text content from this architectural drawing. Include room names, space labels, material callouts, specifications, notes, legends, schedules, and annotations. Skip all dimensions, grid line references, and title block information (drawing number, title, revision, date, scale, status, drawn by, approved by). Return only the content text." }
-      ]}],
-      generationConfig: { temperature: 0 }
-    })
-  });
-  if (!response.ok) {
-    const errText = await response.text().catch(() => "");
-    throw new Error(`Gemini extract API ${response.status}: ${errText.slice(0, 200)}`);
-  }
-  const data = await response.json();
-  return data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
-}
-
-async function geminiEmbed(text, taskType = "RETRIEVAL_DOCUMENT") {
-  const response = await fetch(`${GEMINI_BASE}/gemini-embedding-001:embedContent`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
-    body: JSON.stringify({
-      model: "models/gemini-embedding-001",
-      content: { parts: [{ text }] },
-      taskType,
-      outputDimensionality: 768,
-    })
-  });
-  if (!response.ok) {
-    const errText = await response.text().catch(() => "");
-    throw new Error(`Gemini embed API ${response.status}: ${errText.slice(0, 200)}`);
-  }
-  const data = await response.json();
-  return data?.embedding?.values || null;
-}
-
-async function indexDrawing(drawing) {
-  console.log(`Drawing indexing start — id: ${drawing.id}, number: ${drawing.drawing_number}`);
-  try {
-    const result = await r2.send(new GetObjectCommand({ Bucket: BUCKET, Key: drawing.file_key }));
-    const buffer = await streamToBuffer(result.Body);
-    const extractedText = await geminiExtractDrawingText(buffer);
-    const indexText = [
-      `Drawing: ${drawing.title} (${drawing.drawing_number})`,
-      drawing.drawing_type && `Type: ${drawing.drawing_type}`,
-      drawing.level         && `Level: ${drawing.level}`,
-      drawing.volume        && `Volume: ${drawing.volume}`,
-      drawing.status        && `Status: ${drawing.status}`,
-      extractedText,
-    ].filter(Boolean).join("\n");
-    const embedding = await geminiEmbed(indexText);
-    if (!embedding) { console.error(`Drawing indexing — no embedding returned for id: ${drawing.id}`); return; }
-    const embeddingStr = `[${embedding.join(",")}]`;
-    const { error } = await supabase.from("project_drawings").update({ embedding: embeddingStr, content_text: extractedText }).eq("id", drawing.id);
-    if (error) throw new Error(error.message);
-    console.log(`Drawing indexing complete — id: ${drawing.id}`);
-  } catch (err) {
-    console.error(`Drawing indexing error — id: ${drawing.id}, error: ${err.message}`);
-  }
-}
-
-// ── Safe error helper — logs detail server-side, returns generic message to client ───
-function serverError(res, err, context) {
-  console.error(`[${context}]`, err.message || err);
-  return res.status(500).json({ error: "Something went wrong. Please try again." });
-}
-
-// ── JWT auth middleware ───────────────────────────────────────────────────────
-async function requireAuth(req, res, next) {
-  const authHeader = req.headers["authorization"];
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Unauthorised — no token provided" });
-  }
-
-  const token = authHeader.slice(7);
-
-  try {
-    const { data: { user }, error } = await supabase.auth.getUser(token);
-    if (error || !user) {
-      return res.status(401).json({ error: "Unauthorised — invalid or expired token" });
-    }
-    req.user = user;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: "Unauthorised — invalid or expired token" });
-  }
-}
-
-async function requireAdmin(req, res, next) {
-  // Role lives in app_metadata (server-only, not user-editable), never user_metadata.
-  const role = req.user?.app_metadata?.role;
-  if (role !== "admin") {
-    return res.status(403).json({ error: "Forbidden — admin only" });
-  }
-  next();
-}
-
-// Allows admins and HR. Use ONLY on timesheet-review endpoints — HR is walled
-// off from expenses, fees, user management and all other admin areas.
-function requireTimesheetManager(req, res, next) {
-  const role = req.user?.app_metadata?.role;
-  if (role !== "admin" && role !== "hr") {
-    return res.status(403).json({ error: "Forbidden — admin or HR only" });
-  }
-  next();
-}
-
-// ── Gemini AI proxy ───────────────────────────────────────────────────────────
+// Gemini AI proxy route
 app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return res.status(500).json({ error: "GEMINI_API_KEY not set." });
