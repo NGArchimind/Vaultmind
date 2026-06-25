@@ -13,6 +13,7 @@ import ShareModal from "./components/ShareModal";
 import TimesheetsSection from "./components/TimesheetsSection";
 import ScheduleSection from "./components/ScheduleSection";
 import VaultPdfViewer from "./components/VaultPdfViewer";
+import { useAuth } from "./hooks/useAuth";
 import { buildAnswerPrompt } from "./prompts";
 import { BOILERPLATE_HEADINGS, isBoilerplate, DESIGN_SHELL, DESIGN_GROUND, DESIGN_GOLD, DESIGN_TEXT, DESIGN_MUTED, VAULT_FULL, COMPARE_FULL } from "./constants";
 
@@ -62,52 +63,7 @@ export default function App() {
   const tempDocTextareaRef = useRef(null);
   const prevTempDocIndexingRef = useRef(null);
 
-  // ── Auth state ────────────────────────────────────────────────────────────────
-  const [authLoading, setAuthLoading] = useState(true);
-  const [session, setSession] = useState(null);
-  const [userRole, setUserRole] = useState(null);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [loggingIn, setLoggingIn] = useState(false);
-
-  // ── Bootstrap auth session ────────────────────────────────────────────────────
-  useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) {
-        const role = session.user?.app_metadata?.role || "user";
-        setUserRole(role);
-      }
-      setAuthLoading(false);
-    });
-
-    // Listen for auth state changes (sign in / sign out)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) {
-        const role = session.user?.app_metadata?.role || "user";
-        setUserRole(role);
-      } else {
-        setUserRole(null);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) return;
-    setLoggingIn(true);
-    setLoginError("");
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (error) {
-      setLoginError("Incorrect email or password. Please try again.");
-      setPassword("");
-    }
-    setLoggingIn(false);
-  };
+  const { authLoading, session, userRole, email, setEmail, password, setPassword, loginError, setLoginError, loggingIn, setLoggingIn, handleLogin } = useAuth();
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
