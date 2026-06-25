@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { api, callClaude, fileToBase64, supabase } from "./api/client";
+import { api, askGemini, fileToBase64, supabase } from "./api/client";
 import AnswerRenderer from "./components/common/AnswerRenderer";
 import { Spinner, ProgressBar } from "./components/common/Spinner";
 import VaultManagementModal from "./components/VaultManagementModal";
@@ -12,230 +12,11 @@ import QuizModal from "./components/QuizModal";
 import ShareModal from "./components/ShareModal";
 import TimesheetsSection from "./components/TimesheetsSection";
 import ScheduleSection from "./components/ScheduleSection";
+import VaultPdfViewer from "./components/VaultPdfViewer";
+import { useAuth } from "./hooks/useAuth";
+import { findPageInVaultIndex, findPageByClauseNumber } from "./citations";
+import { buildAnswerPrompt } from "./prompts";
 import { BOILERPLATE_HEADINGS, isBoilerplate, DESIGN_SHELL, DESIGN_GROUND, DESIGN_GOLD, DESIGN_TEXT, DESIGN_MUTED, VAULT_FULL, COMPARE_FULL } from "./constants";
-
-// ── Vault PDF Viewer Modal ────────────────────────────────────────────────────
-function VaultPdfViewer({ base64, fileName, page, heading, onClose }) {
-  const iframeRef = useRef(null);
-  const [blobUrl, setBlobUrl] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!base64) return;
-    const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-    const blob = new Blob([bytes], { type: "application/pdf" });
-    const url = URL.createObjectURL(blob);
-    setBlobUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [base64, page]);
-
-  // Close on Escape
-  useEffect(() => {
-    const handleKey = e => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handleKey);
-    return () => window.removeEventListener("keydown", handleKey);
-  }, [onClose]);
-
-  // Build a self-contained viewer page using PDF.js from cdnjs
-  const safeFileName = (fileName || "Document")
-    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-
-  const viewerHtml = blobUrl ? `<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8">
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #525659; display: flex; flex-direction: column; height: 100vh; font-family: Inter, Arial, sans-serif; }
-  #toolbar { background: #1a2332; padding: 8px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-  #toolbar span { color: rgba(255,255,255,0.7); font-size: 12px; }
-  #toolbar strong { color: #fff; font-size: 12px; }
-  #page-controls { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-  #page-controls button { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 4px 10px; cursor: pointer; font-size: 13px; border-radius: 2px; }
-  #page-controls button:hover { background: rgba(255,255,255,0.2); }
-  #page-controls input { width: 48px; text-align: center; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.3); color: #fff; padding: 4px; font-size: 12px; border-radius: 2px; }
-  #zoom-controls { display: flex; align-items: center; gap: 6px; margin-left: 20px; }
-  #zoom-controls button { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.2); color: #fff; padding: 4px 10px; cursor: pointer; font-size: 13px; border-radius: 2px; }
-  #zoom-controls button:hover { background: rgba(255,255,255,0.2); }
-  #zoom-controls button.active { background: rgba(255,255,255,0.85); color: #1a2332; border-color: rgba(255,255,255,0.85); }
-  #zoom-level { color: rgba(255,255,255,0.7); font-size: 12px; min-width: 42px; text-align: center; }
-  #canvas-container { flex: 1; overflow: auto; display: flex; justify-content: center; align-items: flex-start; padding: 16px; }
-  #canvas-container.fit { align-items: center; }
-  canvas { box-shadow: 0 2px 16px rgba(0,0,0,0.5); }
-</style>
-</head>
-<body>
-<div id="toolbar">
-  <strong id="filename">${safeFileName}</strong>
-  <div id="zoom-controls">
-    <button id="zoom-out" title="Zoom out">−</button>
-    <span id="zoom-level">150%</span>
-    <button id="zoom-in" title="Zoom in">+</button>
-    <button id="fit-page" title="Fit whole page — scroll wheel flips pages">Fit page</button>
-  </div>
-  <div id="page-controls">
-    <button id="prev">‹</button>
-    <input id="page-input" type="number" min="1" value="${page || 1}" />
-    <span>/ <span id="total-pages">…</span></span>
-    <button id="next">›</button>
-  </div>
-</div>
-<div id="canvas-container"><canvas id="pdf-canvas"></canvas></div>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script>
-  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  let pdfDoc = null;
-  let currentPage = ${page || 1};
-  let scale = 1.5;
-  let fitMode = false;
-  const canvas = document.getElementById('pdf-canvas');
-  const ctx = canvas.getContext('2d');
-  const container = document.getElementById('canvas-container');
-
-  function effectiveScale(page) {
-    if (!fitMode) return scale;
-    const base = page.getViewport({ scale: 1 });
-    const availH = container.clientHeight - 32; // 16px padding top + bottom
-    const availW = container.clientWidth - 32;
-    return Math.max(0.1, Math.min(availH / base.height, availW / base.width));
-  }
-
-  function renderPage(num) {
-    pdfDoc.getPage(num).then(page => {
-      const s = effectiveScale(page);
-      const viewport = page.getViewport({ scale: s });
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      page.render({ canvasContext: ctx, viewport }).promise.then(() => {
-        document.getElementById('page-input').value = num;
-        document.getElementById('zoom-level').textContent = Math.round(s * 100) + '%';
-      });
-    });
-  }
-
-  pdfjsLib.getDocument('${blobUrl}').promise.then(pdf => {
-    pdfDoc = pdf;
-    const total = pdf.numPages;
-    document.getElementById('total-pages').textContent = total;
-    currentPage = Math.min(Math.max(1, ${page || 1}), total);
-    renderPage(currentPage);
-
-    const headingTarget = ${JSON.stringify(heading || "")};
-    if (headingTarget) {
-      (async () => {
-        const norm = s => s.toLowerCase().split(/[^a-z0-9]+/).join(' ').trim();
-        const target = norm(headingTarget);
-        const words = target.split(' ').filter(w => w.length > 3);
-        if (!target) return;
-        const hint = currentPage;
-
-        const matches = text => text.includes(target) || (words.length >= 2 && words.every(w => text.includes(w)));
-
-        // Pass 1: search within ±20 pages of hint (covers minor drift, avoids TOC false positives)
-        const closeRange = [hint];
-        for (let d = 1; d <= 20; d++) {
-          if (hint - d >= 1) closeRange.push(hint - d);
-          if (hint + d <= total) closeRange.push(hint + d);
-        }
-        for (const n of closeRange) {
-          const pg = await pdfDoc.getPage(n);
-          const tc = await pg.getTextContent();
-          if (matches(norm(tc.items.map(i => i.str).join(' ')))) {
-            if (n !== currentPage) { currentPage = n; renderPage(currentPage); }
-            return;
-          }
-        }
-
-        // Pass 2: search rest of document, skip early pages (TOC / front matter zone)
-        const earlySkip = Math.min(20, Math.floor(hint / 2));
-        for (let n = 1; n <= total; n++) {
-          if (Math.abs(n - hint) <= 20) continue; // already checked in pass 1
-          if (n <= earlySkip) continue;            // skip likely TOC pages
-          const pg = await pdfDoc.getPage(n);
-          const tc = await pg.getTextContent();
-          if (matches(norm(tc.items.map(i => i.str).join(' ')))) {
-            currentPage = n; renderPage(currentPage);
-            return;
-          }
-        }
-      })();
-    }
-  });
-
-  document.getElementById('prev').addEventListener('click', () => {
-    if (currentPage > 1) { currentPage--; renderPage(currentPage); }
-  });
-  document.getElementById('next').addEventListener('click', () => {
-    if (pdfDoc && currentPage < pdfDoc.numPages) { currentPage++; renderPage(currentPage); }
-  });
-  document.getElementById('page-input').addEventListener('change', e => {
-    const n = parseInt(e.target.value);
-    if (pdfDoc && n >= 1 && n <= pdfDoc.numPages) { currentPage = n; renderPage(currentPage); }
-  });
-
-  function exitFit() {
-    fitMode = false;
-    document.getElementById('fit-page').classList.remove('active');
-    container.classList.remove('fit');
-  }
-  document.getElementById('zoom-in').addEventListener('click', () => {
-    exitFit(); scale = Math.min(4, scale + 0.25); renderPage(currentPage);
-  });
-  document.getElementById('zoom-out').addEventListener('click', () => {
-    exitFit(); scale = Math.max(0.5, scale - 0.25); renderPage(currentPage);
-  });
-  document.getElementById('fit-page').addEventListener('click', () => {
-    fitMode = !fitMode;
-    document.getElementById('fit-page').classList.toggle('active', fitMode);
-    container.classList.toggle('fit', fitMode);
-    renderPage(currentPage);
-  });
-
-  // In Fit-page mode the page fills the view, so the scroll wheel flips pages
-  // (one notch = one page). When zoomed in, normal scrolling is left alone.
-  let wheelLock = false;
-  container.addEventListener('wheel', e => {
-    if (!fitMode || !pdfDoc) return;
-    e.preventDefault();
-    if (wheelLock) return;
-    wheelLock = true;
-    setTimeout(() => { wheelLock = false; }, 250);
-    if (e.deltaY > 0 && currentPage < pdfDoc.numPages) { currentPage++; renderPage(currentPage); }
-    else if (e.deltaY < 0 && currentPage > 1) { currentPage--; renderPage(currentPage); }
-  }, { passive: false });
-  window.addEventListener('resize', () => { if (fitMode && pdfDoc) renderPage(currentPage); });
-</script>
-</body>
-</html>` : "";
-
-  return (
-    <div style={{ position: "fixed", inset: 0, background: "#1a1a1a", zIndex: 3000, display: "flex", flexDirection: "column" }}>
-      <div style={{ background: DESIGN_SHELL, padding: "10px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: "#fff" }}>{fileName}</div>
-            <div style={{ fontSize: 11, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>Source document</div>
-          </div>
-        </div>
-        <button className="btn" onClick={onClose}
-          style={{ background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", padding: "7px 16px", fontSize: 11, fontWeight: 600, letterSpacing: "0.04em" }}>
-          Close ✕
-        </button>
-      </div>
-      <div style={{ flex: 1, background: "#525659", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        {!blobUrl && <div style={{ color: "#fff", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}><Spinner size={14} /> Loading document…</div>}
-        {blobUrl && (
-          <iframe
-            srcDoc={viewerHtml}
-            style={{ width: "100%", height: "100%", border: "none" }}
-            title={fileName}
-            sandbox="allow-scripts allow-same-origin"
-          />
-        )}
-      </div>
-    </div>
-  );
-}
 
 export default function App() {
   const [appSection, setAppSection] = useState("home");
@@ -283,52 +64,7 @@ export default function App() {
   const tempDocTextareaRef = useRef(null);
   const prevTempDocIndexingRef = useRef(null);
 
-  // ── Auth state ────────────────────────────────────────────────────────────────
-  const [authLoading, setAuthLoading] = useState(true);
-  const [session, setSession] = useState(null);
-  const [userRole, setUserRole] = useState(null);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [loggingIn, setLoggingIn] = useState(false);
-
-  // ── Bootstrap auth session ────────────────────────────────────────────────────
-  useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session) {
-        const role = session.user?.app_metadata?.role || "user";
-        setUserRole(role);
-      }
-      setAuthLoading(false);
-    });
-
-    // Listen for auth state changes (sign in / sign out)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session) {
-        const role = session.user?.app_metadata?.role || "user";
-        setUserRole(role);
-      } else {
-        setUserRole(null);
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  const handleLogin = async () => {
-    if (!email.trim() || !password.trim()) return;
-    setLoggingIn(true);
-    setLoginError("");
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-    if (error) {
-      setLoginError("Incorrect email or password. Please try again.");
-      setPassword("");
-    }
-    setLoggingIn(false);
-  };
+  const { authLoading, session, userRole, email, setEmail, password, setPassword, loginError, setLoginError, loggingIn, setLoggingIn, handleLogin } = useAuth();
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
@@ -597,7 +333,7 @@ export default function App() {
             setStatusMsg(`Indexing ${pdfName} — pages ${startMatch?.[1] ?? "?"}–${endMatch ? String(Number(endMatch[1]) - 1) : "end"}…`);
           }
           try {
-            const { text: result } = await callClaude(
+            const { text: result } = await askGemini(
               [{ role: "user", content: TEXT_PROMPT + "\n\n" + chunkText }],
               SYSTEM, 65000, 2, "gemini-2.5-flash-lite"
             );
@@ -608,7 +344,7 @@ export default function App() {
             if (e.message?.includes("503") || e.message?.includes("UNAVAILABLE")) {
               try {
                 await new Promise(r => setTimeout(r, 3000));
-                const { text: result2 } = await callClaude(
+                const { text: result2 } = await askGemini(
                   [{ role: "user", content: TEXT_PROMPT + "\n\n" + chunkText }],
                   SYSTEM, 65000, 1, "gemini-2.5-flash-lite"
                 );
@@ -632,7 +368,7 @@ export default function App() {
     const INDEX_PROMPT = `Extract structural headings from this document — chapter titles, numbered sections (e.g. 6.6, 6.6.1), named sub-sections, AND the titles of all numbered tables, figures and diagrams (e.g. "Table 3 — Fire resistance of cavity barriers", "Figure 24 — Cavity barrier locations", "Diagram 3.1 Guarding design"). Include table, figure and diagram titles as they are essential navigation landmarks.\r\n\r\nAlso include unnumbered named sub-headings — category labels that introduce a distinct block of content even without a clause number (e.g. "Siting of pedestrian guarding", "Design of guarding", "In dwellings", "For all buildings when used by children"). In regulatory documents these are structural headings even though they carry no number.\r\n\r\nImportant: diagram and table captions often appear at the very bottom of a table block. Do not treat them as table row content — they are structural titles and must be extracted as headings.\r\n\r\nDo not extract body text, bullet points, or individual table row content.\r\n\r\nFor pageHint, use only the position of the page within this PDF file — page 1 is the first page of this file, page 2 is the second, etc. Ignore all printed page numbers on the pages.\r\n\r\nOutput ONLY valid JSON: {"headings": [{"level": 1, "title": "heading text", "pageHint": 1}]}`;
 
     try {
-      const { text: result } = await callClaude(
+      const { text: result } = await askGemini(
         [{ role: "user", content: [
           { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 }, title: pdfName },
           { type: "text", text: INDEX_PROMPT }
@@ -879,7 +615,7 @@ export default function App() {
       const scoringPrompt = `You are an expert technical document analyst. Using ONLY the document index below, identify which specific sections and pages are most likely to contain the answer to the question.\n\nDOCUMENT INDEX (headings, sections and page numbers extracted from vault documents):\nINDEX FORMAT: each heading is indented to show its level in the document structure — deeper indentation means a sub-section of the heading above it. When you score any heading, also score its parent headings (less indented, above it) at the same or similar probability, as parent sections contain requirements that govern their sub-sections.\n${indexSummary}\n${conversationContext}\n\nQUESTION: ${q}\n${recentHistory.length > 0 ? "NOTE: This may be a follow-up question. Use the conversation history above to understand the full context before scoring." : ""}\n\nAnalyse the index carefully. For every section that could possibly be relevant — even tangentially — assign a probability score. Building regulations frequently contain cross-references, exceptions and caveats in unexpected sections. Be CONSERVATIVE — it is better to include a borderline section than to miss critical information.\n\nNOTE: Select ALL sections that are relevant to the question — do not limit to just one section if multiple sections are relevant.\n\nTABLES AND FIGURES: If the question relates to a requirement that is likely defined or quantified in a table or figure (e.g. fire resistance ratings, dimensions, classifications), you MUST also select any table or figure entries in the index that are likely to contain that data. For example, if the index contains "Table 3 — Fire resistance of cavity barriers" or "Table 5 — Minimum fire resistance", select those entries with high probability. Never rely solely on clause text pages when the actual values are in a table.\n\nDUTY CLAUSES AND IMPLEMENTATION SECTIONS: Building regulations pair high-level duty clauses (e.g. K2 'Protection from falling', B3 'Internal fire spread') with practical implementation sections that follow later in the same document (e.g. 'Section 3: Protection from falling', 'Design of guarding', 'Siting of pedestrian guarding'). The duty clause states the legal obligation only — the specific heights, dimensions, and values are always in the implementation sections. For any question asking for a specific measurement, height, distance, or threshold, you MUST select BOTH the duty clause AND the implementation sections from the same document. Never select only the duty clause and assume it contains the values — it does not.\n\nRespond ONLY as compact JSON — no other text, no explanations, no reasons:\n{\n  "selectedDocs": [\n    {\n      "docName": "exact filename from index",\n      "sections": [\n        {"heading": "exact heading from index", "pageHint": 42, "probability": 0.95}\n      ]\n    }\n  ]\n}\n\nRules:\n- Include sections with probability > 0.5\n- pageHint MUST be a plain integer. Never use "p.12" or "page 12". Use 1 if unknown.\n- Omit "styleNotes", "reason" and "crossRefs" fields entirely — keep JSON compact`;
 
 const { text: scoringText, usage: scoringUsage } = await withRetry(
-        () => callClaude(
+        () => askGemini(
           [{ role: "user", content: scoringPrompt }],
           "You are a technical document analyst. Score document sections for relevance using only the text index provided. Return pure JSON only, no markdown.",
           65000, 0, "gemini-2.5-flash"
@@ -1289,14 +1025,14 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         ? `CONVERSATION SO FAR — this question is part of a continuing discussion. Build on what has already been established rather than starting fresh. Do not repeat information already covered unless directly relevant to this new question.\n\n${priorContext.map((h, i) => `Question ${i+1}: ${h.question}\nAnswer ${i+1}: ${h.answer.slice(0, 1000)}`).join("\n\n---\n\n")}\n\n---\n\n`
         : "";
 
-      const answerPrompt = `You are an expert building regulations consultant at an architectural practice. Use ONLY the provided document pages to answer. Write for an architectural specialist who needs detailed, accurate legislative guidance — not a general audience. IMPORTANT: Answer ONLY what was specifically asked. If the question is about one particular requirement or detail, provide exactly that and nothing else from the surrounding pages. Do not include other requirements, dimensions, or tangential information unless they directly qualify or limit the specific requirement asked about. Actively exclude content that does not answer the question.${tempDoc ? `\n\nNOTE: A temporary document has been included: "${tempDoc.name}". Treat it as an additional reference document.` : ""}\n\n${contextBlock}QUESTION: ${q}\nPRIORITY SECTIONS: ${focusSections || "all sections"}\n\n---\n\nTABLES:\n1. Output the table title on its own line in bold: **Table X — Title**\n2. Reproduce EVERY row and EVERY column — no omissions. Every row starts and ends with | pipe characters.\n3. After the header row output a separator: | --- | --- | --- |\n4. Prefix each row that directly answers the question with >>: >> | cell | cell | cell |\n   The >> appears ONCE at the row start only — do NOT repeat before each cell.\n5. Do NOT wrap tables in > blockquote syntax.\n6. Place ONE citation on its own line IMMEDIATELY BEFORE the table title.\n7. If the table spans multiple pages, combine ALL parts into one complete table.\n8. Any notes relating to the table (e.g. footnotes, qualifications) must appear as plain italic text BELOW the table — never inside the table as rows.\n9. If multiple documents contain near-identical tables: reproduce only the most complete version, then note as plain italic text below: *Note: [Other Document] Table X contains equivalent data. [Note any meaningful differences.]*\n10. Remove all PDF artefacts from table cells: strip any notation like $^{1}$, $^{(1)}$, ^{1}, or similar superscript markers. Footnote references in cells should be omitted entirely.\n\n---\n\nRESPONSE FORMAT — always in this exact order:\n\n## Summary\n\nAnswer the question directly. Do not describe the regulatory framework, explain what factors determine the answer, or say 'it depends' — just state what the regulations require. Write as if summarising the answer for a colleague: the key requirements, the applicable standards, the most important facts. No preamble, no explanation of the question, no meta-commentary. No specific dimensions or thresholds — those go in the Practical Conclusion. No inline quotes, no citation headers, no verbatim extracts.\nIf a table would help summarise the answer, create a single synthesised summary table that collates the key figures (e.g. all applicable dimensions, heights, or classifications) from your full analysis into one clear table. Do NOT reproduce a source document table — this must be your own synthesised overview. No citation before or after it. No notes. Keep it simple and direct.\n\n## Detailed Analysis\n\nBefore writing any citation block, apply this test: does this clause contain a specific, actionable requirement directly relevant to the question — a dimension, gradient, tolerance, classification, or explicit rule? If the clause text is a generic duty statement (e.g. "shall be suitable for intended use", "shall be adequate for the location", "shall be designed in accordance with relevant codes") with no specific data, omit it entirely. Only cite clauses that would change or inform a specific design decision.\n\nGroup all citations by source document. For each document that has relevant content, output a document group header on its own line:\n### Document Name (use the exact filename as it appears in the source documents)\n\nAll citation blocks for that document must appear immediately under its group header. Do not interleave citations from different documents — complete all citations for one document before starting the next.\n\nFor each citation block within a group:\n\nPART 1 — Citation header (one line):\n*Document Name | Section title*\n\nPART 2 — Full verbatim text:\nReproduce the complete relevant paragraph(s) or clause(s) exactly as written in the source. If multiple paragraphs from the same section are relevant, reproduce them together here. Do not paraphrase, do not truncate, do not add speech marks.\n\nPART 3 — Explanation (only if needed):\n*Brief italic explanation if the relevance to the question is not immediately obvious.*\n\nPART 4 — Figure note (only if a diagram, figure, or image on this page directly illustrates the clause):\n*See Fig. X.X — [one phrase describing what the figure shows]*\n\nDo not repeat information already covered in the Summary or in a previous citation block. If a clause states the same dimension, height, or requirement already cited earlier, skip it — cite only the most specific or primary source for each requirement. Omit clauses that are purely cross-references to another document — i.e. clauses whose sole content is directing the reader elsewhere, with no specific dimensions, requirements, or guidance of their own. If a clause contains even one concrete requirement alongside a cross-reference, include only the concrete requirement. Also omit introductory and document-relationship clauses — e.g. clauses explaining which documents apply together, describing the scope or structure of the document, or stating how volumes relate to each other. These typically appear in introductory sections (numbered 0.x) and contain phrases like "should be read in conjunction with", "this volume covers", or "applies to new dwellings". They add no design guidance. The test: would omitting this clause change a specific design decision? If not, omit it. Treat all sub-clauses of the same parent section as one location — do not create separate blocks for 5.3.7 and 5.3.7.4, or for 9.3.4 and 9.3.4.1. Combine all relevant sub-clauses under the parent section heading.\n\n## Contradictions & Conflicts\n\nA critical analysis of apparent contradictions between the extracted documents. Where conflicts exist, examine them substantively: quote both sides with citations, explain the nature of the conflict, and give a practical resolution. If genuinely no conflicts: "No contradictions identified."\n\n## Practical Conclusion\n\nA short, condensed follow-on to the Summary — this is where the specific numbers go. List only the key dimensions, thresholds, and practical requirements an architect needs to apply this guidance. Keep it brief: a short paragraph or a tight list of the most critical specifics only. Do NOT reproduce or paraphrase the Detailed Analysis — this is a concise conclusion, not a summary of the evidence. No citations. No document names. No section references. No explanation.\n\n---\n\nCITATION RULES:\n- Format: *Document Name | Clause number and title* — must start AND end with a single *\n- Document Name MUST be the exact filename as it appears in the document pages provided — do not paraphrase or invent a name\n- Always on its own line, never embedded within a sentence\n- Always placed BEFORE the content it supports\n- One citation block per unique source location — never repeat the same citation header\n- Treat parent sections and their sub-clauses as one location: combine them into a single block under the parent heading\n- If multiple clauses from the same document address the same requirement, combine them under one citation block — do not create a separate block per clause number\n- Draw from ALL provided documents — never rely on just one`;
+      const answerPrompt = buildAnswerPrompt({ tempDoc, contextBlock, q, focusSections });
       // Approximate Pass 3 request size — logged client-side so the number survives
       // even when the server crashes mid-request. Gemini's hard cap is ~20 MB.
       const pass3Bytes = docBlocks.reduce((n, b) => n + (b.source?.data?.length || 0), 0) + answerPrompt.length;
       console.log(`[Pass3] Sending ~${(pass3Bytes / 1048576).toFixed(1)} MB to the answer model (${docBlocks.length} document blocks)`);
 
       const { text: finalAnswer, usage: answerUsage } = await withRetry(
-        () => callClaude(
+        () => askGemini(
           [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
           `You are an expert building regulations consultant writing for architectural specialists. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Contradictions & Conflicts, (4) ## Practical Conclusion. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. In Detailed Analysis, start each document's citations with a ### Document Name header on its own line and group ALL citations from that document together before moving to the next. Draw from ALL provided documents.`,
           65536, 0, "gemini-2.5-flash"
@@ -1368,121 +1104,6 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
   // Uses the index stored when the last question was answered — the authoritative
   // source of page numbers (from mupdf [Page X] markers, not Gemini estimates).
   // Four matching levels tried in order; first hit wins.
-  const findPageInVaultIndex = (fileName, headingText) => {
-    if (!lastAnswerIndex?.documents || !headingText) return null;
-    const stripPdf = s => (s || "").replace(/\.pdf$/i, "").trim();
-    const indexDoc = lastAnswerIndex.documents.find(d => {
-      const dn = stripPdf(d.name).toLowerCase();
-      const fn = stripPdf(fileName).toLowerCase();
-      return dn === fn || dn.includes(fn) || fn.includes(dn);
-    });
-    if (!indexDoc?.headings?.length) return null;
-
-    // Type-aware candidate set: a citation for "Diagram 3.1" must only match
-    // index headings that are themselves a Diagram/Table/Figure — never plain
-    // section "3.1", which starts on a different page. Citations without a
-    // type word skip diagram/table/figure headings for the same reason.
-    // diagram/figure/fig are treated as one type (documents vary in naming).
-    const typeOf = (s, anchored) => {
-      const m = (s || "").match(anchored ? /^\s*(diagram|table|figure|fig)\b/i : /\b(diagram|table|figure|fig)\b/i);
-      if (!m) return null;
-      const t = m[1].toLowerCase();
-      return t === "table" ? "table" : "figure";
-    };
-    const citType = typeOf(headingText, false);
-    const candidates = indexDoc.headings.filter(h => typeOf(h.title, true) === citType);
-    if (!candidates.length) return null;
-
-    // Level 1: exact case-insensitive match
-    const target = headingText.toLowerCase().trim();
-    let h = candidates.find(h => h.title.toLowerCase().trim() === target);
-    if (h?.pageHint) return h.pageHint;
-
-    // Level 2: normalised match — keep dots (preserves "5.3"), strip other special chars
-    const norm = s => s.toLowerCase().replace(/[^a-z0-9.\s]/g, " ").replace(/\s+/g, " ").trim();
-    const nt = norm(headingText);
-    h = candidates.find(h => norm(h.title) === nt);
-    if (h?.pageHint) return h.pageHint;
-
-    // Level 3: clause number prefix match — "5.3", "B3", "K2", "AD-B3" etc.
-    const cnMatch = headingText.match(/\b([A-Z]?\d[\d.]*[A-Za-z]?)\b/i);
-    if (cnMatch) {
-      const cn = cnMatch[1].toLowerCase();
-      h = candidates.find(h => {
-        const m = h.title.match(/\b([A-Z]?\d[\d.]*[A-Za-z]?)\b/i);
-        return m && m[1].toLowerCase() === cn;
-      });
-      if (h?.pageHint) return h.pageHint;
-    }
-
-    // Level 4: all significant words (>3 chars) appear in the vault heading
-    const sigWords = s => s.toLowerCase().replace(/[^a-z\s]/g, "").split(/\s+/).filter(w => w.length > 3);
-    const tw = sigWords(headingText);
-    if (tw.length >= 2) {
-      h = candidates.find(h => {
-        const hw = sigWords(h.title);
-        return tw.every(w => hw.includes(w));
-      });
-      if (h?.pageHint) return h.pageHint;
-    }
-
-    return null;
-  };
-
-  // ── Find the exact page of a numbered clause by searching the document text ───
-  // Paragraph numbers (3.36, 5.3.7, B1) are unique within a document, unlike
-  // headings — Approved Documents repeat near-identical headings across chapters
-  // (e.g. "Sanitary facilities — General provisions" in both M4(2) and M4(3)).
-  // Searching the real text for the line that starts with the clause number gives
-  // the definitive page. Text is fetched once per document and cached.
-  const findPageByClauseNumber = async (base64, fileName, headingText) => {
-    if (!headingText) return null;
-    // Skip diagram/table/figure citations — the type-aware index lookup handles those
-    if (/\b(diagram|table|figure|fig)\b/i.test(headingText)) return null;
-    // Clause number must be dotted (3.36, 5.3.7) or letter+digits (B1, K2) —
-    // bare integers like "2" are too ambiguous to search for, and category
-    // references like "M4(2)" are excluded (the bracket is part of the name)
-    const cnMatch = headingText.match(/\b(\d+(?:\.\d+)+|[A-Z]\d+(?!\())\b/);
-    if (!cnMatch) return null;
-    const clause = cnMatch[1];
-
-    let pages = docTextCacheRef.current[fileName];
-    if (!pages) {
-      const { text, hasText } = await api("/api/extract-text", { method: "POST", body: { base64 } });
-      if (!hasText || !text) return null;
-      pages = text.split(/(?=\[Page \d+\])/).map(chunk => {
-        const m = chunk.match(/^\[Page (\d+)\]/);
-        return m ? { page: Number(m[1]), text: chunk } : null;
-      }).filter(Boolean);
-      docTextCacheRef.current[fileName] = pages;
-    }
-
-    // Line-anchored match: the clause number at the start of a line, not followed
-    // by further digits or dots (so "3.3" never matches "3.36" or "3.3.1")
-    const escaped = clause.replace(/\./g, "\\.");
-    const clauseRe = new RegExp(`(^|\\n)\\s*${escaped}(?![\\d.])`);
-
-    // A clause number can appear at a line start on several pages. The first one is
-    // often a reference/contents table that LISTS the clause rather than the page
-    // that DEFINES it — e.g. NHBC chapters open with a "Figure Reference Table" that
-    // packs dozens of clause numbers (one per line) onto a single page, which sits
-    // before the real clause. mupdf linearises that table cell-by-cell, so every
-    // clause number lands at a line start there. The real clause page is sparse, so
-    // among the matching pages pick the one with the FEWEST clause-style numbers.
-    // Ties keep the earliest page (the original "first match" behaviour). This leaves
-    // Approved Documents unchanged — they have no such dense tables (density 0).
-    const clauseToken = /\d+(?:\.\d+){2,}/g;
-    const matches = pages.filter(p => clauseRe.test(p.text));
-    if (matches.length === 0) return null;
-    let best = matches[0];
-    let bestDensity = (best.text.match(clauseToken) || []).length;
-    for (const p of matches.slice(1)) {
-      const density = (p.text.match(clauseToken) || []).length;
-      if (density < bestDensity) { best = p; bestDensity = density; }
-    }
-    return best.page;
-  };
-
   // ── Open PDF viewer at page from citation ────────────────────────────────────
   const handleCitationClick = async (docName, rawHeading) => {
     // Gemini embeds the exact page number in citations: "Clause 5.3 [p.12]"
@@ -1526,11 +1147,11 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
       if (!base64) { alert("Could not load the PDF."); return; }
       let clausePage = null;
       try {
-        clausePage = await findPageByClauseNumber(base64, resolved.fileName, heading);
+        clausePage = await findPageByClauseNumber(base64, resolved.fileName, heading, docTextCacheRef);
       } catch (e) {
         console.warn("Clause-number page search failed, falling back to index:", e.message);
       }
-      const indexPage = findPageInVaultIndex(resolved.fileName, heading);
+      const indexPage = findPageInVaultIndex(resolved.fileName, heading, lastAnswerIndex);
       setCitationViewer({ base64, fileName: resolved.fileName, page: clausePage || indexPage || explicitPage || resolved.page || 1, heading });
     } catch (e) {
       alert("Failed to load PDF: " + e.message);

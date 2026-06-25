@@ -12,13 +12,13 @@ XSS fix in PDF viewer, 82 error-leak routes standardised, duplicate CORS removed
 
 ## Parked refactoring items
 
-- **B3** Rate limiter (`server/index.js` ~line 64) — plain `Map`, resets on Railway restart. Fix: `express-rate-limit` or Redis.
+- **B3** Rate limiter — plain in-memory `Map`. 2026-06-23: added a 10-min eviction sweep (`_rateLimitSweep`, `.unref()`) so it can't grow unbounded; still resets on restart and isn't shared across instances (use `express-rate-limit`/Redis only if you scale to multiple instances).
 - **B6** No PDF magic byte check on upload — add `if (buffer.slice(0,4).toString() !== "%PDF")` check after base64 decode.
-- **C1** `callClaude` misnamed (calls Gemini) — ~30 call sites. Rename in a dedicated session, not mid-feature.
+- **C1** ✅ DONE (2026-06-23): `callClaude` renamed to `askGemini` across all 23 references (client only; the `/api/claude` route name is unchanged).
 - **C4** `api()`/`apiBlob()` duplicate auth logic — extract shared `authorisedFetch()` base.
-- **D1** App.js god component (1,800+ lines) — split into `AuthContext`, `VaultContext`, `useQA`, `useVaultPdfs`.
-- **D2** ProjectsSection.jsx (3,700+ lines) — split into one file per tab.
-- **D3** server/index.js (5,300+ lines) — split into `routes/`, `middleware/`, `helpers/`.
+- **D1** App.js god component — PARTIAL (2026-06-24): App.js 2,195 → 1,817 lines. Extracted the **safe, separable** pieces: `VaultPdfViewer` → `components/VaultPdfViewer.jsx`; the Pass-3 prompt → `prompts.js` (`buildAnswerPrompt`); auth → `hooks/useAuth.js` (handleSignOut stayed — it resets app-wide state); citation page-resolution → `citations.js` (`findPageInVaultIndex`/`findPageByClauseNumber`, parametrized). **Deliberately NOT extracted:** the vault-management + indexing + `askQuestion` Q&A orchestration. They share `statusMsg`/`progress`/`stage` state, so they're one coupled subsystem — splitting into separate hooks would force two hooks to share `useState`. Left in App.js to protect the pipeline (Nathan's call). Prompt + citation changes were staging-tested (answers/citation pages unchanged). Build verified via `CI=false node node_modules/react-scripts/bin/react-scripts.js build`; hook/component cross-refs checked for `no-undef` (the build does NOT fail on an undefined-but-rendered component).
+- **D2** ✅ DONE (2026-06-24): ProjectsSection.jsx (was ~3,985 lines) split into `client/src/components/projects/` — one file per component (`ProjectDetail`, tabs `DrawingsTab`/`DocumentsTab`/`ProductsTab`/`emails`/`TransmittalTab`/`PlaceholderTab`, `QABar`, plus leaf components `EditableField`/`ProjectCard`/`NewProjectForm`/`DrawingRow`/`PdfViewerModal`/`badges`) + shared `toast.js` (module-level dispatcher) and `projectHelpers.js`. `ProjectsSection.jsx` is now a ~110-line shell (project list + `ProjectDetail`). Verbatim moves; client build compiles green. ⚠️ `QABar` calls `askGemini` (project Q&A) — staging-test it. Verify component cross-references on any future split: the build does NOT flag an undefined-but-rendered component (caught one: `DrawingsTab` rendered `<TransmittalTab>` without importing it).
+- **D3** ✅ DONE (2026-06-24): server/index.js (was ~6,100 lines) split into `routes/` (one router per domain), `middleware/` (auth, rateLimit), and `helpers/` (clients, email, r2, gemini, serverError, schedulers). `index.js` is now ~160 lines (app setup + `/api/claude` + router mounts + schedulers). All moves were verbatim — behaviour unchanged. The projects domain was further sub-split: `routes/projects.js` (core: CRUD, consultants, u-values, notes, todos, transmittals/revisions, categories, project-products) and **`routes/projectsAi.js`** (the Gemini/embedding sub-features: drawing content search, agreement extract/ask, email ingest/ask/search/reembed — **staging-test these when refining Projects**).
 - **D4** Vaults not DB-backed — R2 ListObjects on every load. Future: add `vaults` Supabase table.
 
 ---
@@ -120,6 +120,20 @@ All client data access goes through the server (service key, bypasses RLS); the 
 
 ---
 
+### Pre-launch timesheets/expenses batch (2026-06-23, live on main)
+
+Specs/plans: `docs/superpowers/specs/2026-06-23-timesheets-expenses-prelaunch-tweaks-design.md`, `docs/superpowers/plans/2026-06-23-searchable-project-picker.md`, `…-expense-claims.md`.
+
+- **Searchable project picker** — `client/src/components/ProjectPicker.jsx` replaces the old `<select>` everywhere projects are chosen (timesheet rows, expenses form, quick-fill). Type-to-search on job number + name; recently-used pinned top via `GET /api/timesheets/recent-projects` (pure helper `server/lib/recentProjects.js`). Categories moved to `client/src/categories.js` (now 11 labels incl. Maternity/Paternity/Compassionate/Medical/Unpaid/Unauthorised/Other), reached via an "Other" bar (pass `hideOther` for projects-only, as the expenses form does). Categories are **labels only** — no pay/allowance logic.
+- **Per-row Full day / Half day** buttons on every entry row (`DayShortcut`) — set that row's time worked to 7h30 / 3h45. Presentational; the day-level quick-fill is unchanged.
+- **Daily 7.5h cap (NEW INVARIANT — do not regress):** a single day's **time worked** (overtime EXCLUDED) must not exceed **7h 30m**. Client shows a per-day warning + **blocks the week's Submit**; server **rejects** an over-cap week in `POST /api/timesheets/submit`. Pure helper + tests: `server/lib/timesheetValidation.js` (`daysOverCap`). Excess belongs in Overtime.
+- **Overtime now allowed on ALL rows (REVERSES the old "overtime is project-only" rule):** every entry row (project *and* category) has overtime fields; switching to a category no longer clears overtime. Overtime is still tracked separately and excluded from the daily cap and weekly total.
+- **Expense claims (replaces one-at-a-time expenses):** new `expense_claims` table (RLS **deny-all**, server-only — never add a permissive policy); `project_expenses.claim_id` links line items. Lifecycle `draft → submitted → approved | rejected` (claim owns status; per-expense `status/reviewed_*` columns are now legacy/unused). Staff build a draft claim (`ExpensesTab.jsx`) and submit once; admin approves/rejects the **whole claim** (`AdminExpensesPanel`). Endpoints under `/api/expense-claims` (staff) and `/api/admin/expense-claims` (admin). On submit, admins get **one PDF** (summary + each receipt on its own page) via `server/lib/expenseClaimPdf.js` (pdf-lib; JPG/PNG embedded, PDF merged, **HEIC/WEBP attached separately**). Admin PDF at `GET /api/admin/expense-claims/:id/pdf`. All prior expense data was test data, cleared at migration.
+- **Admin password generator (Option A — show once, never stored):** `server/lib/passwordGen.js` (two construction words + letter→digit swaps, all lowercase). `GET /api/admin/suggest-password` fills the new-user field; `POST /api/admin/users/:uid/password` resets an existing user and returns the new password once.
+- **Cleanup/audit:** removed the dead `GET /api/expenses` (staff list), `GET /api/admin/expenses`, per-expense admin approve/reject + `notifyExpenseDecision` (superseded by claims). Added a periodic eviction sweep to the in-memory `rateLimitMap`. Audit confirmed every `/api` route is `requireAuth` except the intentional public `GET /api/shared-answers/:id`; client uses Supabase for auth only (RLS lockdown intact); no hardcoded secrets.
+
+---
+
 ## Outstanding issues (as of 2026-06-19)
 
 1. **Clause-number citation can hit a cross-reference** (LOW, accepted) — `findPageByClauseNumber` opens the first page where a line starts with the clause number; occasionally a cross-reference/table entry. Future fix: prefer match followed by sentence text, or nearest the section's vault-index heading.
@@ -127,5 +141,6 @@ All client data access goes through the server (service key, bypasses RLS); the 
 3. **Wide table extraction** (KNOWN LIMITATION) — mupdf linearises text, loses column structure.
 4. **Email work** (PARKED) — summaries not stored in DB; relevance threshold (0.35) needs tuning.
 5. **Timesheets follow-up** (deferred) — the unlock-*granted* email still isn't sent (only the 5 routed events).
+6. **Vault Q&A misses definitions on appendix pages** (TO INVESTIGATE, flagged 2026-06-24) — a definition lookup returned no answer when the term is defined on an **appendix page** of the document. Likely a coverage gap: appendix pages/headings may not be surfaced by the Pass-1 heading index, not pulled into Pass-2 page extraction, or not indexed at all. Pipeline-sensitive — diagnose **evidence-first on the real document** (reproduce extraction with the repo's mupdf, per `reference_mupdf_local_diagnostics`), confirm root cause before any change, and **staging-test before main**.
 
 _Closed 2026-06-19: PDF Compare (Revit schedule test passed) and stale Approved-Doc vault re-indexing — both previously items 1 & 3._

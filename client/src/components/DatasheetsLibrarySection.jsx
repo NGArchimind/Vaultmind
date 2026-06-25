@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { api, callClaude, fileToBase64 } from "../api/client";
+import { api, askGemini, fileToBase64 } from "../api/client";
 import AnswerRenderer from "./common/AnswerRenderer";
 import { Spinner } from "./common/Spinner";
 import { DESIGN_GROUND, DESIGN_TEXT, LIBRARY_FULL, COMPARE_FULL, isBoilerplate } from "../constants";
@@ -278,7 +278,7 @@ Return ONLY a JSON object in this exact format — no preamble, no markdown:
 
 Extract every relevant technical attribute: dimensions, weights, thermal values, fire ratings, acoustic ratings, compressive strength, standards compliance, certifications, installation requirements. No marketing language. If a value has a unit separate it into the unit field.`;
 
-      const result = await callClaude(
+      const result = await askGemini(
         [{ role: "user", content: [
           { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
           { type: "text", text: extractionPrompt }
@@ -535,7 +535,7 @@ Rules: probability > 0.5 only, pageHint must be integer, pure JSON only.`;
 
       let scoring = { selectedDocs: [] };
       try {
-        const { text: scoringText } = await callClaude(
+        const { text: scoringText } = await askGemini(
           [{ role: "user", content: scoringPrompt }],
           "You are a technical document analyst. Return pure JSON only.",
           8000, 2, "gemini-2.5-flash-lite"
@@ -675,7 +675,7 @@ Key clauses cited in this assessment.
 Use only the provided document pages. Do not speculate beyond what the documents state.`;
 
       try {
-        const { text: complianceText } = await callClaude(
+        const { text: complianceText } = await askGemini(
           [{ role: "user", content: [...docBlocks, { type: "text", text: compliancePrompt }] }],
           "You are a building regulations consultant. Be concise and direct. Use only the provided document pages.",
           65536, 2, "gemini-2.5-flash"

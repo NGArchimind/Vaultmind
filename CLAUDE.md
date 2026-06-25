@@ -12,11 +12,21 @@ Non-technical owner: Nathan (architect). Always ask before making code changes �
 ```
 Vaultmind/
 ├── client/          React (CRA) frontend — deployed on Vercel
-├── server/
-│   ├── index.js     Single-file Express backend — deployed on Railway
+├── server/          Express backend — deployed on Railway
+│   ├── index.js     Thin entry: app/CORS setup, /api/claude (Q&A proxy), mounts the routers, starts schedulers
+│   ├── routes/      One router per domain — vaults, products, projects, projectsAi
+│   │                (drawings/agreements/emails — Gemini), admin, taskBoard, timesheets,
+│   │                expenses, vaultHistory, quiz, sharedAnswers, schedule
+│   ├── middleware/  auth (requireAuth/requireAdmin/requireTimesheetManager), rateLimit
+│   ├── helpers/     clients (Supabase/R2), email, r2, gemini, serverError, schedulers
+│   ├── lib/         Pure-logic modules with node --test suites
 │   └── workers/
 │       └── extractPages.worker.js   mupdf page extraction (worker thread isolation)
 ```
+
+> The backend was split out of a single 6,000-line `index.js` (2026-06-24). Each `routes/<domain>.js`
+> exports an `express.Router()` mounted in `index.js` via `app.use(require("./routes/<domain>"))`; the route
+> paths inside still carry their full `/api/...` prefix. `/api/claude` (the core Q&A proxy) stays in `index.js`.
 
 **ArchiSync desktop app** lives at `C:\Users\ngree\Archimind\archimind-sync\archimind-sync` (separate repo — Electron + React, distributed as portable .exe).
 

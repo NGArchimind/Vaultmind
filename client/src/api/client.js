@@ -47,7 +47,7 @@ export function fileToBase64(file) {
 }
 
 // ── Gemini proxy call ─────────────────────────────────────────────────────────
-export async function callClaude(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash", timeoutMs = AI_TIMEOUT_MS, options = {}) {
+export async function askGemini(messages, systemPrompt, maxTokens = 1000, retries = 2, model = "gemini-2.5-flash", timeoutMs = AI_TIMEOUT_MS, options = {}) {
   const token = await getAuthToken();
   const headers = { "Content-Type": "application/json" };
   if (token) headers["Authorization"] = `Bearer ${token}`;
@@ -72,11 +72,11 @@ export async function callClaude(messages, systemPrompt, maxTokens = 1000, retri
 
   if (res.status === 429 && retries > 0) {
     await new Promise(r => setTimeout(r, AI_RETRY_DELAY_429));
-    return callClaude(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs, options);
+    return askGemini(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs, options);
   }
   if ((res.status === 504 || res.status === 502) && retries > 0) {
     await new Promise(r => setTimeout(r, AI_RETRY_DELAY_502));
-    return callClaude(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs, options);
+    return askGemini(messages, systemPrompt, maxTokens, retries - 1, model, timeoutMs, options);
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
