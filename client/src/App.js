@@ -711,6 +711,10 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
       // text for "General …" heading lines and includes those pages automatically.
       // Titles are collected here and added to PRIORITY SECTIONS so Pass 3 reads them.
       const generalSectionTitles = []; // "docName: title (p.X)"
+      // Appendix definitions (glossary) — found server-side by the extract-pages
+      // worker's appendix scan, force-included like general provisions and listed
+      // in PRIORITY SECTIONS so Pass 3 reads the definitions.
+      const appendixSectionTitles = []; // "docName: title (p.X)"
 
       // ── Replace Gemini page estimates with accurate vault-index page numbers ─────
       // The vault index stores physical [Page X] numbers from mupdf — far more
@@ -953,10 +957,13 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
         const pageList = [...orderedPages].sort((a, b) => a - b);
         if (pageList.length === 0) continue;
         try {
-          const result = await api("/api/extract-pages", { method: "POST", body: { base64: contentsDoc.base64, pages: pageList, scanGeneral: true } });
+          const result = await api("/api/extract-pages", { method: "POST", body: { base64: contentsDoc.base64, pages: pageList, scanGeneral: true, scanAppendix: true } });
           totalPagesExtracted += result.pagesExtracted;
           (result.generalSections || []).forEach(gs => {
             generalSectionTitles.push(`${docName}: ${gs.title} (p.${gs.page})`);
+          });
+          (result.appendixSections || []).forEach(as => {
+            appendixSectionTitles.push(`${docName}: ${as.title} (p.${as.page})`);
           });
           extractionMeta.push({ blockIdx: docBlocks.length, docName, contentsDoc, orderedPages });
           docBlocks.push({
@@ -994,7 +1001,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
           if (keep >= meta.orderedPages.length) continue;
           const trimmedPages = meta.orderedPages.slice(0, keep);
           try {
-            const r = await api("/api/extract-pages", { method: "POST", body: { base64: meta.contentsDoc.base64, pages: [...trimmedPages].sort((a, b) => a - b), scanGeneral: true } });
+            const r = await api("/api/extract-pages", { method: "POST", body: { base64: meta.contentsDoc.base64, pages: [...trimmedPages].sort((a, b) => a - b), scanGeneral: true, scanAppendix: true } });
             console.log(`[Pass3] Trimmed "${meta.docName}" ${meta.orderedPages.length} → ${r.pageNumbers.length} pages to fit the size limit`);
             meta.orderedPages = trimmedPages;
             docBlocks[meta.blockIdx] = {
@@ -1017,7 +1024,8 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
 
       const focusSections = [
         ...(scoring.selectedDocs || []).flatMap(d => (d.sections || []).map(s => `${d.docName}: ${s.heading} (p.${s.pageHint})`)),
-        ...generalSectionTitles
+        ...generalSectionTitles,
+        ...appendixSectionTitles
       ].join("; ");
 
       const priorContext = conversationHistory.slice(-5);
