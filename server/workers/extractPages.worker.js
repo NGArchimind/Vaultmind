@@ -1,7 +1,7 @@
 const { workerData, parentPort } = require("worker_threads");
 
 async function run() {
-  const { pdfBuffer, pageList, scanGeneral } = workerData;
+  const { pdfBuffer, pageList, scanGeneral, scanAppendix } = workerData;
   const mupdf = await import("mupdf");
   const srcDoc = new mupdf.PDFDocument(pdfBuffer);
   const totalPages = srcDoc.countPages();
@@ -21,12 +21,12 @@ async function run() {
   // wording. Hits are kept if they belong to the same CHAPTER as a requested
   // page (see chapter detection below) and capped so the Gemini request can
   // never balloon past its size limit.
-  const generalSections = [];
-  if (scanGeneral) {
-    const GENERAL_PAGE_CAP = 12;
-    const headingTextRe = /^(?:\d+(?:\.\d+)*\s+)?(?:General|GENERAL)\b[^\r\n]{0,40}(?<![\d.])$/;
-
-    // Collect every text line with its font info; track size frequency
+  // ── Shared line collection (font-aware) ──────────────────────────────────────
+  // Both the General provisions scan and the appendix-definitions scan need every
+  // text line with its font info plus the document's body-text size. Built once,
+  // only when a scan is requested.
+  let scanLines = null, scanBodySize = 10;
+  if (scanGeneral || scanAppendix) {
     const allLines = []; // { page, text, size, bold }
     const sizeFreq = {};
     for (let i = 0; i < totalPages; i++) {
@@ -46,12 +46,22 @@ async function run() {
         }
       }
     }
-
     // Body text size = the most common line size in the document
     let bodySize = 10, bestCount = 0;
     for (const [k, n] of Object.entries(sizeFreq)) {
       if (n > bestCount) { bestCount = n; bodySize = Number(k); }
     }
+    scanLines = allLines;
+    scanBodySize = bodySize;
+  }
+
+  const generalSections = [];
+  if (scanGeneral) {
+    const GENERAL_PAGE_CAP = 12;
+    const headingTextRe = /^(?:\d+(?:\.\d+)*\s+)?(?:General|GENERAL)\b[^\r\n]{0,40}(?<![\d.])$/;
+
+    const allLines = scanLines;
+    const bodySize = scanBodySize;
 
     // RELEVANCE RULE — same chapter, not nearby pages. Documents like AD Part B
     // and AD Part M have a "General provisions" per chapter/category; the one
@@ -143,6 +153,23 @@ async function run() {
     generalSections.sort((a, b) => a.page - b.page);
   }
 
+  // ── Appendix definitions scan ────────────────────────────────────────────────
+  // Defined terms in a glossary appendix (e.g. "Appendix A: Key terms") read as
+  // body text, so the vault index never captures them — leaving definitions
+  // invisible to the pipeline. Find that appendix in the live text and force its
+  // pages into the extraction set, exactly as the General provisions scan does.
+  const appendixSections = [];
+  if (scanAppendix && scanLines) {
+    const { findAppendixDefinitionPages } = require("../lib/appendixScan");
+    const { pages, sections } = findAppendixDefinitionPages({
+      lines: scanLines,
+      bodySize: scanBodySize,
+      totalPages,
+    });
+    for (const p of pages) if (p > 0 && p <= totalPages) pageSet.add(p);
+    appendixSections.push(...sections);
+  }
+
   const mergedPages = [...pageSet].sort((a, b) => a - b);
   if (mergedPages.length === 0) {
     parentPort.postMessage({ error: "no-valid-pages" });
@@ -159,6 +186,7 @@ async function run() {
     pagesExtracted: mergedPages.length,
     pageNumbers: mergedPages,
     generalSections,
+    appendixSections,
   });
 }
 
