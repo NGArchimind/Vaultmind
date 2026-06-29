@@ -144,3 +144,26 @@ Specs/plans: `docs/superpowers/specs/2026-06-23-timesheets-expenses-prelaunch-tw
 6. **Vault Q&A misses definitions on appendix pages** (TO INVESTIGATE, flagged 2026-06-24) — a definition lookup returned no answer when the term is defined on an **appendix page** of the document. Likely a coverage gap: appendix pages/headings may not be surfaced by the Pass-1 heading index, not pulled into Pass-2 page extraction, or not indexed at all. Pipeline-sensitive — diagnose **evidence-first on the real document** (reproduce extraction with the repo's mupdf, per `reference_mupdf_local_diagnostics`), confirm root cause before any change, and **staging-test before main**.
 
 _Closed 2026-06-19: PDF Compare (Revit schedule test passed) and stale Approved-Doc vault re-indexing — both previously items 1 & 3._
+
+---
+
+## Launch readiness review backlog (flagged 2026-06-25, review post-launch)
+
+Raised in a pre-launch security/business review. Nathan chose to **defer these and review later** — none block the initial internal launch. Grouped by lens.
+
+**Security / operational**
+1. **Public share endpoint `id` type** — confirm `shared_answers.id` in Supabase is a `uuid` (unguessable), not a sequential integer. The public `GET /api/shared-answers/:id` (no auth) returns only `question`/`answer`/`vault_name` and 404s unless a future `expires_at` is set, so exposure is bounded — but a sequential id would let logged-out users enumerate non-expired shares. Also confirm the `expires_at` DB default (the insert never sets it). UUID = proper fix.
+2. **AI spend cap** — `/api/claude` is per-user rate-limited (20/min) and model-allowlisted, but rate limits cap *burst*, not *monthly spend*. Set a **Google Cloud billing budget + alert** (and a Railway usage alert) on the `GEMINI_API_KEY` project. Optionally audit rate-limit coverage on the secondary Gemini routes (`projectsAi` drawing/agreement/email, `quiz`, `schedule`) — all login-gated, mixed limits.
+3. **Single-instance assumptions** — the in-memory rate limiter and the in-server reminder/HR-report schedulers assume one Railway instance. Keep Railway pinned to a single instance, or move to a shared store (Redis/DB) before scaling out.
+4. **PDF upload magic-byte check (B6, still open)** — vault PDF uploads lack a `%PDF` header check.
+5. **`npm audit`** on client + server (note: server commits `node_modules`).
+6. **Monitoring** — no error tracking/uptime alerting; a Railway crash (502 / missing CORS) is currently noticed only via user complaint. Consider Sentry + an uptime check.
+
+**Config to confirm (dashboards)**
+7. **Supabase Auth → URL Configuration** — Site URL + redirect allow-list must be `archimind.co.uk`, not an old `*.vercel.app`, or password-reset / email-confirmation links break.
+8. **Backups** — Supabase is on the **free tier → backups unavailable** (Nathan, 2026-06-25); enable daily backups / PITR **if/when upgraded to Pro** (timesheets/expenses are payroll-adjacent). **R2 holds nothing important yet** (Nathan) — revisit versioning / lifecycle rules when real client PDFs live there.
+
+**Business / legal (needs a specialist, not code)**
+9. **Confidentiality → Google Gemini** — Q&A *and* embeddings send document text to the **AI Studio developer API** (`generativelanguage.googleapis.com`, `x-goog-api-key`). On that API, *free tier* content may be used for product improvement and human-reviewed; *paid tier* = no training, limited retention. **Confirm the `GEMINI_API_KEY` project has billing enabled (paid tier).** For the strongest confidential posture (DPA, contractual no-training, data residency) consider **Vertex AI** (`aiplatform.googleapis.com`). Note: RAG is *not* a privacy mechanism — retrieved page text is transmitted to Google on every question.
+10. **UK GDPR** — holding staff personal data (timesheets/expenses/emails) + client-confidential project material; needs a privacy notice, lawful basis, retention policy, and documented sub-processors (Supabase / Railway / Cloudflare / Google / Resend).
+11. **Professional liability** — the AI gives building-regs guidance with known limits (cross-reference citation pages, wide-table extraction, etc.); add a visible "assistant — verify against the source" disclaimer, and check PI insurance + content licensing (e.g. NHBC standards).
