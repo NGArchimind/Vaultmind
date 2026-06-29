@@ -24,10 +24,12 @@ export default function ProjectsSection({ isAdmin }) {
 
   useEffect(() => { loadProjects(); }, []);
 
-  async function loadProjects() {
-    setLoading(true);
+  // silent = background refresh (e.g. returning from a project after an edit) —
+  // skip the loading spinner so the list updates without a flicker.
+  async function loadProjects(silent = false) {
+    if (!silent) setLoading(true);
     try { const { projects: data } = await api("/api/projects"); setProjects(data || []); } catch (e) { console.error(e); showToast("Failed to load projects"); }
-    setLoading(false);
+    if (!silent) setLoading(false);
   }
 
   async function createProject(form) {
@@ -46,7 +48,7 @@ export default function ProjectsSection({ isAdmin }) {
           <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Projects</span>
           <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— Practice Management</span>
         </div>
-        <ProjectDetail projectId={selectedId} onBack={() => setSelectedId(null)} isAdmin={isAdmin} />
+        <ProjectDetail projectId={selectedId} onBack={() => { setSelectedId(null); loadProjects(true); }} isAdmin={isAdmin} />
       </div>
     );
   }
