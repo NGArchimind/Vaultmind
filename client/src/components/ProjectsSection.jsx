@@ -24,10 +24,12 @@ export default function ProjectsSection({ isAdmin }) {
 
   useEffect(() => { loadProjects(); }, []);
 
-  async function loadProjects() {
-    setLoading(true);
+  // silent = background refresh (e.g. returning from a project after an edit) —
+  // skip the loading spinner so the list updates without a flicker.
+  async function loadProjects(silent = false) {
+    if (!silent) setLoading(true);
     try { const { projects: data } = await api("/api/projects"); setProjects(data || []); } catch (e) { console.error(e); showToast("Failed to load projects"); }
-    setLoading(false);
+    if (!silent) setLoading(false);
   }
 
   async function createProject(form) {
@@ -39,19 +41,41 @@ export default function ProjectsSection({ isAdmin }) {
     } catch (e) { console.error(e); showToast("Failed to create project"); }
   }
 
+  // Single toast element, rendered in BOTH the list and the project-detail views.
+  // (It used to live only in the list view, so messages raised from inside a
+  // project — e.g. a failed delete — were invisible.)
+  const toastEl = toast && (
+    <div style={{
+      position: "fixed", bottom: 24, right: 24, zIndex: 9999,
+      background: COMPARE_FULL, color: "#fff",
+      padding: "12px 20px", fontSize: 13,
+      fontFamily: "Inter, Arial, sans-serif",
+      boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+      maxWidth: 360, lineHeight: 1.5,
+      animation: "fadeIn 0.2s ease"
+    }}>
+      {toast}
+    </div>
+  );
+
   if (selectedId) {
     return (
       <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
+        {toastEl}
         <div style={{ background: PROJECTS_FULL, padding:"12px 40px", display:"flex", alignItems:"center", gap:12, flexShrink:0 }}>
           <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Projects</span>
           <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— Practice Management</span>
         </div>
-        <ProjectDetail projectId={selectedId} onBack={() => setSelectedId(null)} isAdmin={isAdmin} />
+        <ProjectDetail projectId={selectedId} onBack={() => { setSelectedId(null); loadProjects(true); }} isAdmin={isAdmin} />
       </div>
     );
   }
 
-  const filtered = projects.filter(p => filterStatus === "all" || p.status === filterStatus);
+  const filtered = projects.filter(p => {
+    if (filterStatus === "archived") return p.status === "archived";
+    if (p.status === "archived") return false;               // hide archived from every other view
+    return filterStatus === "all" || p.status === filterStatus;
+  });
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
@@ -59,19 +83,7 @@ export default function ProjectsSection({ isAdmin }) {
         <span style={{ fontSize:11, fontWeight:500, color:"#fff", letterSpacing:".16em", textTransform:"uppercase" }}>Projects</span>
         <span style={{ fontSize:9, fontWeight:500, color:"rgba(255,255,255,0.45)", letterSpacing:".14em", textTransform:"uppercase" }}>— Practice Management</span>
       </div>
-      {toast && (
-        <div style={{
-          position: "fixed", bottom: 24, right: 24, zIndex: 9999,
-          background: COMPARE_FULL, color: "#fff",
-          padding: "12px 20px", fontSize: 13,
-          fontFamily: "Inter, Arial, sans-serif",
-          boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
-          maxWidth: 360, lineHeight: 1.5,
-          animation: "fadeIn 0.2s ease"
-        }}>
-          {toast}
-        </div>
-      )}
+      {toastEl}
       <div style={{ background: "#ffffff", borderBottom: "1px solid #e8e0d5", padding: "20px 32px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
@@ -80,7 +92,7 @@ export default function ProjectsSection({ isAdmin }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ display: "flex", border: "1px solid #e8e0d5", overflow: "hidden" }}>
-              {["active","all","on-hold","complete"].map(s => (
+              {["active","all","on-hold","complete","archived"].map(s => (
                 <button key={s} className="btn" onClick={() => setFilterStatus(s)}
                   style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: filterStatus === s ? DESIGN_TEXT : "transparent", color: filterStatus === s ? "#fff" : "#9a9088", border: "none", borderRight: "1px solid #e8e0d5" }}>
                   {s === "on-hold" ? "On Hold" : s.charAt(0).toUpperCase() + s.slice(1)}
