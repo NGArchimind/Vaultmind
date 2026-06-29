@@ -16,6 +16,8 @@ const HALF_DAY       = { hours: 3, minutes: 45 };
 const DAY_CAP_MINS   = 7 * 60 + 30;  // 450 — max "time worked" (overtime excluded) per day
 const MIN_WEEK_MINS  = 37.5 * 60;  // 2250
 const OVER_WEEK_MINS = 45 * 60;    // 2700
+const LAUNCH_DATE    = "2026-07-01";  // timesheets go live — days before this are locked, and the launch week is exempt from the 37.5h minimum
+const isBeforeLaunch = (date) => date < LAUNCH_DATE;  // ISO YYYY-MM-DD strings compare lexically
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -292,7 +294,7 @@ function EntryRow({ entry, projects, recentIds = [], locked, onUpdate, onDelete 
 
 // ── Day card ───────────────────────────────────────────────────────────────────
 
-function DayCard({ dayLabel, date, entries, projects, recentIds, locked, onAdd, onUpdate, onDelete, onQuickFill, onDraftCreate }) {
+function DayCard({ dayLabel, date, entries, projects, recentIds, locked, preLaunch, onAdd, onUpdate, onDelete, onQuickFill, onDraftCreate }) {
   const dayTotal  = totalMins(entries);
   const hasReal   = entries.length > 0;
   const showDraft = !hasReal && !locked;
@@ -312,10 +314,15 @@ function DayCard({ dayLabel, date, entries, projects, recentIds, locked, onAdd, 
   });
 
   return (
-    <div style={{ border: "1px solid #dde4e8", background: "#fff", marginBottom: 10 }}>
+    <div style={{ border: "1px solid #dde4e8", background: preLaunch ? "#f3f5f6" : "#fff", marginBottom: 10, opacity: preLaunch ? 0.7 : 1 }}>
       {/* Day header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", background: DESIGN_GROUND, borderBottom: (hasReal || showDraft) ? "1px solid #dde4e8" : "none" }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT, flex: 1 }}>{dayLabel}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: preLaunch ? "#8a9aa8" : DESIGN_TEXT, flex: 1 }}>{dayLabel}</span>
+        {preLaunch && (
+          <span style={{ fontSize: 11, color: "#8a9aa8", fontStyle: "italic", letterSpacing: "0.04em" }}>
+            Before launch · 1 Jul 2026
+          </span>
+        )}
         {/* Quick-fill buttons */}
         {!locked && (
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -923,6 +930,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
     try {
       for (let di = 0; di < 5; di++) {
         const date = dateForDay(monday, di);
+        if (isBeforeLaunch(date)) continue; // never write to pre-launch (locked) days
         if (entries.some(e => e.entry_date === date)) continue; // skip days already filled
         const data = await api("/api/timesheets", {
           method: "POST",
@@ -968,6 +976,10 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
     return Object.keys(byDay).filter(d => byDay[d] > DAY_CAP_MINS).sort();
   })();
 
+  // The launch week (and any fully-past week) contains days before go-live, so it
+  // physically can't reach 37.5h — exempt it from the minimum-hours warning.
+  const weekHasPreLaunch = isoDate(monday) < LAUNCH_DATE;
+
   const handleSubmitClick = () => {
     if (overCapDays.length) {
       showToast("Some days are over the 7h 30m daily limit — move the extra to Overtime.");
@@ -980,7 +992,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
         message: `Your total for this week is ${formatMins(total)}, which is above 45 hours. Are you sure you want to submit?`,
         onConfirm: doSubmit,
       });
-    } else if (total < MIN_WEEK_MINS) {
+    } else if (total < MIN_WEEK_MINS && !weekHasPreLaunch) {
       setDialog({
         title: "Below minimum hours",
         message: `Your total for this week is ${formatMins(total)}, which is below the standard 37.5 hours. Are you sure you want to submit?`,
@@ -993,7 +1005,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
 
   const weekTotal  = totalMins(entries);
   const weekOt     = totalOtMins(entries);
-  const underMin   = weekTotal < MIN_WEEK_MINS && weekTotal > 0;
+  const underMin   = weekTotal < MIN_WEEK_MINS && weekTotal > 0 && !weekHasPreLaunch;
   const btnBase    = { fontSize: 12, padding: "5px 16px", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif", fontWeight: 600, border: "none" };
 
   // Render sub-views first
@@ -1174,6 +1186,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                 {/* Day cards */}
                 {DAYS.map((day, di) => {
                   const date = dateForDay(monday, di);
+                  const dayPreLaunch = isBeforeLaunch(date);
                   return (
                     <DayCard
                       key={day}
@@ -1182,7 +1195,8 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                       entries={dayEntries(date)}
                       projects={projects}
                       recentIds={recentIds}
-                      locked={isLocked}
+                      locked={isLocked || dayPreLaunch}
+                      preLaunch={dayPreLaunch}
                       onAdd={handleAdd}
                       onUpdate={handleUpdate}
                       onDelete={handleDeleteWithConfirm}
