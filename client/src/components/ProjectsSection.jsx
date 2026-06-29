@@ -53,7 +53,11 @@ export default function ProjectsSection({ isAdmin }) {
     );
   }
 
-  const filtered = projects.filter(p => filterStatus === "all" || p.status === filterStatus);
+  const filtered = projects.filter(p => {
+    if (filterStatus === "archived") return p.status === "archived";
+    if (p.status === "archived") return false;               // hide archived from every other view
+    return filterStatus === "all" || p.status === filterStatus;
+  });
 
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", background: DESIGN_GROUND }}>
@@ -82,7 +86,7 @@ export default function ProjectsSection({ isAdmin }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ display: "flex", border: "1px solid #e8e0d5", overflow: "hidden" }}>
-              {["active","all","on-hold","complete"].map(s => (
+              {["active","all","on-hold","complete","archived"].map(s => (
                 <button key={s} className="btn" onClick={() => setFilterStatus(s)}
                   style={{ padding: "6px 14px", fontSize: 10, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase", background: filterStatus === s ? DESIGN_TEXT : "transparent", color: filterStatus === s ? "#fff" : "#9a9088", border: "none", borderRight: "1px solid #e8e0d5" }}>
                   {s === "on-hold" ? "On Hold" : s.charAt(0).toUpperCase() + s.slice(1)}

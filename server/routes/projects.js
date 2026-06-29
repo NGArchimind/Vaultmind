@@ -113,7 +113,10 @@ router.patch("/api/projects/:id", requireAuth, async (req, res) => {
   }
 });
 
-router.delete("/api/projects/:id", requireAuth, async (req, res) => {
+// Admin-only. Deletes the project row; all linked rows (consultants, u-values,
+// notes, todos, drawings, emails, expenses, agreements, products, schedule,
+// transmittals, AND timesheets) are removed by the DB's ON DELETE CASCADE.
+router.delete("/api/projects/:id", requireAdmin, async (req, res) => {
   try {
     const { error } = await supabase
       .from("projects")

@@ -28,6 +28,9 @@ export default function ProjectDetail({ projectId, onBack, isAdmin }) {
   const [newNote, setNewNote] = useState({ label: "", value: "" });
   const [editingProject, setEditingProject] = useState(false);
   const [editForm, setEditForm] = useState({});
+  const [deleting, setDeleting] = useState(false);          // delete-confirm modal open
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [statusSaving, setStatusSaving] = useState(false);
   const [drawings, setDrawings] = useState([]);
 
   useEffect(() => { load(); }, [projectId]);
@@ -39,6 +42,27 @@ export default function ProjectDetail({ projectId, onBack, isAdmin }) {
   }
 
   const setSavingKey = (key, val) => setSaving(s => ({ ...s, [key]: val }));
+
+  // Archive = soft hide (reversible); Restore = back to active. Both just set status.
+  async function setProjectStatus(status, doneMsg, onDone) {
+    setStatusSaving(true);
+    try {
+      const { project } = await api(`/api/projects/${projectId}`, { method: "PATCH", body: { status } });
+      setData(d => ({ ...d, project }));
+      showToast(doneMsg);
+      onDone && onDone();
+    } catch (e) { console.error(e); showToast("Failed to update project"); }
+    setStatusSaving(false);
+  }
+
+  // Permanent delete — DB cascade removes everything linked (incl. timesheets & expenses).
+  async function deleteProject() {
+    try {
+      await api(`/api/projects/${projectId}`, { method: "DELETE" });
+      showToast("Project deleted");
+      onBack();   // clears selection and refreshes the list
+    } catch (e) { console.error(e); showToast("Failed to delete project"); }
+  }
 
   async function saveEditForm() {
     setSavingKey("editForm", true);
@@ -145,6 +169,7 @@ export default function ProjectDetail({ projectId, onBack, isAdmin }) {
           <div style={{ flex: 1 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
               <h1 style={{ fontSize: 22, fontWeight: 300, color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" }}>{project.name}</h1>
+              {project.status === "archived" && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: "#9a9088", background: "#ece8e2", padding: "3px 8px" }}>Archived</span>}
               {project.job_number && <span style={{ fontSize: 11, color: "#9a9088", background: DESIGN_GROUND, padding: "2px 8px", fontWeight: 500 }}>#{project.job_number}</span>}
               {project.stage && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: sColor, background: `${sColor}18`, padding: "3px 8px" }}>{project.stage.split("—")[0].trim()}</span>}
             </div>
@@ -155,12 +180,43 @@ export default function ProjectDetail({ projectId, onBack, isAdmin }) {
               {project.stage && <span>🏗 {project.stage}</span>}
             </div>
           </div>
-          {isAdmin && <button className="btn" onClick={() => { setEditForm({ ...project }); setEditingProject(true); }} style={{ background: "none", color: "#9a9088", border: "1px solid #e4e4e8", padding: "6px 14px", fontSize: 11, flexShrink: 0 }}>Edit</button>}
+          {isAdmin && (
+            <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+              <button className="btn" onClick={() => { setEditForm({ ...project }); setEditingProject(true); }} style={{ background: "none", color: "#9a9088", border: "1px solid #e4e4e8", padding: "6px 14px", fontSize: 11 }}>Edit</button>
+              {project.status === "archived"
+                ? <button className="btn" disabled={statusSaving} onClick={() => setProjectStatus("active", "Project restored")} style={{ background: "none", color: PROJECTS_FULL, border: `1px solid ${PROJECTS_FULL}`, padding: "6px 14px", fontSize: 11 }}>Restore</button>
+                : <button className="btn" disabled={statusSaving} onClick={() => setProjectStatus("archived", "Project archived", onBack)} style={{ background: "none", color: "#9a9088", border: "1px solid #e4e4e8", padding: "6px 14px", fontSize: 11 }}>Archive</button>}
+              <button className="btn" onClick={() => { setDeleteConfirmText(""); setDeleting(true); }} style={{ background: "none", color: "#b23a2e", border: "1px solid #e3b8b2", padding: "6px 14px", fontSize: 11 }}>Delete</button>
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", overflowX: "auto" }}>
           {TABS.map(t => <button key={t.id} className="btn" style={tabStyle(t.id)} onClick={() => setActiveTab(t.id)}>{t.label}</button>)}
         </div>
       </div>
+
+      {/* Delete confirmation modal */}
+      {deleting && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1100, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", padding: "28px 32px", width: 520, borderTop: "3px solid #b23a2e", fontFamily: "Inter, Arial, sans-serif", maxHeight: "90vh", overflowY: "auto" }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, color: "#b23a2e", marginBottom: 12 }}>Delete project?</h2>
+            <p style={{ fontSize: 13, color: DESIGN_TEXT, lineHeight: 1.6, marginBottom: 12 }}>
+              This permanently deletes <b>{project.name}</b> and <b>everything attached to it</b> — drawings, notes, consultants, U-values, agreements, transmittals, products, and any <b>timesheets and expenses logged against it</b>. This cannot be undone, and there are no backups.
+            </p>
+            <p style={{ fontSize: 12, color: "#9a9088", marginBottom: 6 }}>Type the project name <b>{project.name}</b> to confirm:</p>
+            <input value={deleteConfirmText} onChange={e => setDeleteConfirmText(e.target.value)} autoFocus placeholder={project.name}
+              style={{ width: "100%", border: "1px solid #e4e4e8", padding: "8px 12px", fontSize: 13, fontFamily: "Inter, Arial, sans-serif", color: DESIGN_TEXT, outline: "none", boxSizing: "border-box", marginBottom: 18 }} />
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+              <button className="btn" onClick={() => setDeleting(false)} style={{ background: "none", color: "#9a9088", border: "1px solid #e4e4e8", padding: "8px 18px", fontSize: 12 }}>Cancel</button>
+              <button className="btn" disabled={deleteConfirmText.trim() !== project.name}
+                onClick={() => { setDeleting(false); deleteProject(); }}
+                style={{ background: deleteConfirmText.trim() !== project.name ? "#e0c4c0" : "#b23a2e", color: "#fff", border: "none", padding: "8px 18px", fontSize: 12, fontWeight: 600, cursor: deleteConfirmText.trim() !== project.name ? "default" : "pointer" }}>
+                Delete permanently
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit modal */}
       {editingProject && (
