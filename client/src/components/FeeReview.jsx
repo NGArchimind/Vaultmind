@@ -6,6 +6,7 @@ import {
 import { api } from "../api/client";
 import { datePreset, toCsv, downloadCsv, filterSummary } from "../utils/reportExport";
 import { DESIGN_GROUND, DESIGN_TEXT, TIMESHEETS_FULL, COMPARE_FULL } from "../constants";
+import { useDrillStack, DrillBreadcrumb, DrillView } from "./timesheetDrill";
 
 // ── Utilities ──────────────────────────────────────────────────────────────────
 
@@ -102,8 +103,9 @@ function BurnTooltip({ active, payload, label }) {
 
 // ── Project detail drill-down ──────────────────────────────────────────────────
 
-function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
+function ProjectDrillDown({ project, entries, rates, userMap, onBack, onPush }) {
   const fee = project.fee || 0;
+  const [openExtra, setOpenExtra] = useState(null); // which extra-type group is expanded
 
   // Build week-by-week spend
   const byWeek = {};
@@ -126,13 +128,13 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
   const remaining  = fee - totalSpent;
   const pct        = fee > 0 ? (totalSpent / fee) * 100 : 0;
 
-  // Per-person breakdown
+  // Per-person breakdown (keyed by user id so rows can drill into that person).
   const byPerson = {};
   entries.forEach(e => {
     const email = userMap[e.user_id] || e.user_id?.slice(0, 8) + "…";
-    if (!byPerson[email]) byPerson[email] = { hours: 0, cost: 0 };
-    byPerson[email].hours += entryHours(e);
-    byPerson[email].cost  += entryHours(e) * (rates[e.user_id] || 0);
+    if (!byPerson[e.user_id]) byPerson[e.user_id] = { email, userId: e.user_id, hours: 0, cost: 0 };
+    byPerson[e.user_id].hours += entryHours(e);
+    byPerson[e.user_id].cost  += entryHours(e) * (rates[e.user_id] || 0);
   });
 
   // Projected weeks to fee exhaustion at current burn rate
@@ -240,19 +242,28 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
               </tr>
             </thead>
             <tbody>
-              {Object.entries(byPerson).sort((a, b) => b[1].cost - a[1].cost).map(([email, { hours, cost }]) => (
-                <tr key={email}>
-                  <td style={tdStyle}>{email}</td>
+              {Object.values(byPerson).sort((a, b) => b.cost - a.cost).map(({ email, userId, hours, cost }) => {
+                const clickable = !!onPush && !!userId;
+                return (
+                <tr key={userId}
+                  onClick={clickable ? () => onPush({ kind: "personProject", userId, projectId: project.id, title: `${email} · ${project.job_number || project.name}` }) : undefined}
+                  style={{ cursor: clickable ? "pointer" : "default" }}
+                  onMouseEnter={clickable ? (e) => e.currentTarget.style.background = "#f7f9fa" : undefined}
+                  onMouseLeave={clickable ? (e) => e.currentTarget.style.background = "transparent" : undefined}>
+                  <td style={{ ...tdStyle, color: clickable ? TIMESHEETS_FULL : DESIGN_TEXT, fontWeight: clickable ? 600 : 400 }}>
+                    {email}{clickable && <span style={{ color: "#8a9aa8", fontWeight: 400 }}> ›</span>}
+                  </td>
                   <td style={{ ...tdStyle, textAlign: "right", color: "#6a8a9a" }}>{hours.toFixed(1)}h</td>
                   <td style={{ ...tdStyle, textAlign: "right", color: "#6a8a9a" }}>
-                    {fmtGBP(rates[Object.keys(byPerson).find(k => k === email)] || 0)}/h
+                    {fmtGBP(rates[userId] || 0)}/h
                   </td>
                   <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: TIMESHEETS_FULL }}>{fmtGBP(cost)}</td>
                   <td style={{ ...tdStyle, textAlign: "right", color: "#8a9aa8" }}>
                     {totalSpent > 0 ? `${((cost / totalSpent) * 100).toFixed(1)}%` : "—"}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
             <tfoot>
               <tr style={{ background: DESIGN_GROUND }}>
@@ -280,12 +291,19 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
               {extrasTotalHours.toFixed(1)}h of work not covered by the fee
             </span>
           </div>
-          {extraTypeGroups.map(([label, { hours, rows }]) => (
+          {extraTypeGroups.map(([label, { hours, rows }]) => {
+            const open = openExtra === label;
+            return (
             <div key={label} style={{ borderBottom: "1px solid #eef2f4" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", background: DESIGN_GROUND }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT }}>{label}</span>
+              <div onClick={() => setOpenExtra(open ? null : label)}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", background: DESIGN_GROUND, cursor: "pointer" }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT }}>
+                  <span style={{ color: "#8a9aa8", marginRight: 8 }}>{open ? "▾" : "▸"}</span>{label}
+                  <span style={{ color: "#8a9aa8", fontWeight: 400, marginLeft: 8 }}>· {rows.length} {rows.length === 1 ? "entry" : "entries"}</span>
+                </span>
                 <span style={{ fontSize: 13, fontWeight: 600, color: TIMESHEETS_FULL }}>{hours.toFixed(1)}h</span>
               </div>
+              {open && (
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <tbody>
                   {rows.sort((a, b) => a.entry_date.localeCompare(b.entry_date)).map(e => (
@@ -298,8 +316,10 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
                   ))}
                 </tbody>
               </table>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -325,6 +345,7 @@ export default function FeeReview({ onBack }) {
   const [fTo,      setFTo]      = useState(() => datePreset("year").to);
   const [fProject, setFProject] = useState("");
   const [fPerson,  setFPerson]  = useState("");
+  const drill = useDrillStack();
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
@@ -368,6 +389,11 @@ export default function FeeReview({ onBack }) {
     return true;
   });
 
+  // Drill-downs scope by date only (the drill itself picks the person/project), so
+  // their totals reconcile with the date range without double-applying the filters.
+  const dateScoped = allEntries.filter(e =>
+    (!fFrom || e.entry_date >= fFrom) && (!fTo || e.entry_date <= fTo));
+
   const feeSummary = filterSummary([
     fProject ? (projects.find(p => String(p.id) === String(fProject))?.name) : "All projects",
     fPerson  ? (userMap[fPerson]) : "All staff",
@@ -405,6 +431,26 @@ export default function FeeReview({ onBack }) {
             <button onClick={handlePrint} style={{ padding: "6px 14px", fontSize: 13, cursor: "pointer", background: DESIGN_TEXT, color: "#fff", border: "none", fontFamily: "Inter, Arial, sans-serif" }}>Export PDF</button>
           </div>
         </div>
+        {drill.stack.length > 0 ? (
+          <div style={{ flex: 1, overflow: "auto" }}>
+            <DrillBreadcrumb
+              rootLabel={drillProject.job_number ? `${drillProject.job_number} — ${drillProject.name}` : drillProject.name}
+              stack={drill.stack}
+              onNavigate={(i) => drill.popTo(i)}
+            />
+            <div style={{ padding: "24px 32px" }}>
+              <DrillView
+                frame={drill.stack[drill.stack.length - 1]}
+                entries={dateScoped}
+                users={users}
+                projects={projects}
+                rates={rates}
+                onPush={drill.push}
+                filterChip={(fFrom && fTo) ? `${fFrom} → ${fTo}` : null}
+              />
+            </div>
+          </div>
+        ) : (
         <div className="print-area" style={{ flex: 1, overflow: "auto", padding: "28px 32px" }}>
           <div style={{ display: "none" }} className="print-only-header">
             <h1 style={{ fontSize: 20, margin: "0 0 4px", color: DESIGN_TEXT }}>Archimind — Fee Review</h1>
@@ -418,8 +464,10 @@ export default function FeeReview({ onBack }) {
             rates={rates}
             userMap={userMap}
             onBack={() => setDrillProject(null)}
+            onPush={drill.push}
           />
         </div>
+        )}
       </div>
     );
   }
@@ -572,7 +620,7 @@ export default function FeeReview({ onBack }) {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(340px, 1fr))", gap: 16, marginBottom: 24 }}>
               {projectsWithFee.map(p => (
                 <div key={p.id}
-                  onClick={() => setDrillProject(p)}
+                  onClick={() => { drill.reset(); setDrillProject(p); }}
                   style={{ background: "#fff", border: "1px solid #dde4e8", padding: "20px 22px", cursor: "pointer", transition: "box-shadow 0.15s" }}
                   onMouseEnter={e => e.currentTarget.style.boxShadow = "0 2px 12px rgba(0,0,0,0.08)"}
                   onMouseLeave={e => e.currentTarget.style.boxShadow = "none"}>
