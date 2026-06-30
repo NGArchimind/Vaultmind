@@ -139,6 +139,19 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
   const avgWeeklyBurn = weeks.length > 0 ? totalSpent / weeks.length : 0;
   const weeksLeft     = avgWeeklyBurn > 0 ? Math.ceil(remaining / avgWeeklyBurn) : null;
 
+  // Unpriced extras — work not covered by the fee, grouped by extra-type.
+  const extraEntries = entries.filter(e => e.unpriced_extra);
+  const extrasByType = {};
+  extraEntries.forEach(e => {
+    const label = e.project_extra_types?.label || "(no type)";
+    if (!extrasByType[label]) extrasByType[label] = { hours: 0, rows: [] };
+    extrasByType[label].hours += entryHours(e);
+    extrasByType[label].rows.push(e);
+  });
+  const extraTypeGroups = Object.entries(extrasByType).sort((a, b) => b[1].hours - a[1].hours);
+  const extrasTotalHours = extraEntries.reduce((s, e) => s + entryHours(e), 0);
+  const fmtEntryDate = (d) => new Date(d + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
   const thStyle = { padding: "9px 14px", fontSize: 11, fontWeight: 700, color: "#6a8a9a", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "left", borderBottom: "2px solid #dde4e8", background: DESIGN_GROUND };
   const tdStyle = { padding: "10px 14px", fontSize: 13, color: DESIGN_TEXT, borderBottom: "1px solid #eef2f4" };
 
@@ -256,6 +269,40 @@ function ProjectDrillDown({ project, entries, rates, userMap, onBack }) {
         </div>
       )}
 
+      {/* Unpriced extras — work outside the fee, grouped by type */}
+      {extraEntries.length > 0 && (
+        <div style={{ background: "#fff", border: "1px solid #dde4e8", marginTop: 20 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "14px 20px", borderBottom: "1px solid #eef2f4" }}>
+            <h4 style={{ margin: 0, fontSize: 13, fontWeight: 700, color: DESIGN_TEXT, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              Unpriced extras
+            </h4>
+            <span style={{ fontSize: 12, color: "#6a8a9a" }}>
+              {extrasTotalHours.toFixed(1)}h of work not covered by the fee
+            </span>
+          </div>
+          {extraTypeGroups.map(([label, { hours, rows }]) => (
+            <div key={label} style={{ borderBottom: "1px solid #eef2f4" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 20px", background: DESIGN_GROUND }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: DESIGN_TEXT }}>{label}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: TIMESHEETS_FULL }}>{hours.toFixed(1)}h</span>
+              </div>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <tbody>
+                  {rows.sort((a, b) => a.entry_date.localeCompare(b.entry_date)).map(e => (
+                    <tr key={e.id}>
+                      <td style={{ ...tdStyle, width: 200 }}>{userMap[e.user_id] || (e.user_id ? e.user_id.slice(0, 8) + "…" : "—")}</td>
+                      <td style={{ ...tdStyle, width: 140, color: "#6a8a9a" }}>{fmtEntryDate(e.entry_date)}</td>
+                      <td style={{ ...tdStyle, width: 70, textAlign: "right", color: "#6a8a9a" }}>{entryHours(e).toFixed(1)}h</td>
+                      <td style={{ ...tdStyle, color: "#8a9aa8", fontStyle: e.notes ? "italic" : "normal" }}>{e.notes || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
+      )}
+
       {entries.length === 0 && (
         <p style={{ color: "#6a8a9a", fontSize: 13 }}>No timesheet entries recorded for this project yet.</p>
       )}
@@ -340,6 +387,7 @@ export default function FeeReview({ onBack }) {
         Hours: Math.round(hrs * 100) / 100,
         "Rate (£/h)": rate,
         "Cost (£)": Math.round(hrs * rate * 100) / 100,
+        "Unpriced Extra": e.unpriced_extra ? (e.project_extra_types?.label || "(no type)") : "",
       };
     });
     downloadCsv(`fee-review-${new Date().toISOString().slice(0, 10)}.csv`, toCsv(rows));

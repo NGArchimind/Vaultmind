@@ -7,6 +7,7 @@ const { supabase } = require("../helpers/clients");
 const { serverError } = require("../helpers/serverError");
 const { sendEmail, escapeHtml, notificationEmailHtml, notificationRecipients, getUserEmail } = require("../helpers/email");
 const { daysOverCap } = require("../lib/timesheetValidation");
+const { extrasMissingType } = require("../lib/unpricedExtras");
 const { recentProjectIds } = require("../lib/recentProjects");
 
 const router = express.Router();
@@ -62,7 +63,7 @@ router.get("/api/timesheets", requireAuth, async (req, res) => {
   const weekEnd = fri.toISOString().split("T")[0];
   const { data, error } = await supabase
     .from("timesheets")
-    .select("*, projects(id, name, job_number)")
+    .select("*, projects(id, name, job_number), project_extra_types(id, label)")
     .eq("user_id", req.user.id)
     .gte("entry_date", weekStart)
     .lte("entry_date", weekEnd)
@@ -127,7 +128,7 @@ router.get("/api/timesheets/recent-projects", requireAuth, async (req, res) => {
 
 // POST /api/timesheets
 router.post("/api/timesheets", requireAuth, async (req, res) => {
-  const { project_id, category, entry_date, hours = 0, minutes = 0, notes, overtime_hours = 0, overtime_minutes = 0 } = req.body;
+  const { project_id, category, entry_date, hours = 0, minutes = 0, notes, overtime_hours = 0, overtime_minutes = 0, unpriced_extra = false, extra_type_id = null } = req.body;
   if (!entry_date) return res.status(400).json({ error: "entry_date required" });
   if (!project_id && !category) return res.status(400).json({ error: "project_id or category required" });
 
@@ -153,8 +154,11 @@ router.post("/api/timesheets", requireAuth, async (req, res) => {
       overtime_hours: project_id ? Number(overtime_hours) : 0,
       overtime_minutes: project_id ? Number(overtime_minutes) : 0,
       notes: notes || null,
+      // Unpriced-extra tag only makes sense against a project (job) line.
+      unpriced_extra: project_id ? !!unpriced_extra : false,
+      extra_type_id:  project_id ? (extra_type_id || null) : null,
     })
-    .select("*, projects(id, name, job_number)")
+    .select("*, projects(id, name, job_number), project_extra_types(id, label)")
     .single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -175,14 +179,16 @@ router.post("/api/timesheets/submit", requireAuth, async (req, res) => {
     return res.status(403).json({ error: "This week has already been approved and cannot be resubmitted" });
   }
 
-  // Daily cap: "time worked" (overtime excluded) must not exceed 7h 30m on any day.
+  // Pre-submit checks on the week's entries:
+  //   1. Daily cap — "time worked" (overtime excluded) must not exceed 7h 30m on any day.
+  //   2. Every "unpriced extra" line must have an extra-type chosen.
   {
     const fri = new Date(week);
     fri.setDate(fri.getDate() + 4);
     const weekEnd = fri.toISOString().split("T")[0];
     const { data: weekEntries } = await supabase
       .from("timesheets")
-      .select("entry_date, hours, minutes")
+      .select("entry_date, hours, minutes, unpriced_extra, extra_type_id")
       .eq("user_id", req.user.id)
       .gte("entry_date", week)
       .lte("entry_date", weekEnd);
@@ -190,6 +196,9 @@ router.post("/api/timesheets/submit", requireAuth, async (req, res) => {
     if (over.length) {
       const days = over.map(o => o.date).join(", ");
       return res.status(400).json({ error: `One or more days exceed the 7.5 hour daily limit for time worked (${days}). Move the extra time into Overtime before submitting.` });
+    }
+    if (extrasMissingType(weekEntries || []).length) {
+      return res.status(400).json({ error: "Every 'unpriced extra' line needs an extra-type selected before you can submit." });
     }
   }
 
@@ -259,12 +268,14 @@ router.put("/api/timesheets/:id", requireAuth, async (req, res) => {
   if ("notes"      in req.body) updates.notes      = req.body.notes ?? null;
   if ("project_id" in req.body) updates.project_id = req.body.project_id || null;
   if ("category"   in req.body) updates.category   = req.body.category  || null;
+  if ("unpriced_extra" in req.body) updates.unpriced_extra = !!req.body.unpriced_extra;
+  if ("extra_type_id"  in req.body) updates.extra_type_id  = req.body.extra_type_id || null;
 
   const { data, error } = await supabase
     .from("timesheets")
     .update(updates)
     .eq("id", req.params.id)
-    .select("*, projects(id, name, job_number)")
+    .select("*, projects(id, name, job_number), project_extra_types(id, label)")
     .single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -410,7 +421,7 @@ router.get("/api/admin/timesheets", requireAuth, requireTimesheetManager, async 
   const { week, user_id, project_id, from, to } = req.query;
   let query = supabase
     .from("timesheets")
-    .select("*, projects(id, name, job_number)")
+    .select("*, projects(id, name, job_number), project_extra_types(id, label)")
     .order("entry_date", { ascending: false });
   if (user_id) query = query.eq("user_id", user_id);
   if (project_id) query = query.eq("project_id", project_id);
