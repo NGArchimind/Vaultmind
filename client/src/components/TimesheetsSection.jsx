@@ -211,9 +211,97 @@ function DraftRow({ projects, recentIds = [], onCreate }) {
   );
 }
 
+// ── Unpriced-extra control (project rows only) ────────────────────────────────
+// A tick that flags a line as work not covered by the current fee, plus a
+// per-project, grow-on-the-fly dropdown of "extra-types". Counts as normal time —
+// this is purely a billing/tracking tag. Only rendered when the parent passes the
+// extra-type props (i.e. the staff "My Timesheet" view, never Admin Review).
+
+function UnpricedExtraControl({ entry, locked, extraTypes, onEnsureTypes, onAddType, onUpdate }) {
+  const checked = !!entry.unpriced_extra;
+  const [adding, setAdding] = useState(false);
+  const [draft,  setDraft]  = useState("");
+  const [busy,   setBusy]   = useState(false);
+
+  // Make sure this project's type list is loaded whenever the row is an extra.
+  useEffect(() => { if (checked && entry.project_id) onEnsureTypes(entry.project_id); }, [checked, entry.project_id]);
+
+  // Options: the loaded list, plus the currently-selected type if it isn't in the
+  // list yet (so the saved label shows immediately, before the list finishes loading).
+  const list = extraTypes || [];
+  const options = (entry.extra_type_id && !list.some(t => t.id === entry.extra_type_id))
+    ? [{ id: entry.extra_type_id, label: entry.project_extra_types?.label || "…" }, ...list]
+    : list;
+
+  const toggle = (on) => {
+    if (locked) return;
+    if (on) { onEnsureTypes(entry.project_id); onUpdate(entry.id, { unpriced_extra: true }); }
+    else    { setAdding(false); setDraft(""); onUpdate(entry.id, { unpriced_extra: false, extra_type_id: null }); }
+  };
+
+  const onSelect = (val) => {
+    if (val === "__add__") { setAdding(true); return; }
+    onUpdate(entry.id, { extra_type_id: val || null });
+  };
+
+  const saveNew = async () => {
+    const label = draft.trim();
+    if (!label) { setAdding(false); return; }
+    setBusy(true);
+    try {
+      const t = await onAddType(entry.project_id, label);
+      if (t?.id) onUpdate(entry.id, { extra_type_id: t.id });
+      setAdding(false); setDraft("");
+    } finally { setBusy(false); }
+  };
+
+  const missing = checked && !entry.extra_type_id;
+  const ss = selStyle(locked);
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 0 6px 2px", flexWrap: "wrap" }}>
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#6a8a9a", cursor: locked ? "default" : "pointer" }}>
+        <input type="checkbox" checked={checked} disabled={locked}
+          onChange={e => toggle(e.target.checked)} />
+        Unpriced extra
+      </label>
+
+      {checked && !adding && (
+        <select value={entry.extra_type_id || ""} disabled={locked}
+          onChange={e => onSelect(e.target.value)}
+          style={{ ...ss, minWidth: 200, borderColor: missing ? COMPARE_FULL : "#d0d8de" }}>
+          <option value="">— Choose type —</option>
+          {options.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+          <option value="__add__">+ Add new type…</option>
+        </select>
+      )}
+
+      {checked && adding && (
+        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input autoFocus value={draft} disabled={busy}
+            onChange={e => setDraft(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter") saveNew(); if (e.key === "Escape") { setAdding(false); setDraft(""); } }}
+            placeholder="New extra-type…"
+            style={{ ...ss, minWidth: 180 }} />
+          <button onClick={saveNew} disabled={busy || !draft.trim()}
+            style={{ background: draft.trim() ? TIMESHEETS_FULL : "#ccc", color: "#fff", border: "none", padding: "5px 12px", fontSize: 12, cursor: draft.trim() ? "pointer" : "default", fontWeight: 600 }}>
+            {busy ? "Saving…" : "Add"}
+          </button>
+          <button onClick={() => { setAdding(false); setDraft(""); }}
+            style={{ background: "none", border: "none", color: "#aaa", fontSize: 16, cursor: "pointer" }}>×</button>
+        </span>
+      )}
+
+      {missing && !adding && (
+        <span style={{ fontSize: 11, color: COMPARE_FULL }}>Choose a type before submitting</span>
+      )}
+    </div>
+  );
+}
+
 // ── Saved entry row ────────────────────────────────────────────────────────────
 
-function EntryRow({ entry, projects, recentIds = [], locked, onUpdate, onDelete }) {
+function EntryRow({ entry, projects, recentIds = [], locked, onUpdate, onDelete, extraTypes, onEnsureTypes, onAddType }) {
   const [notes, setNotes] = useState(entry.notes || "");
   useEffect(() => { setNotes(entry.notes || ""); }, [entry.notes]);
 
@@ -232,9 +320,13 @@ function EntryRow({ entry, projects, recentIds = [], locked, onUpdate, onDelete 
   };
 
   const ss = selStyle(locked);
+  // The unpriced-extra control is only available in the staff view (where the
+  // parent threads onEnsureTypes) and only on project (job) rows.
+  const showExtra = !!onEnsureTypes && !!entry.project_id;
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid #eef2f4" }}>
+    <div style={{ borderBottom: "1px solid #eef2f4" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
       <ProjectPicker
         value={currentValue}
         onChange={(val) => handleProjectChange({ target: { value: val } })}
@@ -289,12 +381,23 @@ function EntryRow({ entry, projects, recentIds = [], locked, onUpdate, onDelete 
       )}
       {locked && <div style={{ width: 28 }} />}
     </div>
+    {showExtra && (
+      <UnpricedExtraControl
+        entry={entry}
+        locked={locked}
+        extraTypes={extraTypes}
+        onEnsureTypes={onEnsureTypes}
+        onAddType={onAddType}
+        onUpdate={onUpdate}
+      />
+    )}
+    </div>
   );
 }
 
 // ── Day card ───────────────────────────────────────────────────────────────────
 
-function DayCard({ dayLabel, date, entries, projects, recentIds, locked, preLaunch, onAdd, onUpdate, onDelete, onQuickFill, onDraftCreate }) {
+function DayCard({ dayLabel, date, entries, projects, recentIds, locked, preLaunch, onAdd, onUpdate, onDelete, onQuickFill, onDraftCreate, extraTypesByProject, onEnsureTypes, onAddType }) {
   const dayTotal  = totalMins(entries);
   const hasReal   = entries.length > 0;
   const showDraft = !hasReal && !locked;
@@ -347,7 +450,9 @@ function DayCard({ dayLabel, date, entries, projects, recentIds, locked, preLaun
             ? <DraftRow projects={projects} recentIds={recentIds} onCreate={(data) => onDraftCreate(date, data)} />
             : entries.map(e => (
                 <EntryRow key={e.id} entry={e} projects={projects} recentIds={recentIds} locked={locked}
-                  onUpdate={onUpdate} onDelete={onDelete} />
+                  onUpdate={onUpdate} onDelete={onDelete}
+                  extraTypes={extraTypesByProject?.[e.project_id]}
+                  onEnsureTypes={onEnsureTypes} onAddType={onAddType} />
               ))
           }
         </div>
@@ -821,6 +926,8 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
   const [monday,     setMonday]     = useState(getMonday(new Date()));
   const [projects,   setProjects]   = useState([]);
   const [recentIds,  setRecentIds]  = useState([]);
+  const [extraTypesByProject, setExtraTypesByProject] = useState({}); // projectId → [{ id, label }]
+  const extraLoadRef = useRef({}); // projectId → true once a fetch has started (dedupe)
   const [entries,    setEntries]    = useState([]);
   const [submission, setSubmission] = useState(null);
   const [loading,    setLoading]    = useState(false);
@@ -894,6 +1001,33 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
     setEntries(prev => prev.filter(e => e.id !== id));
     try { await api(`/api/timesheets/${id}`, { method: "DELETE" }); }
     catch { showToast("Could not delete entry."); }
+  }, [showToast]);
+
+  // Lazy-load a project's unpriced-extra types once, caching by project id.
+  const ensureExtraTypes = useCallback(async (projectId) => {
+    if (!projectId || extraLoadRef.current[projectId]) return;
+    extraLoadRef.current[projectId] = true;
+    try {
+      const res = await api(`/api/projects/${projectId}/extra-types`);
+      setExtraTypesByProject(prev => ({ ...prev, [projectId]: res?.extra_types || [] }));
+    } catch { extraLoadRef.current[projectId] = false; }
+  }, []);
+
+  // Add a new extra-type to a project (server dedupes), update the cache, return the row.
+  const addExtraType = useCallback(async (projectId, label) => {
+    try {
+      const res = await api(`/api/projects/${projectId}/extra-types`, { method: "POST", body: { label } });
+      const t = res?.extra_type;
+      if (t?.id) {
+        extraLoadRef.current[projectId] = true;
+        setExtraTypesByProject(prev => {
+          const listForProject = prev[projectId] || [];
+          if (listForProject.some(x => x.id === t.id)) return prev;
+          return { ...prev, [projectId]: [...listForProject, t].sort((a, b) => a.label.localeCompare(b.label)) };
+        });
+      }
+      return t;
+    } catch { showToast("Could not add extra-type."); return null; }
   }, [showToast]);
 
   // Delete with confirmation dialog
@@ -976,15 +1110,15 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
     return Object.keys(byDay).filter(d => byDay[d] > DAY_CAP_MINS).sort();
   })();
 
+  // Lines ticked as an unpriced extra but with no extra-type chosen — blocks submit.
+  const extrasNeedType = entries.filter(e => e.unpriced_extra && !e.extra_type_id);
+
   // The launch week (and any fully-past week) contains days before go-live, so it
   // physically can't reach 37.5h — exempt it from the minimum-hours warning.
   const weekHasPreLaunch = isoDate(monday) < LAUNCH_DATE;
 
-  const handleSubmitClick = () => {
-    if (overCapDays.length) {
-      showToast("Some days are over the 7h 30m daily limit — move the extra to Overtime.");
-      return;
-    }
+  // The standard hours warnings (over 45h / under 37.5h), run after any earlier gates.
+  const proceedToSubmit = () => {
     const total = totalMins(entries);
     if (total > OVER_WEEK_MINS) {
       setDialog({
@@ -1001,6 +1135,29 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
     } else {
       doSubmit();
     }
+  };
+
+  const handleSubmitClick = () => {
+    if (overCapDays.length) {
+      showToast("Some days are over the 7h 30m daily limit — move the extra to Overtime.");
+      return;
+    }
+    if (extrasNeedType.length) {
+      showToast("Some 'unpriced extra' lines have no type selected — choose one before submitting.");
+      return;
+    }
+    // Reminder (non-blocking) shown only when the week contains unpriced extras —
+    // detailed notes are what get used to raise the fee variation.
+    if (entries.some(e => e.unpriced_extra)) {
+      setDialog({
+        title: "Unpriced extras logged this week",
+        message: "You've marked some time as unpriced extras. Please make sure the note on each extra describes the work as fully as possible — these notes are used to raise the fee variation. Go back to check, or submit now.",
+        confirmLabel: "Submit anyway",
+        onConfirm: proceedToSubmit,
+      });
+      return;
+    }
+    proceedToSubmit();
   };
 
   const weekTotal  = totalMins(entries);
@@ -1202,6 +1359,9 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                       onDelete={handleDeleteWithConfirm}
                       onQuickFill={handleQuickFill}
                       onDraftCreate={handleDraftCreate}
+                      extraTypesByProject={extraTypesByProject}
+                      onEnsureTypes={ensureExtraTypes}
+                      onAddType={addExtraType}
                     />
                   );
                 })}
@@ -1227,11 +1387,16 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                         ⚠ {overCapDays.map(dayName).join(", ")} over the 7h 30m daily limit — move extra to Overtime
                       </span>
                     )}
+                    {extrasNeedType.length > 0 && !isLocked && (
+                      <span style={{ marginLeft: 12, fontSize: 12, color: COMPARE_FULL, fontWeight: 600 }}>
+                        ⚠ {extrasNeedType.length} unpriced-extra line{extrasNeedType.length !== 1 ? "s" : ""} need a type selected
+                      </span>
+                    )}
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     {!isLocked && (
-                      <button onClick={handleSubmitClick} disabled={submitting || entries.length === 0 || overCapDays.length > 0}
-                        style={{ ...btnBase, background: (entries.length === 0 || overCapDays.length > 0) ? "#ccc" : TIMESHEETS_FULL, color: "#fff", padding: "8px 24px", fontSize: 13, cursor: (entries.length === 0 || overCapDays.length > 0) ? "default" : "pointer" }}>
+                      <button onClick={handleSubmitClick} disabled={submitting || entries.length === 0 || overCapDays.length > 0 || extrasNeedType.length > 0}
+                        style={{ ...btnBase, background: (entries.length === 0 || overCapDays.length > 0 || extrasNeedType.length > 0) ? "#ccc" : TIMESHEETS_FULL, color: "#fff", padding: "8px 24px", fontSize: 13, cursor: (entries.length === 0 || overCapDays.length > 0 || extrasNeedType.length > 0) ? "default" : "pointer" }}>
                         {submitting ? "Submitting…" : "Submit for Approval"}
                       </button>
                     )}

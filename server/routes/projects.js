@@ -274,6 +274,61 @@ router.delete("/api/projects/:id/notes/:nid", requireAuth, async (req, res) => {
   }
 });
 
+// ── Unpriced-extra types (per-project, grow-on-the-fly list) ──────────────────
+// Used by the timesheet "unpriced extra" tickbox. Any authenticated user may add
+// a type (agreed — not admin-gated); the list is shared across everyone from then.
+
+router.get("/api/projects/:id/extra-types", requireAuth, async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("project_extra_types")
+      .select("*")
+      .eq("project_id", req.params.id)
+      .order("label");
+    if (error) throw error;
+    res.json({ extra_types: data });
+  } catch (err) {
+    return serverError(res, err, req.path);
+  }
+});
+
+router.post("/api/projects/:id/extra-types", requireAuth, async (req, res) => {
+  const label = (req.body.label || "").trim();
+  if (!label) return res.status(400).json({ error: "label required" });
+  try {
+    // Dedupe case-insensitively so a re-typed/concurrent label doesn't error on
+    // the (project_id, lower(label)) unique index — return the existing row instead.
+    const { data: existing, error: findErr } = await supabase
+      .from("project_extra_types")
+      .select("*")
+      .eq("project_id", req.params.id);
+    if (findErr) throw findErr;
+    const match = (existing || []).find(t => t.label.toLowerCase() === label.toLowerCase());
+    if (match) return res.json({ extra_type: match });
+
+    const { data, error } = await supabase
+      .from("project_extra_types")
+      .insert({ project_id: req.params.id, label })
+      .select()
+      .single();
+    if (error) {
+      // Lost a race against a concurrent insert of the same label — fetch & return it.
+      if (error.code === "23505") {
+        const { data: raced } = await supabase
+          .from("project_extra_types")
+          .select("*")
+          .eq("project_id", req.params.id);
+        const rm = (raced || []).find(t => t.label.toLowerCase() === label.toLowerCase());
+        if (rm) return res.json({ extra_type: rm });
+      }
+      throw error;
+    }
+    res.json({ extra_type: data });
+  } catch (err) {
+    return serverError(res, err, req.path);
+  }
+});
+
 // ── Todos ─────────────────────────────────────────────────────────────────────
 
 router.get("/api/projects/:id/todos", requireAuth, async (req, res) => {

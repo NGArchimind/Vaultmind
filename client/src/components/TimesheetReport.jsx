@@ -6,6 +6,7 @@ import {
 import { api } from "../api/client";
 import { datePreset, toCsv, downloadCsv, filterSummary } from "../utils/reportExport";
 import { DESIGN_GROUND, DESIGN_TEXT, TIMESHEETS_FULL, COMPARE_FULL } from "../constants";
+import { useDrillStack, DrillBreadcrumb, DrillView } from "./timesheetDrill";
 
 const CHART_COLORS = [
   TIMESHEETS_FULL, "#2a6496", COMPARE_FULL, "#7a6aaa", "#c28a20",
@@ -96,6 +97,7 @@ export default function TimesheetReport({ onBack }) {
   const [filterCategory, setFilterCategory] = useState(""); // "" = all, or a category value
   const [filterBillable, setFilterBillable] = useState(""); // "", "billable", "nonbillable"
   const [groupBy,        setGroupBy]        = useState("week"); // week | project | person | category
+  const drill = useDrillStack();
 
   // Load users and projects on mount
   useEffect(() => {
@@ -148,30 +150,30 @@ export default function TimesheetReport({ onBack }) {
     byWeek[mon] += entryMins(e);
   });
 
-  // Hours by project (for bar + pie)
+  // Hours by project (for bar + pie). Carry projectId so the chart/table can drill in.
   const byProject = {};
   fEntries.forEach(e => {
     const key = e.project_id
       ? (e.projects?.job_number ? `${e.projects.job_number} — ${e.projects.name}` : e.projects?.name || "Unknown")
       : (e.category ? e.category.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "Other");
-    if (!byProject[key]) byProject[key] = 0;
-    byProject[key] += entryMins(e);
+    if (!byProject[key]) byProject[key] = { mins: 0, projectId: e.project_id || null };
+    byProject[key].mins += entryMins(e);
   });
   const projectChartData = Object.entries(byProject)
-    .sort((a, b) => b[1] - a[1])
-    .map(([name, mins]) => ({ name, hours: minsToHours(mins) }));
+    .sort((a, b) => b[1].mins - a[1].mins)
+    .map(([name, v]) => ({ name, hours: minsToHours(v.mins), projectId: v.projectId }));
 
   // Hours by person (for bar chart)
   const byPerson = {};
   fEntries.forEach(e => {
     const email = users.find(u => u.id === e.user_id)?.email || e.user_id?.slice(0, 8) + "…";
     const key = email.split("@")[0]; // Use name part of email for chart label
-    if (!byPerson[key]) byPerson[key] = { fullEmail: email, mins: 0 };
+    if (!byPerson[key]) byPerson[key] = { fullEmail: email, mins: 0, userId: e.user_id };
     byPerson[key].mins += entryMins(e);
   });
   const personChartData = Object.entries(byPerson)
     .sort((a, b) => b[1].mins - a[1].mins)
-    .map(([name, { mins, fullEmail }]) => ({ name, hours: minsToHours(mins), fullEmail }));
+    .map(([name, { mins, fullEmail, userId }]) => ({ name, hours: minsToHours(mins), fullEmail, userId }));
 
   // ── Group-by dataset (drives the primary chart) ────────────────────────────
   const groupKey = (e) => {
@@ -204,7 +206,7 @@ export default function TimesheetReport({ onBack }) {
     const mon   = isoDate(getMonday(e.entry_date));
     const email = users.find(u => u.id === e.user_id)?.email || e.user_id?.slice(0, 8) + "…";
     const key   = `${mon}|${e.user_id}`;
-    if (!weekPersonMap[key]) weekPersonMap[key] = { mon, email, mins: 0, otMins: 0, projects: new Set() };
+    if (!weekPersonMap[key]) weekPersonMap[key] = { mon, email, user_id: e.user_id, mins: 0, otMins: 0, projects: new Set() };
     weekPersonMap[key].mins += entryMins(e);
     weekPersonMap[key].otMins += entryOtMins(e);
     if (e.project_id && e.projects?.name) weekPersonMap[key].projects.add(e.projects.name);
@@ -270,6 +272,23 @@ export default function TimesheetReport({ onBack }) {
           <p style={{ fontSize: 12, color: "#6a8a9a", margin: "0 0 16px" }}>{summaryText} · Generated {isoDate(new Date())}</p>
         </div>
 
+        {drill.stack.length > 0 ? (
+          <>
+            <DrillBreadcrumb rootLabel="Reports & Analytics" stack={drill.stack} onNavigate={(i) => drill.popTo(i)} />
+            <div style={{ marginTop: 16 }}>
+              <DrillView
+                frame={drill.stack[drill.stack.length - 1]}
+                entries={fEntries}
+                users={users}
+                projects={projects}
+                onPush={drill.push}
+                filterChip={(filterFrom && filterTo) ? `${filterFrom} → ${filterTo}` : null}
+                onClearDates={(filterFrom || filterTo) ? (() => { setFilterFrom(""); setFilterTo(""); }) : null}
+              />
+            </div>
+          </>
+        ) : (
+        <>
         {/* Filters */}
         <div className="no-print" style={{ background: "#fff", border: "1px solid #dde4e8", padding: "16px 20px", marginBottom: 24, display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center" }}>
           <span style={{ fontSize: 12, color: "#6a8a9a", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Filters</span>
@@ -376,7 +395,8 @@ export default function TimesheetReport({ onBack }) {
                     <XAxis type="number" tick={{ fontSize: 11, fill: "#8a9aa8" }} unit="h" />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: "#6a8a9a" }} width={140} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Bar dataKey="hours" radius={[0, 2, 2, 0]}>
+                    <Bar dataKey="hours" radius={[0, 2, 2, 0]} cursor="pointer"
+                      onClick={(d) => { const pid = d?.projectId ?? d?.payload?.projectId; if (pid) drill.push({ kind: "project", projectId: pid, title: d?.name ?? d?.payload?.name }); }}>
                       {projectChartData.slice(0, 10).map((_, i) => (
                         <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                       ))}
@@ -406,7 +426,8 @@ export default function TimesheetReport({ onBack }) {
                         );
                       }}
                     />
-                    <Bar dataKey="hours" radius={[2, 2, 0, 0]}>
+                    <Bar dataKey="hours" radius={[2, 2, 0, 0]} cursor="pointer"
+                      onClick={(d) => { const uid = d?.userId ?? d?.payload?.userId; if (uid) drill.push({ kind: "person", userId: uid, title: d?.fullEmail ?? d?.payload?.fullEmail ?? d?.name }); }}>
                       {personChartData.map((_, i) => (
                         <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                       ))}
@@ -424,6 +445,8 @@ export default function TimesheetReport({ onBack }) {
                   <ResponsiveContainer width="100%" height={240}>
                     <PieChart>
                       <Pie data={projectChartData} dataKey="hours" nameKey="name" cx="50%" cy="50%" outerRadius={90} labelLine={false}
+                        cursor="pointer"
+                        onClick={(d) => { const pid = d?.projectId ?? d?.payload?.projectId; if (pid) drill.push({ kind: "project", projectId: pid, title: d?.name ?? d?.payload?.name }); }}
                         label={({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
                           if (percent < 0.05) return null;
                           const RADIAN = Math.PI / 180;
@@ -462,10 +485,14 @@ export default function TimesheetReport({ onBack }) {
                     </thead>
                     <tbody>
                       {projectChartData.map((p, i) => (
-                        <tr key={i}>
-                          <td style={{ ...tdStyle, display: "flex", alignItems: "center", gap: 8 }}>
+                        <tr key={i}
+                          onClick={p.projectId ? () => drill.push({ kind: "project", projectId: p.projectId, title: p.name }) : undefined}
+                          style={{ cursor: p.projectId ? "pointer" : "default" }}
+                          onMouseEnter={p.projectId ? (e) => e.currentTarget.style.background = "#f7f9fa" : undefined}
+                          onMouseLeave={p.projectId ? (e) => e.currentTarget.style.background = "transparent" : undefined}>
+                          <td style={{ ...tdStyle, display: "flex", alignItems: "center", gap: 8, color: p.projectId ? TIMESHEETS_FULL : DESIGN_TEXT, fontWeight: p.projectId ? 600 : 400 }}>
                             <div style={{ width: 8, height: 8, borderRadius: 2, background: CHART_COLORS[i % CHART_COLORS.length], flexShrink: 0 }} />
-                            {p.name}
+                            {p.name}{p.projectId && <span style={{ color: "#8a9aa8", fontWeight: 400 }}> ›</span>}
                           </td>
                           <td style={{ ...tdStyle, textAlign: "right", fontWeight: 600, color: TIMESHEETS_FULL }}>{p.hours}h</td>
                           <td style={{ ...tdStyle, textAlign: "right", color: "#8a9aa8" }}>
@@ -503,8 +530,12 @@ export default function TimesheetReport({ onBack }) {
                 </thead>
                 <tbody>
                   {tableRows.map((r, i) => (
-                    <tr key={i} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfc" }}>
-                      <td style={{ ...tdStyle, fontWeight: 600 }}>{formatWeekFull(r.mon)}</td>
+                    <tr key={i}
+                      onClick={() => drill.push({ kind: "personWeek", userId: r.user_id, weekStart: r.mon, title: `${r.email} · ${formatWeekFull(r.mon)}` })}
+                      style={{ background: i % 2 === 0 ? "#fff" : "#fafbfc", cursor: "pointer" }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = "#f1f5f7"}
+                      onMouseLeave={(e) => e.currentTarget.style.background = i % 2 === 0 ? "#fff" : "#fafbfc"}>
+                      <td style={{ ...tdStyle, fontWeight: 600, color: TIMESHEETS_FULL }}>{formatWeekFull(r.mon)}</td>
                       <td style={{ ...tdStyle, color: "#6a8a9a" }}>{r.email}</td>
                       <td style={{ ...tdStyle, color: "#6a8a9a", fontSize: 12 }}>
                         {r.projects.size > 0 ? [...r.projects].join(", ") : "—"}
@@ -528,6 +559,8 @@ export default function TimesheetReport({ onBack }) {
               </table>
             </div>
           </>
+        )}
+        </>
         )}
       </div>
     </div>
