@@ -116,9 +116,13 @@ async function getUserEmail(userId) {
   } catch { return null; }
 }
 
-// Branded wrapper shared by notification emails.
+const APP_URL = process.env.PUBLIC_APP_URL || "https://archimind.co.uk";
+
+// Branded wrapper shared by notification emails. Every email gets an
+// "Open Archimind" button linking to the site (PUBLIC_APP_URL).
 function notificationEmailHtml(headerLabel, bodyHtml) {
-  return `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — ${headerLabel}</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;">${bodyHtml}</div></div>`;
+  const button = `<p style="margin:22px 0 0;"><a href="${APP_URL}" style="display:inline-block;background:#4c6278;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:11px 22px;">Open Archimind &rarr;</a></p>`;
+  return `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — ${headerLabel}</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;">${bodyHtml}${button}</div></div>`;
 }
 
 module.exports = {

@@ -7,7 +7,7 @@ const { supabase } = require("../helpers/clients");
 const { serverError } = require("../helpers/serverError");
 const { sendEmail, escapeHtml, notificationEmailHtml, notificationRecipients, getUserEmail } = require("../helpers/email");
 const { formatWeekRange } = require("../helpers/schedulers");
-const { daysOverCap } = require("../lib/timesheetValidation");
+const { daysOverCap, weekBelowMinimum, MIN_WEEK_MINS } = require("../lib/timesheetValidation");
 const { extrasMissingType } = require("../lib/unpricedExtras");
 const { recentProjectIds } = require("../lib/recentProjects");
 
@@ -183,6 +183,7 @@ router.post("/api/timesheets/submit", requireAuth, async (req, res) => {
   // Pre-submit checks on the week's entries:
   //   1. Daily cap — "time worked" (overtime excluded) must not exceed 7h 30m on any day.
   //   2. Every "unpriced extra" line must have an extra-type chosen.
+  //   3. The week must account for at least 37.5h (leave counts; overtime doesn't).
   {
     const fri = new Date(week);
     fri.setDate(fri.getDate() + 4);
@@ -200,6 +201,11 @@ router.post("/api/timesheets/submit", requireAuth, async (req, res) => {
     }
     if (extrasMissingType(weekEntries || []).length) {
       return res.status(400).json({ error: "Every 'unpriced extra' line needs an extra-type selected before you can submit." });
+    }
+    const minCheck = weekBelowMinimum(weekEntries || [], week);
+    if (minCheck.belowMin) {
+      const h = Math.floor(minCheck.totalMins / 60), m = minCheck.totalMins % 60;
+      return res.status(400).json({ error: `This week totals ${h}h ${m}m — a full week of ${MIN_WEEK_MINS / 60} hours must be accounted for before submitting. Holiday, sickness and other leave all count toward the total.` });
     }
   }
 
@@ -346,16 +352,29 @@ router.post("/api/admin/timesheets/reject", requireAuth, requireTimesheetManager
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
-  // Notify the configured role(s) that a timesheet was returned for changes
+  // Notify the staff member (always) + the configured role(s) that a timesheet was returned
   {
+    const weekStr = formatWeekRange(week);
+    const reasonHtml = `<p style="margin:0;font-size:13px;color:#6a8a9a;">Reason:</p><p style="margin:4px 0 0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason.trim())}</p>`;
+
+    // The submitter is always emailed — a rejection is something they must act on.
+    const submitterEmail = await getUserEmail(user_id);
+    if (submitterEmail) {
+      await sendEmail({
+        to: submitterEmail,
+        subject: `Your timesheet has been returned — ${weekStr}`,
+        html: notificationEmailHtml("Timesheets", `<p style="margin:0 0 14px;font-size:15px;color:#262830;">Your timesheet for <strong>${weekStr}</strong> has been returned for changes. Please amend and resubmit it.</p>${reasonHtml}`),
+        text: `Your timesheet for ${weekStr} has been returned for changes. Please amend and resubmit it.\nReason: ${reason.trim()}`,
+      });
+    }
+
     const recipients = await notificationRecipients("timesheet_rejected");
     if (recipients.length) {
-      const who = (await getUserEmail(user_id)) || "A staff member";
-      const weekStr = formatWeekRange(week);
+      const who = submitterEmail || "A staff member";
       await sendEmail({
         to: recipients,
         subject: `Timesheet returned — ${weekStr}`,
-        html: notificationEmailHtml("Timesheets", `<p style="margin:0 0 14px;font-size:15px;color:#262830;">The timesheet from <strong>${escapeHtml(who)}</strong> for <strong>${weekStr}</strong> has been returned for changes.</p><p style="margin:0;font-size:13px;color:#6a8a9a;">Reason:</p><p style="margin:4px 0 0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason.trim())}</p>`),
+        html: notificationEmailHtml("Timesheets", `<p style="margin:0 0 14px;font-size:15px;color:#262830;">The timesheet from <strong>${escapeHtml(who)}</strong> for <strong>${weekStr}</strong> has been returned for changes.</p>${reasonHtml}`),
         text: `The timesheet from ${who} for ${weekStr} has been returned for changes.\nReason: ${reason.trim()}`,
       });
     }
@@ -397,7 +416,7 @@ router.post("/api/timesheets/unlock-request", requireAuth, rateLimit(5, 60_000),
     await sendEmail({
       to: adminEmails,
       subject: `Timesheet edit request — ${req.user.email}`,
-      html: `<div style="font-family:Arial,sans-serif;max-width:520px;"><div style="background:#4c6278;padding:16px 24px;"><span style="color:#fff;font-size:14px;font-weight:600;">Archimind — Timesheets</span></div><div style="padding:24px;border:1px solid #dde4e8;border-top:none;"><p style="margin:0 0 16px;font-size:15px;color:#262830;"><strong>${escapeHtml(req.user.email)}</strong> has requested to edit their timesheet for <strong>${weekStr}</strong>.</p><p style="font-size:13px;color:#6a8a9a;margin:0 0 6px;">Reason:</p><p style="margin:0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason.trim())}</p></div></div>`,
+      html: notificationEmailHtml("Timesheets", `<p style="margin:0 0 16px;font-size:15px;color:#262830;"><strong>${escapeHtml(req.user.email)}</strong> has requested to edit their timesheet for <strong>${weekStr}</strong>.</p><p style="font-size:13px;color:#6a8a9a;margin:0 0 6px;">Reason:</p><p style="margin:0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason.trim())}</p>`),
       text: `Timesheet edit request from ${req.user.email}\n\nWeek: ${weekStr}\nReason: ${reason.trim()}`,
     });
   }

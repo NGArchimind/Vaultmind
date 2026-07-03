@@ -79,17 +79,19 @@ function totalOtMins(entries) { return entries.reduce((s, e) => s + entryOtMins(
 
 // ── Confirm dialog ─────────────────────────────────────────────────────────────
 
-function ConfirmDialog({ title, message, confirmLabel = "Submit anyway", onConfirm, onCancel }) {
+function ConfirmDialog({ title, message, confirmLabel = "Submit anyway", onConfirm, onCancel, hideCancel }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9998 }}>
       <div style={{ background: "#fff", padding: 28, maxWidth: 420, width: "90%", boxShadow: "0 8px 40px rgba(0,0,0,0.18)" }}>
         <h3 style={{ margin: "0 0 10px", fontSize: 16, fontWeight: 600, color: DESIGN_TEXT }}>{title}</h3>
         <p style={{ margin: "0 0 22px", fontSize: 13, color: "#4a5a6a", lineHeight: 1.6 }}>{message}</p>
         <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
-          <button onClick={onCancel}
-            style={{ background: "#fff", border: "1px solid #e4e4e8", color: "#666", padding: "7px 18px", fontSize: 13, cursor: "pointer" }}>
-            Cancel
-          </button>
+          {!hideCancel && (
+            <button onClick={onCancel}
+              style={{ background: "#fff", border: "1px solid #e4e4e8", color: "#666", padding: "7px 18px", fontSize: 13, cursor: "pointer" }}>
+              Cancel
+            </button>
+          )}
           <button onClick={onConfirm}
             style={{ background: COMPARE_FULL, border: "none", color: "#fff", padding: "7px 18px", fontSize: 13, cursor: "pointer", fontWeight: 600 }}>
             {confirmLabel}
@@ -1117,19 +1119,13 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
   // physically can't reach 37.5h — exempt it from the minimum-hours warning.
   const weekHasPreLaunch = isoDate(monday) < LAUNCH_DATE;
 
-  // The standard hours warnings (over 45h / under 37.5h), run after any earlier gates.
+  // The over-hours warning (soft confirm), run after any earlier gates.
   const proceedToSubmit = () => {
     const total = totalMins(entries);
     if (total > OVER_WEEK_MINS) {
       setDialog({
         title: "Over standard hours",
         message: `Your total for this week is ${formatMins(total)}, which is above 45 hours. Are you sure you want to submit?`,
-        onConfirm: doSubmit,
-      });
-    } else if (total < MIN_WEEK_MINS && !weekHasPreLaunch) {
-      setDialog({
-        title: "Below minimum hours",
-        message: `Your total for this week is ${formatMins(total)}, which is below the standard 37.5 hours. Are you sure you want to submit?`,
         onConfirm: doSubmit,
       });
     } else {
@@ -1145,6 +1141,21 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
     if (extrasNeedType.length) {
       showToast("Some 'unpriced extra' lines have no type selected — choose one before submitting.");
       return;
+    }
+    // HARD BLOCK: a week under 37.5h cannot be submitted (the server rejects it too).
+    // The launch week is exempt — it contains locked pre-launch days.
+    {
+      const total = totalMins(entries);
+      if (total < MIN_WEEK_MINS && !weekHasPreLaunch) {
+        setDialog({
+          title: "Week not complete",
+          message: `Your week totals ${formatMins(total)} — a full week of 37.5 hours must be accounted for before it can be submitted. Remember that holiday, sickness and other leave all count: add a line for any day you weren't working, then submit.`,
+          confirmLabel: "I understand",
+          hideCancel: true,
+          onConfirm: () => setDialog(null),
+        });
+        return;
+      }
     }
     // Reminder (non-blocking) shown only when the week contains unpriced extras —
     // detailed notes are what get used to raise the fee variation.
@@ -1186,6 +1197,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
           confirmLabel={dialog.confirmLabel}
           onConfirm={dialog.onConfirm}
           onCancel={() => setDialog(null)}
+          hideCancel={dialog.hideCancel}
         />
       )}
       {showUnlockDialog && (

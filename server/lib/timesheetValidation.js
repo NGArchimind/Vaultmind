@@ -17,4 +17,20 @@ function daysOverCap(entries, capMins = DAY_CAP_MINS) {
     .map(date => ({ date, mins: byDay[date] }));
 }
 
-module.exports = { daysOverCap, entryWorkedMins, DAY_CAP_MINS };
+// A submitted week must account for at least this much time (37.5h). Leave and
+// other category hours count toward it; overtime never does.
+const MIN_WEEK_MINS = Math.round(37.5 * 60); // 2250
+
+// Timesheets went live on this date; weeks that start before it contain locked
+// pre-launch days and physically can't reach the minimum, so they're exempt.
+const TIMESHEET_LAUNCH_DATE = "2026-07-01";
+
+// Returns { belowMin, totalMins } for a week's entries. weekStart is the week's
+// Monday (YYYY-MM-DD); ISO date strings compare lexically, so < is safe.
+function weekBelowMinimum(entries, weekStart, minMins = MIN_WEEK_MINS, launchDate = TIMESHEET_LAUNCH_DATE) {
+  const totalMins = (entries || []).reduce((s, e) => s + entryWorkedMins(e || {}), 0);
+  if (weekStart && weekStart < launchDate) return { belowMin: false, totalMins };
+  return { belowMin: totalMins < minMins, totalMins };
+}
+
+module.exports = { daysOverCap, entryWorkedMins, DAY_CAP_MINS, weekBelowMinimum, MIN_WEEK_MINS, TIMESHEET_LAUNCH_DATE };
