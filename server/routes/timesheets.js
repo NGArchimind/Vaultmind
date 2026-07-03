@@ -6,6 +6,7 @@ const { rateLimit } = require("../middleware/rateLimit");
 const { supabase } = require("../helpers/clients");
 const { serverError } = require("../helpers/serverError");
 const { sendEmail, escapeHtml, notificationEmailHtml, notificationRecipients, getUserEmail } = require("../helpers/email");
+const { formatWeekRange } = require("../helpers/schedulers");
 const { daysOverCap } = require("../lib/timesheetValidation");
 const { extrasMissingType } = require("../lib/unpricedExtras");
 const { recentProjectIds } = require("../lib/recentProjects");
