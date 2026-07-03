@@ -65,6 +65,16 @@ function ukParts(date) {
   return { day: dayMap[p.weekday], time: `${hour}:${p.minute}`, dateStr: `${p.year}-${p.month}-${p.day}` };
 }
 
+// The Monday the timesheet page should open on: the earliest tracked week not
+// yet submitted/approved; if everything (incl. the current week) is done, the
+// following week; if tracking hasn't started yet, the current week.
+function firstOutstandingWeek(weekStarts, submissions, currentWeekMonday) {
+  if (!weekStarts || !weekStarts.length) return currentWeekMonday;
+  const outstanding = computeOutstandingWeeks(weekStarts, submissions || {});
+  if (outstanding.length) return outstanding[0].week;
+  return addWeeks(currentWeekMonday, 1);
+}
+
 // Times are zero-padded "HH:MM", so string comparison is chronological.
 function isReminderDue({ nowDay, nowTime, cfgDay, cfgTime, currentWeekMonday, lastSentWeek }) {
   if (nowDay !== cfgDay) return false;
@@ -76,4 +86,5 @@ function isReminderDue({ nowDay, nowTime, cfgDay, cfgTime, currentWeekMonday, la
 module.exports = {
   parseISODateUTCNoon, toISODate, mondayOf, enumerateWeekStarts, addWeeks,
   laterMonday, isRemindableRole, computeOutstandingWeeks, ukParts, isReminderDue,
+  firstOutstandingWeek,
 };

@@ -40,9 +40,9 @@ function reminderEmailHtml(firstName, weeks) {
   const body = `<p style="margin:0 0 14px;font-size:15px;color:#262830;">Hi ${escapeHtml(firstName)},</p>`
     + `<p style="margin:0 0 16px;font-size:14px;color:#262830;">The following timesheets are <strong>not yet submitted</strong>:</p>`
     + `<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:20px;">${rows}</table>`
-    + `<p style="margin:0 0 22px;font-size:13px;line-height:1.6;color:#5a6b76;">Please ensure timesheets are completed at the end of each week. These are critical to ensuring fees are tracked effectively and jobs are priced correctly.</p>`
-    + `<a href="${APP_URL}" style="display:inline-block;background:#4c6278;color:#fff;text-decoration:none;font-size:14px;font-weight:600;padding:11px 22px;">Open Archimind &rarr;</a>`
-    + `<p style="margin:22px 0 0;font-size:12px;color:#8a9aa8;">You're receiving this because your timesheet is outstanding. Once submitted, you'll drop off next week's reminder.</p>`;
+    + `<p style="margin:0 0 14px;font-size:13px;line-height:1.6;color:#5a6b76;">Please ensure timesheets are completed at the end of each week. These are critical to ensuring fees are tracked effectively and jobs are priced correctly.</p>`
+    // The "Open Archimind" button now comes from the notificationEmailHtml wrapper.
+    + `<p style="margin:0;font-size:12px;color:#8a9aa8;">You're receiving this because your timesheet is outstanding. Once submitted, you'll drop off next week's reminder.</p>`;
   return notificationEmailHtml("Timesheets", body);
 }
 
@@ -240,16 +240,29 @@ function formatWeekRange(week) {
   return `${weekDate.toLocaleDateString("en-GB", o)} – ${fri.toLocaleDateString("en-GB", { ...o, year: "numeric" })}`;
 }
 
-// Notify the configured role(s) when an admin approves/rejects an expense CLAIM.
+// Notify on an admin expense-claim decision. The claim owner is ALWAYS emailed
+// on rejection (they must act on it); the configured Admin/HR role(s) are
+// emailed per the expense_decided toggles for both outcomes.
 async function notifyClaimDecision(claim, outcome, reason) {
   if (!claim) return;
-  const recipients = await notificationRecipients("expense_decided");
-  if (!recipients.length) return;
-  const who = (await getUserEmail(claim.user_id)) || "A staff member";
+  const ownerEmail = await getUserEmail(claim.user_id);
   const amtStr = `£${(claimTotalPence(claim.project_expenses || []) / 100).toFixed(2)}`;
   const reasonHtml = outcome === "rejected" && reason
     ? `<p style="margin:14px 0 0;font-size:13px;color:#6a8a9a;">Reason:</p><p style="margin:4px 0 0;font-size:13px;color:#262830;padding:10px 14px;background:#f1f2f4;border-left:3px solid #4c6278;">${escapeHtml(reason)}</p>`
     : "";
+
+  if (outcome === "rejected" && ownerEmail) {
+    await sendEmail({
+      to: ownerEmail,
+      subject: `Your expense claim has been returned — ${amtStr}`,
+      html: notificationEmailHtml("Expenses", `<p style="margin:0;font-size:15px;color:#262830;">Your expense claim of <strong>${amtStr}</strong> has been returned. Please review and resubmit it.</p>${reasonHtml}`),
+      text: `Your expense claim of ${amtStr} has been returned. Please review and resubmit it.${reason ? `\nReason: ${reason}` : ""}`,
+    });
+  }
+
+  const recipients = await notificationRecipients("expense_decided");
+  if (!recipients.length) return;
+  const who = ownerEmail || "A staff member";
   await sendEmail({
     to: recipients,
     subject: `Expense claim ${outcome} — ${amtStr}`,

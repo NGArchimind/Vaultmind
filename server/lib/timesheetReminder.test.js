@@ -64,3 +64,27 @@ test("addWeeks shifts by whole weeks (negative ok)", () => {
   assert.equal(R.addWeeks("2026-06-22", -1), "2026-06-15");
   assert.equal(R.addWeeks("2026-06-15", 2), "2026-06-29");
 });
+
+// ── firstOutstandingWeek (timesheet page opening week) ────────────────────────
+
+const { firstOutstandingWeek } = require("./timesheetReminder");
+
+test("opens on the earliest unsubmitted week", () => {
+  const weeks = ["2026-06-29", "2026-07-06", "2026-07-13"];
+  const subs = { "2026-06-29": "submitted", "2026-07-06": "draft" };
+  assert.strictEqual(firstOutstandingWeek(weeks, subs, "2026-07-13"), "2026-07-06");
+});
+
+test("all weeks submitted/approved → the week after the current one", () => {
+  const weeks = ["2026-07-06", "2026-07-13"];
+  const subs = { "2026-07-06": "approved", "2026-07-13": "submitted" };
+  assert.strictEqual(firstOutstandingWeek(weeks, subs, "2026-07-13"), "2026-07-20");
+});
+
+test("nothing submitted at all → the first tracked week", () => {
+  assert.strictEqual(firstOutstandingWeek(["2026-07-06", "2026-07-13"], {}, "2026-07-13"), "2026-07-06");
+});
+
+test("no tracked weeks (tracking starts in the future) → current week", () => {
+  assert.strictEqual(firstOutstandingWeek([], {}, "2026-07-13"), "2026-07-13");
+});
