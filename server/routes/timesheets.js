@@ -6,10 +6,11 @@ const { rateLimit } = require("../middleware/rateLimit");
 const { supabase } = require("../helpers/clients");
 const { serverError } = require("../helpers/serverError");
 const { sendEmail, escapeHtml, notificationEmailHtml, notificationRecipients, getUserEmail } = require("../helpers/email");
-const { formatWeekRange } = require("../helpers/schedulers");
+const { formatWeekRange, getReminderSettings } = require("../helpers/schedulers");
 const { daysOverCap, weekBelowMinimum, MIN_WEEK_MINS } = require("../lib/timesheetValidation");
 const { extrasMissingType } = require("../lib/unpricedExtras");
 const { recentProjectIds } = require("../lib/recentProjects");
+const reminderLib = require("../lib/timesheetReminder");
 
 const router = express.Router();
 
@@ -124,6 +125,35 @@ router.get("/api/timesheets/recent-projects", requireAuth, async (req, res) => {
     res.json({ project_ids: recentProjectIds(data || [], 8) });
   } catch (err) {
     return serverError(res, err, "GET /api/timesheets/recent-projects");
+  }
+});
+
+// GET /api/timesheets/first-outstanding — the Monday the timesheet page should
+// open on: the user's earliest week (from the reminder tracking cut-off, floored
+// at their account-creation week) not yet submitted/approved. If everything up
+// to the current week is done, the following week. Same definition of
+// "outstanding" as the weekly reminder email, so page and reminder agree.
+router.get("/api/timesheets/first-outstanding", requireAuth, async (req, res) => {
+  try {
+    const settings = await getReminderSettings();
+    const currentWeekMonday = reminderLib.mondayOf(reminderLib.ukParts(new Date()).dateStr);
+    const trackFromMonday = reminderLib.mondayOf(settings.track_from);
+    const createdMonday = reminderLib.mondayOf((req.user.created_at || settings.track_from).slice(0, 10));
+    const start = reminderLib.laterMonday(trackFromMonday, createdMonday);
+
+    const { data: subs } = await supabase
+      .from("timesheet_submissions")
+      .select("week_start, status")
+      .eq("user_id", req.user.id)
+      .gte("week_start", start)
+      .lte("week_start", currentWeekMonday);
+    const byWeek = {};
+    for (const s of subs || []) byWeek[s.week_start] = s.status;
+
+    const weeks = start <= currentWeekMonday ? reminderLib.enumerateWeekStarts(start, currentWeekMonday) : [];
+    res.json({ week: reminderLib.firstOutstandingWeek(weeks, byWeek, currentWeekMonday) });
+  } catch (err) {
+    return serverError(res, err, "GET /api/timesheets/first-outstanding");
   }
 });
 

@@ -954,6 +954,11 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
   useEffect(() => {
     api("/api/projects").then(data => setProjects(data?.projects || [])).catch(() => {});
     api("/api/timesheets/recent-projects").then(r => setRecentIds(r?.project_ids || [])).catch(() => {});
+    // Open on the earliest unsubmitted week (or the next week if all are done) —
+    // once, on page open; the arrows navigate freely afterwards.
+    api("/api/timesheets/first-outstanding").then(r => {
+      if (r?.week) setMonday(getMonday(new Date(r.week + "T12:00:00")));
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
