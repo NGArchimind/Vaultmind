@@ -6,7 +6,7 @@ const { rateLimit } = require("../middleware/rateLimit");
 const { supabase } = require("../helpers/clients");
 const { serverError } = require("../helpers/serverError");
 const { sendEmail, escapeHtml, notificationEmailHtml, notificationRecipients, getUserEmail } = require("../helpers/email");
-const { formatWeekRange, getReminderSettings } = require("../helpers/schedulers");
+const { formatWeekRange, getReminderSettings, computeReminderRecipients, sendReminderEmails } = require("../helpers/schedulers");
 const { daysOverCap, weekBelowMinimum, MIN_WEEK_MINS } = require("../lib/timesheetValidation");
 const { extrasMissingType } = require("../lib/unpricedExtras");
 const { recentProjectIds } = require("../lib/recentProjects");
@@ -347,6 +347,51 @@ router.get("/api/admin/timesheets/submissions", requireAuth, requireTimesheetMan
     .order("submitted_at", { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
+});
+
+// GET /api/admin/timesheets/outstanding — week-by-week submission status for the
+// review screen: expected staff count + who hasn't submitted, from the reminder
+// cut-off to the current week. Uses the same rules as the reminder emails.
+router.get("/api/admin/timesheets/outstanding", requireAuth, requireTimesheetManager, async (req, res) => {
+  try {
+    const settings = await getReminderSettings();
+    const trackFromMonday = reminderLib.mondayOf(settings.track_from);
+    const currentWeekMonday = reminderLib.mondayOf(reminderLib.ukParts(new Date()).dateStr);
+
+    const [{ data: subs }, { data: usersData }] = await Promise.all([
+      supabase.from("timesheet_submissions").select("user_id, week_start, status").gte("week_start", trackFromMonday),
+      supabase.auth.admin.listUsers(),
+    ]);
+    const subsByUser = {};
+    for (const s of subs || []) (subsByUser[s.user_id] ||= {})[s.week_start] = s.status;
+    const users = (usersData?.users || []).map((u) => ({
+      id: u.id,
+      name: u.user_metadata?.full_name || u.email || "Unknown",
+      role: u.app_metadata?.role,
+      createdAt: (u.created_at || settings.track_from).slice(0, 10),
+    }));
+
+    const weeks = reminderLib.buildWeekStatus({ users, subsByUser, trackFromMonday, currentWeekMonday });
+    res.json({ currentWeek: currentWeekMonday, trackFrom: trackFromMonday, weeks });
+  } catch (err) {
+    return serverError(res, err, "GET /api/admin/timesheets/outstanding");
+  }
+});
+
+// POST /api/admin/timesheets/remind — email everyone whose timesheet for the given
+// week is outstanding. Each email lists ALL of that person's outstanding weeks
+// (same branded email as the Friday auto-reminder).
+router.post("/api/admin/timesheets/remind", requireAuth, requireTimesheetManager, rateLimit(5, 60_000), async (req, res) => {
+  const { week } = req.body || {};
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(week || "")) return res.status(400).json({ error: "week (YYYY-MM-DD) required" });
+  try {
+    const settings = await getReminderSettings();
+    const recipients = reminderLib.filterRecipientsToWeek(await computeReminderRecipients(settings), week);
+    const sent = await sendReminderEmails(recipients);
+    res.json({ sent });
+  } catch (err) {
+    return serverError(res, err, "POST /api/admin/timesheets/remind");
+  }
 });
 
 // POST /api/admin/timesheets/approve
