@@ -76,9 +76,10 @@ async function computeReminderRecipients(settings, onlyUserId) {
   return recipients;
 }
 
-async function runTimesheetReminders(onlyUserId) {
-  const settings = await getReminderSettings();
-  const recipients = await computeReminderRecipients(settings, onlyUserId);
+// Send the branded outstanding-timesheets email to each recipient (from
+// computeReminderRecipients). Shared by the Friday scheduler and the admin
+// review screen's manual "Send reminder" button.
+async function sendReminderEmails(recipients) {
   for (const r of recipients) {
     const n = r.weeks.length;
     await sendEmail({
@@ -91,6 +92,12 @@ async function runTimesheetReminders(onlyUserId) {
     });
   }
   return recipients.length;
+}
+
+async function runTimesheetReminders(onlyUserId) {
+  const settings = await getReminderSettings();
+  const recipients = await computeReminderRecipients(settings, onlyUserId);
+  return sendReminderEmails(recipients);
 }
 
 // 15-minute scheduler — fires once on the configured UK day at/after the configured time.
@@ -273,7 +280,7 @@ async function notifyClaimDecision(claim, outcome, reason) {
 
 module.exports = {
   getReminderSettings, getReminderState, setReminderState, reminderEmailHtml,
-  computeReminderRecipients, runTimesheetReminders, reminderTick,
+  computeReminderRecipients, sendReminderEmails, runTimesheetReminders, reminderTick,
   getHrReportSettings, getHrReportState, setHrReportState, hrProjectLabel, hrToHours,
   gatherHrReportData, runHrReport, hrReportTick, formatWeekRange, notifyClaimDecision,
 };

@@ -696,6 +696,11 @@ function AdminPanel({ projects, isAdmin }) {
   const [rejectingKey,    setRejectingKey]    = useState(null);
   const [rejectReason,    setRejectReason]    = useState("");
   const [adminView,       setAdminView]       = useState("timesheets"); // "timesheets" | "expenses"
+  const [outstanding,     setOutstanding]     = useState(null); // { currentWeek, trackFrom, weeks: [{week, expected, outstanding}] }
+  const [openWeeks,       setOpenWeeks]       = useState({});   // { [week_start]: true }
+  const [remindingWeek,   setRemindingWeek]   = useState(null); // week awaiting reminder confirm
+  const [sendingWeek,     setSendingWeek]     = useState(null); // week with a reminder send in flight
+  const openInitRef = useRef(false);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 3000); };
 
@@ -708,7 +713,18 @@ function AdminPanel({ projects, isAdmin }) {
       setSubmissions(subs || []);
       setUsers(usersRes?.users || []);
     }).finally(() => setLoading(false));
+    // Tallies degrade gracefully: on failure the weeks still render from submissions alone.
+    api("/api/admin/timesheets/outstanding").then(setOutstanding).catch(() => setOutstanding(null));
   }, []);
+
+  // Once data arrives, open the weeks that need attention (submitted / unlock requested).
+  useEffect(() => {
+    if (openInitRef.current || (!submissions.length && !outstanding)) return;
+    openInitRef.current = true;
+    const open = {};
+    for (const s of submissions) if (s.status === "submitted" || s.unlock_requested) open[s.week_start] = true;
+    setOpenWeeks(open);
+  }, [submissions, outstanding]);
 
   const userEmail = (uid) => users.find(u => u.id === uid)?.email || uid.slice(0, 8) + "…";
 
@@ -718,6 +734,18 @@ function AdminPanel({ projects, isAdmin }) {
     if (filterTo   && s.week_start > filterTo)   return false;
     return true;
   });
+
+  // Group rows by week, newest first. Tracked weeks (from the outstanding endpoint)
+  // always appear — even with no rows; older weeks with submissions render without
+  // a tally. The staff filter narrows rows but the tally stays office-wide.
+  const weekInfoMap = {};
+  for (const w of outstanding?.weeks || []) weekInfoMap[w.week] = w;
+  const subsByWeek = {};
+  for (const s of filtered) (subsByWeek[s.week_start] ||= []).push(s);
+  const weekGroups = [...new Set([...Object.keys(weekInfoMap), ...Object.keys(subsByWeek)])]
+    .filter(w => (!filterFrom || w >= filterFrom) && (!filterTo || w <= filterTo))
+    .sort((a, b) => b.localeCompare(a))
+    .map(week => ({ week, weekSubs: subsByWeek[week] || [], info: weekInfoMap[week] }));
 
   const toggleExpand = async (key, userId, weekStart) => {
     if (expanded === key) { setExpanded(null); return; }
@@ -762,6 +790,20 @@ function AdminPanel({ projects, isAdmin }) {
     showToast("Timesheet unlocked for editing.");
   };
 
+  const handleRemind = async (week, count) => {
+    setSendingWeek(week);
+    try {
+      const resp = await api("/api/admin/timesheets/remind", { method: "POST", body: { week } });
+      const n = resp?.sent ?? count;
+      showToast(`Reminder sent to ${n} staff member${n === 1 ? "" : "s"}.`);
+    } catch {
+      showToast("Could not send reminders — please try again.");
+    } finally {
+      setSendingWeek(null);
+      setRemindingWeek(null);
+    }
+  };
+
   const ss = { padding: "5px 10px", fontSize: 12, border: "1px solid #d0d8de", background: "#fff", color: DESIGN_TEXT, fontFamily: "Inter, Arial, sans-serif" };
 
   return (
@@ -804,24 +846,56 @@ function AdminPanel({ projects, isAdmin }) {
           </div>
 
           {loading && <p style={{ color: "#6a8a9a", fontSize: 13 }}>Loading…</p>}
-          {!loading && filtered.length === 0 && <p style={{ color: "#6a8a9a", fontSize: 13 }}>No submissions found.</p>}
+          {!loading && weekGroups.length === 0 && <p style={{ color: "#6a8a9a", fontSize: 13 }}>No submissions found.</p>}
 
-          {filtered.map(sub => {
+          {!loading && weekGroups.map(({ week, weekSubs, info }) => {
+            const isWkOpen = !!openWeeks[week];
+            const mon      = new Date(week);
+            const fri      = new Date(mon); fri.setDate(fri.getDate() + 4);
+            const o        = { day: "numeric", month: "short" };
+            const weekStr  = `${mon.toLocaleDateString("en-GB", o)} – ${fri.toLocaleDateString("en-GB", { ...o, year: "numeric" })}`;
+            const missing  = info ? info.outstanding : [];
+            const allIn    = info && missing.length === 0;
+            const isCurrent = outstanding && week === outstanding.currentWeek;
+
+            return (
+              <div key={week} style={{ marginBottom: 12 }}>
+                <div onClick={() => setOpenWeeks(p => ({ ...p, [week]: !p[week] }))}
+                  style={{ display: "flex", alignItems: "center", gap: 14, padding: "11px 16px", cursor: "pointer", border: "1px solid #dde4e8", background: isWkOpen ? DESIGN_GROUND : "#fff" }}>
+                  <span style={{ fontSize: 14, color: DESIGN_TEXT, fontWeight: 700 }}>{weekStr}</span>
+                  {isCurrent && (
+                    <span style={{ fontSize: 10, color: "#8a9aa8", fontWeight: 600, letterSpacing: "0.06em" }}>IN PROGRESS</span>
+                  )}
+                  {info && (
+                    <span style={{
+                      fontSize: 11, fontWeight: 700, padding: "3px 10px",
+                      color: allIn ? "#2e7d32" : COMPARE_FULL,
+                      background: allIn ? "#e8f5e9" : "#fdeeec",
+                      border: `1px solid ${allIn ? "#2e7d32" : COMPARE_FULL}44`,
+                    }}>
+                      {info.expected - missing.length} of {info.expected} submitted
+                    </span>
+                  )}
+                  <span style={{ marginLeft: "auto", color: "#aaa", fontSize: 14 }}>{isWkOpen ? "▲" : "▼"}</span>
+                </div>
+
+                {isWkOpen && weekSubs.length === 0 && (
+                  <p style={{ color: "#8a9aa8", fontSize: 12, margin: 0, padding: "10px 16px", border: "1px solid #dde4e8", borderTop: "none", background: "#fff" }}>
+                    No timesheets saved for this week yet.
+                  </p>
+                )}
+
+                {isWkOpen && weekSubs.map(sub => {
             const key     = `${sub.user_id}|${sub.week_start}`;
             const isOpen  = expanded === key;
             const entries = expandedEntries[key] || [];
             const wTotal  = totalMins(entries);
-            const mon     = new Date(sub.week_start);
-            const fri     = new Date(mon); fri.setDate(fri.getDate() + 4);
-            const o       = { day: "numeric", month: "short" };
-            const weekStr = `${mon.toLocaleDateString("en-GB", o)} – ${fri.toLocaleDateString("en-GB", { ...o, year: "numeric" })}`;
 
             return (
-              <div key={key} style={{ border: "1px solid #dde4e8", marginBottom: 8, background: "#fff" }}>
+              <div key={key} style={{ border: "1px solid #dde4e8", borderTop: "none", background: "#fff" }}>
                 <div onClick={() => toggleExpand(key, sub.user_id, sub.week_start)}
                   style={{ display: "flex", alignItems: "center", gap: 16, padding: "10px 16px", cursor: "pointer", background: isOpen ? DESIGN_GROUND : "#fff" }}>
                   <span style={{ fontSize: 13, color: DESIGN_TEXT, fontWeight: 600, minWidth: 200 }}>{userEmail(sub.user_id)}</span>
-                  <span style={{ fontSize: 13, color: "#6a8a9a", minWidth: 180 }}>{weekStr}</span>
                   {isOpen && entries.length > 0 && (
                     <span style={{ fontSize: 12, color: TIMESHEETS_FULL, fontWeight: 500 }}>{formatMins(wTotal)}</span>
                   )}
@@ -906,6 +980,38 @@ function AdminPanel({ projects, isAdmin }) {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+                {isWkOpen && missing.length > 0 && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "10px 16px", background: "#fdf6f5", border: "1px solid #dde4e8", borderTop: `1px dashed ${COMPARE_FULL}66` }}>
+                    <strong style={{ fontSize: 12, color: COMPARE_FULL }}>Not submitted ({missing.length}):</strong>
+                    {missing.map(m => (
+                      <span key={m.id} style={{ fontSize: 11, fontWeight: 600, color: COMPARE_FULL, background: "#fdeeec", border: `1px solid ${COMPARE_FULL}44`, padding: "2px 10px" }}>
+                        {m.name}
+                      </span>
+                    ))}
+                    <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+                      {remindingWeek !== week && (
+                        <button onClick={() => setRemindingWeek(week)} disabled={sendingWeek === week}
+                          style={{ background: COMPARE_FULL, color: "#fff", border: "none", padding: "4px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+                          {sendingWeek === week ? "Sending…" : `Send reminder to ${missing.length} staff`}
+                        </button>
+                      )}
+                      {remindingWeek === week && (
+                        <>
+                          <button onClick={() => handleRemind(week, missing.length)} disabled={sendingWeek === week}
+                            style={{ background: COMPARE_FULL, color: "#fff", border: "none", padding: "4px 14px", fontSize: 12, cursor: "pointer", fontWeight: 600 }}>
+                            {sendingWeek === week ? "Sending…" : `Confirm — email ${missing.length} staff`}
+                          </button>
+                          <button onClick={() => setRemindingWeek(null)}
+                            style={{ background: "none", border: "none", color: "#aaa", fontSize: 16, cursor: "pointer", padding: "0 4px" }}>×</button>
+                        </>
+                      )}
+                    </span>
                   </div>
                 )}
               </div>

@@ -75,6 +75,32 @@ function firstOutstandingWeek(weekStarts, submissions, currentWeekMonday) {
   return addWeeks(currentWeekMonday, 1);
 }
 
+// Week-by-week status for the admin review screen. users: [{id, name, role, createdAt}];
+// subsByUser: { [userId]: { [week_start]: status } }. Only remindable roles count as
+// expected, and never before the week their account was created (same rules as the
+// reminder emails). Returns newest-first: [{ week, expected, outstanding: [{id, name, label}] }].
+function buildWeekStatus({ users, subsByUser, trackFromMonday, currentWeekMonday }) {
+  const weeks = enumerateWeekStarts(trackFromMonday, currentWeekMonday);
+  const staff = (users || [])
+    .filter((u) => isRemindableRole(u.role))
+    .map((u) => ({ ...u, startMonday: laterMonday(trackFromMonday, mondayOf(u.createdAt || trackFromMonday)) }));
+  return weeks
+    .map((week) => {
+      const expectedStaff = staff.filter((u) => u.startMonday <= week);
+      const outstanding = expectedStaff
+        .flatMap((u) => computeOutstandingWeeks([week], (subsByUser || {})[u.id] || {})
+          .map((o) => ({ id: u.id, name: u.name, label: o.label })))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      return { week, expected: expectedStaff.length, outstanding };
+    })
+    .reverse();
+}
+
+// Recipients (from computeReminderRecipients) whose outstanding weeks include the given week.
+function filterRecipientsToWeek(recipients, week) {
+  return (recipients || []).filter((r) => (r.weeks || []).some((w) => w.week === week));
+}
+
 // Times are zero-padded "HH:MM", so string comparison is chronological.
 function isReminderDue({ nowDay, nowTime, cfgDay, cfgTime, currentWeekMonday, lastSentWeek }) {
   if (nowDay !== cfgDay) return false;
@@ -86,5 +112,5 @@ function isReminderDue({ nowDay, nowTime, cfgDay, cfgTime, currentWeekMonday, la
 module.exports = {
   parseISODateUTCNoon, toISODate, mondayOf, enumerateWeekStarts, addWeeks,
   laterMonday, isRemindableRole, computeOutstandingWeeks, ukParts, isReminderDue,
-  firstOutstandingWeek,
+  firstOutstandingWeek, buildWeekStatus, filterRecipientsToWeek,
 };
