@@ -65,10 +65,10 @@ async function computeReminderRecipients(settings, onlyUserId) {
     if (onlyUserId && u.id !== onlyUserId) continue;
     if (!onlyUserId && !reminderLib.isRemindableRole(u.app_metadata?.role)) continue;
     const createdMonday = reminderLib.mondayOf((u.created_at || settings.track_from).slice(0, 10));
-    const start = reminderLib.laterMonday(trackFromMonday, createdMonday);
-    if (start > currentWeekMonday) continue;
-    const weeks = reminderLib.computeOutstandingWeeks(
-      reminderLib.enumerateWeekStarts(start, currentWeekMonday), byUser[u.id] || {});
+    // Prior weeks only — the in-progress week is never chased by email (2026-07-13).
+    const weeks = reminderLib.chaseableWeeks({
+      trackFromMonday, createdMonday, currentWeekMonday, submissions: byUser[u.id] || {},
+    });
     if (!weeks.length || !u.email) continue;
     const firstName = (u.user_metadata?.full_name || u.email || "there").split(/[ @]/)[0];
     recipients.push({ email: u.email, firstName, weeks });

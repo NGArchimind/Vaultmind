@@ -994,6 +994,8 @@ function AdminPanel({ projects, isAdmin }) {
                         {m.name}
                       </span>
                     ))}
+                    {/* No reminder button on the in-progress week — emails only chase completed weeks. */}
+                    {!isCurrent && (
                     <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
                       {remindingWeek !== week && (
                         <button onClick={() => setRemindingWeek(week)} disabled={sendingWeek === week}
@@ -1012,6 +1014,7 @@ function AdminPanel({ projects, isAdmin }) {
                         </>
                       )}
                     </span>
+                    )}
                   </div>
                 )}
               </div>
