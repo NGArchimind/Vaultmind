@@ -96,6 +96,17 @@ function buildWeekStatus({ users, subsByUser, trackFromMonday, currentWeekMonday
     .reverse();
 }
 
+// The weeks a person can be chased for by a failure-to-complete reminder email:
+// outstanding weeks STRICTLY BEFORE the current week — a week that hasn't finished
+// can't be "not completed" yet. (Display logic like buildWeekStatus still includes
+// the in-progress week; this rule is for the emails only.)
+function chaseableWeeks({ trackFromMonday, createdMonday, currentWeekMonday, submissions }) {
+  const lastCompletedMonday = addWeeks(currentWeekMonday, -1);
+  const start = laterMonday(trackFromMonday, createdMonday);
+  if (start > lastCompletedMonday) return [];
+  return computeOutstandingWeeks(enumerateWeekStarts(start, lastCompletedMonday), submissions || {});
+}
+
 // Recipients (from computeReminderRecipients) whose outstanding weeks include the given week.
 function filterRecipientsToWeek(recipients, week) {
   return (recipients || []).filter((r) => (r.weeks || []).some((w) => w.week === week));
@@ -112,5 +123,5 @@ function isReminderDue({ nowDay, nowTime, cfgDay, cfgTime, currentWeekMonday, la
 module.exports = {
   parseISODateUTCNoon, toISODate, mondayOf, enumerateWeekStarts, addWeeks,
   laterMonday, isRemindableRole, computeOutstandingWeeks, ukParts, isReminderDue,
-  firstOutstandingWeek, buildWeekStatus, filterRecipientsToWeek,
+  firstOutstandingWeek, buildWeekStatus, filterRecipientsToWeek, chaseableWeeks,
 };

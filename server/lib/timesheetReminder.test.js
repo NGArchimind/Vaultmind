@@ -168,6 +168,59 @@ test("buildWeekStatus: outstanding names are sorted alphabetically", () => {
   assert.deepEqual(out[0].outstanding.map((o) => o.name), ["Amy", "Tom"]);
 });
 
+// ── chaseableWeeks (reminder emails: prior weeks only, never the current week) ─
+
+const { chaseableWeeks } = require("./timesheetReminder");
+
+test("chaseableWeeks never includes the current week", () => {
+  const weeks = chaseableWeeks({
+    trackFromMonday: "2026-06-29", createdMonday: "2026-06-29",
+    currentWeekMonday: "2026-07-13", submissions: {},
+  });
+  assert.deepEqual(weeks.map((w) => w.week), ["2026-06-29", "2026-07-06"]);
+});
+
+test("chaseableWeeks: all prior weeks done → empty, even with the current week unsubmitted", () => {
+  const weeks = chaseableWeeks({
+    trackFromMonday: "2026-06-29", createdMonday: "2026-06-29",
+    currentWeekMonday: "2026-07-13",
+    submissions: { "2026-06-29": "approved", "2026-07-06": "submitted" }, // 07-13 missing — not chaseable
+  });
+  assert.deepEqual(weeks, []);
+});
+
+test("chaseableWeeks starts at the later of cut-off and account creation", () => {
+  const weeks = chaseableWeeks({
+    trackFromMonday: "2026-06-29", createdMonday: "2026-07-06",
+    currentWeekMonday: "2026-07-13", submissions: {},
+  });
+  assert.deepEqual(weeks.map((w) => w.week), ["2026-07-06"]);
+});
+
+test("chaseableWeeks: nothing before the current week to chase → empty", () => {
+  // account created during the current week
+  assert.deepEqual(chaseableWeeks({
+    trackFromMonday: "2026-06-29", createdMonday: "2026-07-13",
+    currentWeekMonday: "2026-07-13", submissions: {},
+  }), []);
+  // tracking only starts this week
+  assert.deepEqual(chaseableWeeks({
+    trackFromMonday: "2026-07-13", createdMonday: "2026-06-01",
+    currentWeekMonday: "2026-07-13", submissions: {},
+  }), []);
+});
+
+test("chaseableWeeks keeps the Draft / Not started labels", () => {
+  const weeks = chaseableWeeks({
+    trackFromMonday: "2026-06-29", createdMonday: "2026-06-29",
+    currentWeekMonday: "2026-07-13", submissions: { "2026-07-06": "draft" },
+  });
+  assert.deepEqual(weeks, [
+    { week: "2026-06-29", label: "Not started" },
+    { week: "2026-07-06", label: "Draft" },
+  ]);
+});
+
 test("filterRecipientsToWeek keeps only recipients with that week outstanding", () => {
   const recipients = [
     { email: "a@x.com", firstName: "A", weeks: [{ week: "2026-07-06", label: "Not started" }] },
