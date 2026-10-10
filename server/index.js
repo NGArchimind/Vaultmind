@@ -132,6 +132,7 @@ app.use(require("./routes/products"));
 
 app.use(require("./routes/projects"));
 app.use(require("./routes/projectsAi"));
+app.use(require("./routes/projectMap"));
 
 app.use(require("./routes/admin"));
 

@@ -13,6 +13,7 @@ import PlaceholderTab from "./PlaceholderTab";
 import QABar from "./QABar";
 import TaskBoard from "../TaskBoard";
 import AgreementsTab from "../AgreementsTab";
+import ProjectMapTab from "./map/ProjectMapTab";
 
 // ── Project detail ────────────────────────────────────────────────────────────
 export default function ProjectDetail({ projectId, onBack, isAdmin }) {
@@ -140,6 +141,7 @@ export default function ProjectDetail({ projectId, onBack, isAdmin }) {
     { id: "products", label: "Products" }, { id: "minutes", label: "Minutes" }, { id: "emails", label: "Emails" },
     { id: "tasks", label: "To Do" },
     { id: "agreements", label: "Agreements" },
+    { id: "map", label: "Project Map" },
   ];
 
   const tabStyle = t => ({
@@ -441,6 +443,7 @@ export default function ProjectDetail({ projectId, onBack, isAdmin }) {
         {activeTab === "emails" && <EmailsTab projectId={projectId} />}
         {activeTab === "tasks" && <TaskBoard projectId={projectId} />}
         {activeTab === "agreements" && <AgreementsTab projectId={projectId} />}
+        {activeTab === "map" && <ProjectMapTab projectId={projectId} isAdmin={isAdmin} />}
 
       </div>
 
