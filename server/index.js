@@ -44,7 +44,7 @@ app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => 
 
   try {
     const { model, max_tokens, system, messages, temperature, thinking } = req.body;
-    const ALLOWED_MODELS = new Set(["gemini-2.5-flash", "gemini-2.0-flash-lite", "gemini-1.5-flash"]);
+    const ALLOWED_MODELS = new Set(["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash-lite", "gemini-1.5-flash"]);
     const requestedModel = (model && ALLOWED_MODELS.has(model)) ? model : "gemini-2.5-flash";
 
     const contents = [];
@@ -113,7 +113,7 @@ app.post("/api/claude", requireAuth, rateLimit(20, 60_000), async (req, res) => 
     const usage = data.usageMetadata || {};
     res.json({
       content: [{ type: "text", text }],
-      usage: { input_tokens: usage.promptTokenCount || 0, output_tokens: usage.candidatesTokenCount || 0 },
+      usage: { input_tokens: usage.promptTokenCount || 0, output_tokens: usage.candidatesTokenCount || 0, thinking_tokens: usage.thoughtsTokenCount || 0 },
     });
 
   } catch (err) {
@@ -132,6 +132,7 @@ app.use(require("./routes/products"));
 
 app.use(require("./routes/projects"));
 app.use(require("./routes/projectsAi"));
+app.use(require("./routes/projectMap"));
 
 app.use(require("./routes/admin"));
 

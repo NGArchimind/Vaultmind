@@ -16,6 +16,8 @@ import VaultPdfViewer from "./components/VaultPdfViewer";
 import { useAuth } from "./hooks/useAuth";
 import { findPageInVaultIndex, findPageByClauseNumber } from "./citations";
 import { buildAnswerPrompt } from "./prompts";
+import { moveSummaryToTop } from "./answerOrder";
+import { estimateCostGBP } from "./geminiCost";
 import { BOILERPLATE_HEADINGS, isBoilerplate, DESIGN_SHELL, DESIGN_GROUND, DESIGN_GOLD, DESIGN_TEXT, DESIGN_MUTED, VAULT_FULL, COMPARE_FULL } from "./constants";
 
 export default function App() {
@@ -1039,13 +1041,29 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
       const pass3Bytes = docBlocks.reduce((n, b) => n + (b.source?.data?.length || 0), 0) + answerPrompt.length;
       console.log(`[Pass3] Sending ~${(pass3Bytes / 1048576).toFixed(1)} MB to the answer model (${docBlocks.length} document blocks)`);
 
-      const { text: finalAnswer, usage: answerUsage } = await withRetry(
+      // Answer on Pro for careful reading; if Pro fails after its retry, fall back
+      // to Flash so the user still gets an answer. The model writes the Summary
+      // last (see prompts.js) — moveSummaryToTop restores the display order.
+      const pass3System = `You are an expert building regulations consultant writing for architectural specialists. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Detailed Analysis, (2) ## Contradictions & Conflicts, (3) ## Practical Conclusion, (4) ## Summary. Never change this order — the Summary is written last so it agrees with the evidence. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. In Detailed Analysis, start each document's citations with a ### Document Name header on its own line and group ALL citations from that document together before moving to the next. Draw from ALL provided documents.`;
+      const runPass3 = (model) => withRetry(
         () => askGemini(
           [{ role: "user", content: [...docBlocks, { type: "text", text: answerPrompt }] }],
-          `You are an expert building regulations consultant writing for architectural specialists. Answer using ONLY the provided document pages. Always output in this exact order: (1) ## Summary, (2) ## Detailed Analysis, (3) ## Contradictions & Conflicts, (4) ## Practical Conclusion. Never change this order. Every citation MUST start and end with asterisks: *Document | Clause (Section)*. In Detailed Analysis, start each document's citations with a ### Document Name header on its own line and group ALL citations from that document together before moving to the next. Draw from ALL provided documents.`,
-          65536, 0, "gemini-2.5-flash"
+          pass3System, 65536, 0, model
         ), 1, 5000, "Pass 3/3 · Synthesising answer"
       );
+      let answerModel = "gemini-2.5-pro";
+      let pass3Result;
+      try {
+        pass3Result = await runPass3(answerModel);
+      } catch (proErr) {
+        console.warn("[Pass3] Pro failed, falling back to Flash:", proErr.message);
+        setStatusMsg("Pass 3/3 · Pro model unavailable — answering with Flash…");
+        answerModel = "gemini-2.5-flash";
+        pass3Result = await runPass3(answerModel);
+      }
+      const finalAnswer = moveSummaryToTop(pass3Result.text);
+      const answerUsage = pass3Result.usage;
+      console.log(`[Pass3] Answered with ${answerModel}`, answerUsage);
 
       setProgress(p => ({ ...p, answer: 100 }));
       setAnswer(finalAnswer);
@@ -1067,12 +1085,7 @@ const { text: scoringText, usage: scoringUsage } = await withRetry(
           .catch(() => {});
       }
 
-      const GEMINI_INPUT_PRICE_USD = 0.15;
-      const GEMINI_OUTPUT_PRICE_USD = 0.60;
-      const USD_TO_GBP = 0.79;
-      const totalInput = (scoringUsage?.input_tokens || 0) + (answerUsage?.input_tokens || 0);
-      const totalOutput = (scoringUsage?.output_tokens || 0) + (answerUsage?.output_tokens || 0);
-      const costGBP = ((totalInput / 1_000_000) * GEMINI_INPUT_PRICE_USD + (totalOutput / 1_000_000) * GEMINI_OUTPUT_PRICE_USD) * USD_TO_GBP;
+      const costGBP = estimateCostGBP("gemini-2.5-flash", scoringUsage) + estimateCostGBP(answerModel, answerUsage);
       setCostEst(costGBP);
       setStatusMsg("Answer ready");
     } catch (err) {

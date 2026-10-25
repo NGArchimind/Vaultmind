@@ -11,6 +11,8 @@ const { supabase, r2, BUCKET } = require("../helpers/clients");
 const { streamToBuffer } = require("../helpers/r2");
 const { serverError } = require("../helpers/serverError");
 const { indexDrawing, GEMINI_BASE } = require("../helpers/gemini");
+const { stripReplyChain } = require("../lib/emailText");
+const { kickMapRun } = require("../helpers/projectMap");
 
 const router = express.Router();
 
@@ -599,27 +601,6 @@ async function generateEmbedding(text, taskType = "RETRIEVAL_DOCUMENT") {
   return data.embedding.values; // array of 768 numbers
 }
 
-// Strip reply chain quoted text from email body before embedding
-function stripReplyChain(text) {
-  if (!text) return "";
-  const cutMarkers = [
-    /^On .{10,200} wrote:\s*$/m,          // Gmail/Apple: "On Mon 12 May, John wrote:"
-    /^-{5,}[\s\S]*?Original Message/m,    // Outlook: "-----Original Message-----"
-    /^From:.+\nSent:.+\nTo:/m,            // Outlook reply header block
-    /^_{10,}$/m,                           // Outlook underline separator
-    /^>+ /m,                               // Quoted lines starting with ">"
-  ];
-  let result = text;
-  for (const marker of cutMarkers) {
-    const match = result.match(marker);
-    // Only cut if marker isn't right at the start (avoid gutting genuine content)
-    if (match && match.index > 80) {
-      result = result.slice(0, match.index);
-    }
-  }
-  return result.trim();
-}
-
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -779,6 +760,9 @@ router.post("/api/projects/:id/emails/ingest", requireAuth, rateLimit(10, 60_000
       }
     }
   }
+
+  // New emails are read into the Project Map in the background.
+  if (results.inserted > 0) kickMapRun(req.params.id);
 
   res.json(results);
 });
