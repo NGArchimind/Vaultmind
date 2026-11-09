@@ -233,3 +233,23 @@ test("filterRecipientsToWeek keeps only recipients with that week outstanding", 
   );
   assert.deepEqual(filterRecipientsToWeek(recipients, "2026-07-13"), []);
 });
+
+// ── Leavers: expected weeks stop after the leaving week ───────────────────────
+
+test("isExpectedInWeek: expected up to and including the leaving week", () => {
+  const u = { startMonday: "2026-06-01", leftAt: "2026-11-05" };
+  assert.equal(R.isExpectedInWeek(u, "2026-11-02"), true);
+  assert.equal(R.isExpectedInWeek(u, "2026-11-09"), false);
+  assert.equal(R.isExpectedInWeek({ startMonday: "2026-06-01", leftAt: null }, "2026-11-09"), true);
+  assert.equal(R.isExpectedInWeek({ startMonday: "2026-11-16", leftAt: null }, "2026-11-09"), false);
+});
+
+test("buildWeekStatus: a leaver is not expected after their leaving week", () => {
+  const users = [
+    { id: "u1", name: "Sarah", role: "user", createdAt: "2026-06-01" },
+    { id: "u2", name: "Tom",   role: "user", createdAt: "2026-06-01", leftAt: "2026-07-03" },
+  ];
+  const out = buildWeekStatus({ users, subsByUser: {}, trackFromMonday: "2026-06-29", currentWeekMonday: "2026-07-06" });
+  assert.deepEqual(out[0], { week: "2026-07-06", expected: 1, outstanding: [{ id: "u1", name: "Sarah", label: "Not started" }] });
+  assert.equal(out[1].expected, 2);
+});

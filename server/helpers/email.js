@@ -2,6 +2,8 @@
 // and admin domains). Wraps Resend and reads per-event routing from app_settings.
 const { Resend } = require("resend");
 const { supabase } = require("./clients");
+const { ukParts } = require("../lib/timesheetReminder");
+const { isCurrentStaff } = require("../lib/leavers");
 
 let _resend = null;
 function getResend() {
@@ -30,18 +32,21 @@ async function sendEmail({ to, subject, html, text, attachments }) {
   }
 }
 
+// Former staff (leaving date passed) never receive admin/HR mail — incl. the HR report.
 async function getAdminEmails() {
   const { data } = await supabase.auth.admin.listUsers();
+  const today = ukParts(new Date()).dateStr;
   return (data?.users || [])
-    .filter(u => u.app_metadata?.role === "admin")
+    .filter(u => u.app_metadata?.role === "admin" && isCurrentStaff(u.app_metadata, today))
     .map(u => u.email)
     .filter(Boolean);
 }
 
 async function getHrEmails() {
   const { data } = await supabase.auth.admin.listUsers();
+  const today = ukParts(new Date()).dateStr;
   return (data?.users || [])
-    .filter(u => u.app_metadata?.role === "hr")
+    .filter(u => u.app_metadata?.role === "hr" && isCurrentStaff(u.app_metadata, today))
     .map(u => u.email)
     .filter(Boolean);
 }

@@ -4,6 +4,14 @@ import { Spinner } from "./common/Spinner";
 import { ARC_TERRACOTTA, DESIGN_SHELL, DESIGN_GROUND, DESIGN_GOLD } from "../constants";
 import QaLogPanel from "./QaLogPanel";
 
+// "7 Nov 2026" from a 'YYYY-MM-DD' string.
+const fmtUkDate = (iso) => new Date(iso + "T12:00:00Z").toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
+
+const smallBtn = {
+  background: "none", border: "1px solid #ccc", color: "#505a5f", fontSize: 10, padding: "3px 8px",
+  cursor: "pointer", fontFamily: "Inter, Arial, sans-serif", whiteSpace: "nowrap",
+};
+
 const DEFAULT_COLOURS = {
   header:      "#1a2332",
   groupRow:    "#f0ede8",
@@ -272,6 +280,11 @@ export default function AdminSection() {
   const [updatingRole, setUpdatingRole] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
 
+  // Leavers
+  const [leaveFor, setLeaveFor] = useState(null);     // uid whose "Mark as left" panel is open
+  const [leaveDate, setLeaveDate] = useState("");
+  const [leaverBusy, setLeaverBusy] = useState(null); // uid being marked / reinstated
+
   // Logo
   const [logo, setLogo] = useState(null);       // { base64, mimeType } | null
   const [logoLoading, setLogoLoading] = useState(true);
@@ -341,6 +354,10 @@ export default function AdminSection() {
     setAdding(false);
   };
 
+  // Staff who have left move to the "Former staff" section; "leaving" staff stay in the main list.
+  const currentUsers = users.filter(u => u.leaver_status !== "left");
+  const formerUsers  = users.filter(u => u.leaver_status === "left");
+
   const handleChangeRole = async (uid, role) => {
     setUpdatingRole(uid);
     try {
@@ -350,8 +367,35 @@ export default function AdminSection() {
     setUpdatingRole(null);
   };
 
+  const openLeavePanel = (uid) => {
+    setLeaveFor(uid);
+    setLeaveDate(new Date().toLocaleDateString("en-CA", { timeZone: "Europe/London" })); // today, UK
+  };
+
+  const handleMarkLeft = async (u) => {
+    if (!leaveDate) return;
+    if (!window.confirm(`Mark ${u.email} as leaving on ${fmtUkDate(leaveDate)}? They can work and submit timesheets up to that day. The next morning their account closes, and any unsubmitted final week is submitted automatically. All their history is kept.`)) return;
+    setLeaverBusy(u.id);
+    try {
+      const { user } = await api(`/api/admin/users/${u.id}/leave`, { method: "POST", body: { left_at: leaveDate } });
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, ...user } : x));
+      setLeaveFor(null);
+    } catch (e) { alert("Failed to mark as left: " + e.message); }
+    setLeaverBusy(null);
+  };
+
+  const handleReinstate = async (u, message) => {
+    if (!window.confirm(message)) return;
+    setLeaverBusy(u.id);
+    try {
+      const { user } = await api(`/api/admin/users/${u.id}/reinstate`, { method: "POST" });
+      setUsers(prev => prev.map(x => x.id === u.id ? { ...x, ...user } : x));
+    } catch (e) { alert("Failed to update: " + e.message); }
+    setLeaverBusy(null);
+  };
+
   const handleDeleteUser = async (uid, email) => {
-    if (!window.confirm(`Delete user "${email}"? This cannot be undone.`)) return;
+    if (!window.confirm(`Permanently delete "${email}"? This cannot be undone, and their name will disappear from timesheets and reports. If they have left, use "Mark as left" instead.`)) return;
     setDeletingId(uid);
     try {
       await api(`/api/admin/users/${uid}`, { method: "DELETE" });
@@ -728,18 +772,26 @@ export default function AdminSection() {
       )}
 
       <div style={{ background: "#fff", border: "1px solid #e0dbd4", marginBottom: 8 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 120px 170px 40px", padding: "10px 20px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
-          {["Email", "Role", "Created", "Password", ""].map(h => (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 120px 170px 120px 40px", padding: "10px 20px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
+          {["Email", "Role", "Created", "Password", "Leaving", ""].map(h => (
             <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</span>
           ))}
         </div>
         {loading ? (
           <div style={{ padding: "24px 20px", display: "flex", alignItems: "center", gap: 10, color: "#9a9088", fontSize: 13 }}><Spinner size={14} /> Loading users…</div>
-        ) : users.length === 0 ? (
+        ) : currentUsers.length === 0 ? (
           <div style={{ padding: "24px 20px", fontSize: 13, color: "#9a9088" }}>No users found.</div>
-        ) : users.map(u => (
-          <div key={u.id} style={{ display: "grid", gridTemplateColumns: "1fr 110px 120px 170px 40px", padding: "12px 20px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
-            <span style={{ fontSize: 13, color: DESIGN_SHELL, letterSpacing: "0.01em" }}>{u.email}</span>
+        ) : currentUsers.map(u => (
+          <div key={u.id}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 110px 120px 170px 120px 40px", padding: "12px 20px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
+            <span style={{ fontSize: 13, color: DESIGN_SHELL, letterSpacing: "0.01em", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              {u.email}
+              {u.leaver_status === "leaving" && (
+                <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", color: DESIGN_SHELL, background: DESIGN_GOLD, padding: "2px 7px" }}>
+                  Leaving {fmtUkDate(u.left_at)}
+                </span>
+              )}
+            </span>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <select value={u.role} onChange={e => handleChangeRole(u.id, e.target.value)} disabled={updatingRole === u.id}
                 style={{ fontSize: 11, padding: "3px 6px", border: `1px solid ${u.role === "admin" ? ARC_TERRACOTTA : "#ccc"}`, color: u.role === "admin" ? ARC_TERRACOTTA : "#505a5f", background: "#fff", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif", fontWeight: u.role === "admin" ? 600 : 400, letterSpacing: "0.04em", textTransform: "uppercase" }}>
@@ -768,17 +820,62 @@ export default function AdminSection() {
                 {resettingId === u.id ? <Spinner size={10} /> : "Reset password"}
               </button>
             )}
+            <div>
+              {leaverBusy === u.id ? <Spinner size={10} />
+                : u.leaver_status === "leaving" ? (
+                  <button style={smallBtn} onClick={() => handleReinstate(u, `Cancel ${u.email}'s leaving date?`)}>Cancel leaving</button>
+                ) : (
+                  <button style={smallBtn} onClick={() => leaveFor === u.id ? setLeaveFor(null) : openLeavePanel(u.id)}>Mark as left</button>
+                )}
+            </div>
             <button onClick={() => handleDeleteUser(u.id, u.email)} disabled={deletingId === u.id} title="Delete user"
               style={{ background: "none", border: "none", color: "#c0b8b0", fontSize: 14, cursor: deletingId === u.id ? "not-allowed" : "pointer", padding: "2px 6px", fontFamily: "Inter, Arial, sans-serif", transition: "color 0.15s" }}
               onMouseEnter={e => e.target.style.color = ARC_TERRACOTTA} onMouseLeave={e => e.target.style.color = "#c0b8b0"}>
               {deletingId === u.id ? <Spinner size={12} /> : "×"}
             </button>
           </div>
+          {leaveFor === u.id && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "10px 20px 14px", borderBottom: "1px solid #f0ede8", background: DESIGN_GROUND }}>
+              <span style={{ fontSize: 12, color: DESIGN_SHELL }}>Last working day:</span>
+              <input type="date" value={leaveDate} onChange={e => setLeaveDate(e.target.value)}
+                style={{ fontSize: 12, padding: "3px 6px", border: "1px solid #ccc", fontFamily: "Inter, Arial, sans-serif" }} />
+              <button style={{ ...smallBtn, background: DESIGN_SHELL, color: "#fff", border: `1px solid ${DESIGN_SHELL}` }}
+                disabled={!leaveDate || leaverBusy === u.id} onClick={() => handleMarkLeft(u)}>Confirm</button>
+              <button style={smallBtn} onClick={() => setLeaveFor(null)}>Cancel</button>
+              <span style={{ fontSize: 11, color: "#9a9088" }}>Their timesheets, expenses and history are kept.</span>
+            </div>
+          )}
+          </div>
         ))}
       </div>
-      <p style={{ fontSize: 11, color: "#b0a8a0", marginBottom: 48, letterSpacing: "0.03em" }}>
-        {users.length} user{users.length !== 1 ? "s" : ""}
+      <p style={{ fontSize: 11, color: "#b0a8a0", marginBottom: formerUsers.length ? 32 : 48, letterSpacing: "0.03em" }}>
+        {currentUsers.length} current user{currentUsers.length !== 1 ? "s" : ""}
       </p>
+
+      {formerUsers.length > 0 && (
+        <div style={{ marginBottom: 48 }}>
+          {sectionHeader("Former staff", "Accounts kept for records. They cannot log in.")}
+          <div style={{ background: "#fff", border: "1px solid #e0dbd4" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 130px 130px 100px", padding: "10px 20px", borderBottom: "1px solid #e8e0d5", background: DESIGN_GROUND }}>
+              {["Email", "Left", "Joined", ""].map(h => (
+                <span key={h} style={{ fontSize: 10, fontWeight: 600, color: "#9a9088", textTransform: "uppercase", letterSpacing: "0.08em" }}>{h}</span>
+              ))}
+            </div>
+            {formerUsers.map(u => (
+              <div key={u.id} style={{ display: "grid", gridTemplateColumns: "1fr 130px 130px 100px", padding: "12px 20px", borderBottom: "1px solid #f0ede8", alignItems: "center" }}>
+                <span style={{ fontSize: 13, color: "#7a7470" }}>{u.email}</span>
+                <span style={{ fontSize: 12, color: "#9a9088" }}>{fmtUkDate(u.left_at)}</span>
+                <span style={{ fontSize: 12, color: "#9a9088" }}>
+                  {u.created_at ? new Date(u.created_at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                </span>
+                {leaverBusy === u.id ? <Spinner size={10} /> : (
+                  <button style={smallBtn} onClick={() => handleReinstate(u, `Reinstate ${u.email}? They will be able to log in again and will receive timesheet reminders.`)}>Reinstate</button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       </>)}
 

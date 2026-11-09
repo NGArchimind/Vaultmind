@@ -6,6 +6,8 @@ const { requireAuth } = require("../middleware/auth");
 const { supabase, r2, BUCKET } = require("../helpers/clients");
 const { streamToBuffer } = require("../helpers/r2");
 const { serverError } = require("../helpers/serverError");
+const { ukParts } = require("../lib/timesheetReminder");
+const { leaverStatus } = require("../lib/leavers");
 
 const router = express.Router();
 
@@ -134,9 +136,13 @@ router.delete("/api/review-comments/:id", requireAuth, async (req, res) => {
 router.get("/api/team-members", requireAuth, async (req, res) => {
   const { data, error } = await supabase.auth.admin.listUsers();
   if (error) return res.status(500).json({ error: error.message });
+  // Leavers stay in the list so their names still show on old tasks; `left`
+  // lets the client keep them out of "assign to" pickers.
+  const today = ukParts(new Date()).dateStr;
   const members = (data.users || []).map(u => ({
     id: u.id,
     full_name: u.user_metadata?.full_name || u.email,
+    left: leaverStatus(u.app_metadata, today) === "left",
   }));
   res.json(members);
 });

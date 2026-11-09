@@ -19,6 +19,23 @@ const OVER_WEEK_MINS = 45 * 60;    // 2700
 const LAUNCH_DATE    = "2026-07-01";  // timesheets go live — days before this are locked, and the launch week is exempt from the 37.5h minimum
 const isBeforeLaunch = (date) => date < LAUNCH_DATE;  // ISO YYYY-MM-DD strings compare lexically
 
+// Leavers: days after the leaving date (their last working day) are "n/a – left".
+const isAfterLeaving = (date, leftAt) => !!leftAt && date > leftAt;
+// Minutes a week must account for: 37.5h normally; in the leaving week, 7.5h per
+// weekday up to and including the leaving date. MIRRORS server/lib/leavers.js
+// requiredWeekMins — keep the two in step.
+function requiredWeekMins(weekStart, leftAt) {
+  if (!leftAt) return MIN_WEEK_MINS;
+  const d = new Date(weekStart + "T12:00:00Z");
+  let weekdays = 0;
+  for (let i = 0; i < 5; i++) {
+    if (d.toISOString().slice(0, 10) > leftAt) break;
+    weekdays++;
+    d.setUTCDate(d.getUTCDate() + 1);
+  }
+  return weekdays === 5 ? MIN_WEEK_MINS : weekdays * 450;
+}
+
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
 function getMonday(date) {
@@ -399,7 +416,7 @@ function EntryRow({ entry, projects, recentIds = [], locked, onUpdate, onDelete,
 
 // ── Day card ───────────────────────────────────────────────────────────────────
 
-function DayCard({ dayLabel, date, entries, projects, recentIds, locked, preLaunch, onAdd, onUpdate, onDelete, onQuickFill, onDraftCreate, extraTypesByProject, onEnsureTypes, onAddType }) {
+function DayCard({ dayLabel, date, entries, projects, recentIds, locked, preLaunch, afterLeaving, onAdd, onUpdate, onDelete, onQuickFill, onDraftCreate, extraTypesByProject, onEnsureTypes, onAddType }) {
   const dayTotal  = totalMins(entries);
   const hasReal   = entries.length > 0;
   const showDraft = !hasReal && !locked;
@@ -419,13 +436,18 @@ function DayCard({ dayLabel, date, entries, projects, recentIds, locked, preLaun
   });
 
   return (
-    <div style={{ border: "1px solid #dde4e8", background: preLaunch ? "#f3f5f6" : "#fff", marginBottom: 10, opacity: preLaunch ? 0.7 : 1 }}>
+    <div style={{ border: "1px solid #dde4e8", background: (preLaunch || afterLeaving) ? "#f3f5f6" : "#fff", marginBottom: 10, opacity: (preLaunch || afterLeaving) ? 0.7 : 1 }}>
       {/* Day header */}
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 14px", background: DESIGN_GROUND, borderBottom: (hasReal || showDraft) ? "1px solid #dde4e8" : "none" }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: preLaunch ? "#8a9aa8" : DESIGN_TEXT, flex: 1 }}>{dayLabel}</span>
+        <span style={{ fontSize: 13, fontWeight: 600, color: (preLaunch || afterLeaving) ? "#8a9aa8" : DESIGN_TEXT, flex: 1 }}>{dayLabel}</span>
         {preLaunch && (
           <span style={{ fontSize: 11, color: "#8a9aa8", fontStyle: "italic", letterSpacing: "0.04em" }}>
             Before launch · 1 Jul 2026
+          </span>
+        )}
+        {afterLeaving && !preLaunch && (
+          <span style={{ fontSize: 11, color: "#8a9aa8", fontStyle: "italic", letterSpacing: "0.04em" }}>
+            n/a – left
           </span>
         )}
         {/* Quick-fill buttons */}
@@ -1030,7 +1052,7 @@ function AdminPanel({ projects, isAdmin }) {
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
-export default function TimesheetsSection({ isAdmin, isHr }) {
+export default function TimesheetsSection({ isAdmin, isHr, leftAt = null }) {
   const canReview = isAdmin || isHr; // admin or HR can review all staff timesheets
   const [subView,    setSubView]    = useState(null); // null | "history" | "report" | "fee"
   const [view,       setView]       = useState("mine");
@@ -1181,6 +1203,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
       for (let di = 0; di < 5; di++) {
         const date = dateForDay(monday, di);
         if (isBeforeLaunch(date)) continue; // never write to pre-launch (locked) days
+        if (isAfterLeaving(date, leftAt)) continue; // nor to days after a leaver's last day
         if (entries.some(e => e.entry_date === date)) continue; // skip days already filled
         const data = await api("/api/timesheets", {
           method: "POST",
@@ -1190,7 +1213,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
       }
     } catch { showToast("Could not apply to all days."); }
     finally { setFilling(false); setFillOpen(false); setFillProject(""); }
-  }, [fillProject, monday, entries, showToast]);
+  }, [fillProject, monday, entries, showToast, leftAt]);
 
   // Submit with validation
   const doSubmit = useCallback(async () => {
@@ -1232,6 +1255,8 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
   // The launch week (and any fully-past week) contains days before go-live, so it
   // physically can't reach 37.5h — exempt it from the minimum-hours warning.
   const weekHasPreLaunch = isoDate(monday) < LAUNCH_DATE;
+  // A leaver's final week only needs the days up to their leaving date.
+  const reqMins = requiredWeekMins(weekKey, leftAt);
 
   // The over-hours warning (soft confirm), run after any earlier gates.
   const proceedToSubmit = () => {
@@ -1248,6 +1273,11 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
   };
 
   const handleSubmitClick = () => {
+    // Weeks wholly after a leaver's last day have nothing to submit (server rejects too).
+    if (leftAt && reqMins === 0) {
+      showToast("This week is after your leaving date, so there is nothing to submit.");
+      return;
+    }
     if (overCapDays.length) {
       showToast("Some days are over the 7h 30m daily limit — move the extra to Overtime.");
       return;
@@ -1260,10 +1290,12 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
     // The launch week is exempt — it contains locked pre-launch days.
     {
       const total = totalMins(entries);
-      if (total < MIN_WEEK_MINS && !weekHasPreLaunch) {
+      if (total < reqMins && !weekHasPreLaunch) {
         setDialog({
           title: "Week not complete",
-          message: `Your week totals ${formatMins(total)} — a full week of 37.5 hours must be accounted for before it can be submitted. Remember that holiday, sickness and other leave all count: add a line for any day you weren't working, then submit.`,
+          message: reqMins < MIN_WEEK_MINS
+            ? `Your week totals ${formatMins(total)} — ${formatMins(reqMins)} must be accounted for (up to your leaving date) before it can be submitted.`
+            : `Your week totals ${formatMins(total)} — a full week of 37.5 hours must be accounted for before it can be submitted. Remember that holiday, sickness and other leave all count: add a line for any day you weren't working, then submit.`,
           confirmLabel: "I understand",
           hideCancel: true,
           onConfirm: () => setDialog(null),
@@ -1287,7 +1319,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
 
   const weekTotal  = totalMins(entries);
   const weekOt     = totalOtMins(entries);
-  const underMin   = weekTotal < MIN_WEEK_MINS && weekTotal > 0 && !weekHasPreLaunch;
+  const underMin   = weekTotal < reqMins && weekTotal > 0 && !weekHasPreLaunch;
   const btnBase    = { fontSize: 12, padding: "5px 16px", cursor: "pointer", fontFamily: "Inter, Arial, sans-serif", fontWeight: 600, border: "none" };
 
   // Render sub-views first
@@ -1470,6 +1502,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                 {DAYS.map((day, di) => {
                   const date = dateForDay(monday, di);
                   const dayPreLaunch = isBeforeLaunch(date);
+                  const dayAfterLeaving = isAfterLeaving(date, leftAt);
                   return (
                     <DayCard
                       key={day}
@@ -1478,8 +1511,9 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                       entries={dayEntries(date)}
                       projects={projects}
                       recentIds={recentIds}
-                      locked={isLocked || dayPreLaunch}
+                      locked={isLocked || dayPreLaunch || dayAfterLeaving}
                       preLaunch={dayPreLaunch}
+                      afterLeaving={dayAfterLeaving}
                       onAdd={handleAdd}
                       onUpdate={handleUpdate}
                       onDelete={handleDeleteWithConfirm}
@@ -1505,7 +1539,7 @@ export default function TimesheetsSection({ isAdmin, isHr }) {
                     )}
                     {underMin && !isLocked && (
                       <span style={{ marginLeft: 12, fontSize: 12, color: COMPARE_FULL }}>
-                        ⚠ Below 37.5h minimum
+                        ⚠ Below {reqMins < MIN_WEEK_MINS ? formatMins(reqMins) : "37.5h"} minimum
                       </span>
                     )}
                     {overCapDays.length > 0 && !isLocked && (

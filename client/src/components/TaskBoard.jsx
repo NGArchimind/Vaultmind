@@ -170,7 +170,7 @@ function TaskModal({ task, columns, users, createdByUser, onSave, onDelete, onCl
               </select>],
               ["Assigned to", <select value={form.assignee_id} onChange={e => set("assignee_id", e.target.value)} style={{ ...input, margin: 0, fontSize: 12 }}>
                 <option value="">Unassigned</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+                {users.filter(u => !u.left || u.id === form.assignee_id).map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
               </select>],
               ["Due Date", <input type="date" value={form.due_date} onChange={e => set("due_date", e.target.value)} style={{ ...input, margin: 0, fontSize: 12 }} />],
               ["Created by", <div style={{ fontSize: 12, color: DESIGN_TEXT, padding: "8px 0" }}>{createdByUser?.full_name || "—"}</div>],
@@ -262,7 +262,7 @@ function AddTaskForm({ columns, users, onSave, onCancel }) {
       <td style={{ padding: "8px 8px" }}>
         <select value={form.assignee_id} onChange={e => set("assignee_id", e.target.value)} style={cellInput}>
           <option value="">Unassigned</option>
-          {users.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+          {users.filter(u => !u.left || u.id === form.assignee_id).map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
         </select>
       </td>
       <td style={{ padding: "8px 8px" }}>
