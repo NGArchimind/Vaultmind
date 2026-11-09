@@ -8,6 +8,21 @@ const { streamToBuffer } = require("../helpers/r2");
 const { serverError } = require("../helpers/serverError");
 const { generatePassword } = require("../lib/passwordGen");
 const { groupQuestionsByPerson } = require("../lib/questionLog");
+const { leaverStatus, validateLeftAt } = require("../lib/leavers");
+const { ukParts } = require("../lib/timesheetReminder");
+const { closeLeaverAccount } = require("../helpers/leavers");
+
+// Shape a Supabase auth user for the admin Users list.
+function adminUserView(u) {
+  return {
+    id: u.id,
+    email: u.email,
+    role: u.app_metadata?.role || "user",
+    created_at: u.created_at,
+    left_at: u.app_metadata?.left_at || null,
+    leaver_status: leaverStatus(u.app_metadata, ukParts(new Date()).dateStr),
+  };
+}
 
 const router = express.Router();
 
@@ -41,13 +56,7 @@ router.get("/api/admin/users", requireAuth, requireTimesheetManager, async (req,
   try {
     const { data, error } = await supabase.auth.admin.listUsers();
     if (error) throw error;
-    const users = data.users.map(u => ({
-      id: u.id,
-      email: u.email,
-      role: u.app_metadata?.role || "user",
-      created_at: u.created_at,
-    }));
-    res.json({ users });
+    res.json({ users: data.users.map(adminUserView) });
   } catch (err) {
     return serverError(res, err, "GET /api/admin/users");
   }
@@ -112,6 +121,49 @@ router.patch("/api/admin/users/:uid", requireAuth, requireAdmin, async (req, res
     });
   } catch (err) {
     return serverError(res, err, "PATCH /api/admin/users/:uid");
+  }
+});
+
+// POST /api/admin/users/:uid/leave — set a leaving date (past or future). The account
+// stays usable up to and including that day; if the date has already passed it closes now.
+router.post("/api/admin/users/:uid/leave", requireAuth, requireAdmin, async (req, res) => {
+  if (req.params.uid === req.user.id) {
+    return res.status(400).json({ error: "You cannot mark your own account as left" });
+  }
+  const { left_at } = req.body || {};
+  try {
+    const { data: found, error: getErr } = await supabase.auth.admin.getUserById(req.params.uid);
+    if (getErr) throw getErr;
+    const invalid = validateLeftAt(left_at, { createdISO: found.user.created_at || "" });
+    if (invalid) return res.status(400).json({ error: invalid });
+
+    let { data, error } = await supabase.auth.admin.updateUserById(req.params.uid, {
+      app_metadata: { left_at, leaver_closed_at: null },
+    });
+    if (error) throw error;
+    if (leaverStatus(data.user.app_metadata, ukParts(new Date()).dateStr) === "left") {
+      await closeLeaverAccount(data.user);
+      ({ data, error } = await supabase.auth.admin.getUserById(req.params.uid));
+      if (error) throw error;
+    }
+    res.json({ user: adminUserView(data.user) });
+  } catch (err) {
+    return serverError(res, err, "POST /api/admin/users/:uid/leave");
+  }
+});
+
+// POST /api/admin/users/:uid/reinstate — clears the leaving date and lifts the login ban.
+// Serves both "Cancel leaving" and "Reinstate". Auto-submitted weeks stay submitted.
+router.post("/api/admin/users/:uid/reinstate", requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const { data, error } = await supabase.auth.admin.updateUserById(req.params.uid, {
+      ban_duration: "none",
+      app_metadata: { left_at: null, leaver_closed_at: null },
+    });
+    if (error) throw error;
+    res.json({ user: adminUserView(data.user) });
+  } catch (err) {
+    return serverError(res, err, "POST /api/admin/users/:uid/reinstate");
   }
 });
 

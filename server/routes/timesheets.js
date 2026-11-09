@@ -11,6 +11,7 @@ const { daysOverCap, weekBelowMinimum, MIN_WEEK_MINS } = require("../lib/timeshe
 const { extrasMissingType } = require("../lib/unpricedExtras");
 const { recentProjectIds } = require("../lib/recentProjects");
 const reminderLib = require("../lib/timesheetReminder");
+const { requiredWeekMins, isAfterLeavingWeek } = require("../lib/leavers");
 
 const router = express.Router();
 
@@ -209,6 +210,9 @@ router.post("/api/timesheets/submit", requireAuth, async (req, res) => {
   if (existing?.status === "approved") {
     return res.status(403).json({ error: "This week has already been approved and cannot be resubmitted" });
   }
+  if (isAfterLeavingWeek(week, req.user.app_metadata?.left_at)) {
+    return res.status(400).json({ error: "This week is after your leaving date, so there is nothing to submit." });
+  }
 
   // Pre-submit checks on the week's entries:
   //   1. Daily cap — "time worked" (overtime excluded) must not exceed 7h 30m on any day.
@@ -232,10 +236,15 @@ router.post("/api/timesheets/submit", requireAuth, async (req, res) => {
     if (extrasMissingType(weekEntries || []).length) {
       return res.status(400).json({ error: "Every 'unpriced extra' line needs an extra-type selected before you can submit." });
     }
-    const minCheck = weekBelowMinimum(weekEntries || [], week);
+    // A leaver's final week only needs the days up to their leaving date.
+    const reqMins = requiredWeekMins(week, req.user.app_metadata?.left_at);
+    const minCheck = weekBelowMinimum(weekEntries || [], week, reqMins);
     if (minCheck.belowMin) {
       const h = Math.floor(minCheck.totalMins / 60), m = minCheck.totalMins % 60;
-      return res.status(400).json({ error: `This week totals ${h}h ${m}m — a full week of ${MIN_WEEK_MINS / 60} hours must be accounted for before submitting. Holiday, sickness and other leave all count toward the total.` });
+      const need = reqMins < MIN_WEEK_MINS
+        ? `${reqMins / 60} hours (up to your leaving date)`
+        : `a full week of ${MIN_WEEK_MINS / 60} hours`;
+      return res.status(400).json({ error: `This week totals ${h}h ${m}m — ${need} must be accounted for before submitting. Holiday, sickness and other leave all count toward the total.` });
     }
   }
 
@@ -369,6 +378,7 @@ router.get("/api/admin/timesheets/outstanding", requireAuth, requireTimesheetMan
       name: u.user_metadata?.full_name || u.email || "Unknown",
       role: u.app_metadata?.role,
       createdAt: (u.created_at || settings.track_from).slice(0, 10),
+      leftAt: u.app_metadata?.left_at || null,
     }));
 
     const weeks = reminderLib.buildWeekStatus({ users, subsByUser, trackFromMonday, currentWeekMonday });

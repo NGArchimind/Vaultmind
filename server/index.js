@@ -6,6 +6,7 @@ const { serverError } = require("./helpers/serverError");
 const { requireAuth } = require("./middleware/auth");
 const { rateLimit } = require("./middleware/rateLimit");
 const { reminderTick, hrReportTick } = require("./helpers/schedulers");
+const { leaverTick } = require("./helpers/leavers");
 
 const app = express();
 
@@ -161,4 +162,5 @@ const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`Archimind server running on port ${PORT}`));
 setInterval(reminderTick, 15 * 60 * 1000);
 setInterval(hrReportTick, 15 * 60 * 1000);
+setInterval(leaverTick, 15 * 60 * 1000);
 

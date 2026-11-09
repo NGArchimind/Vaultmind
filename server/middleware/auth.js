@@ -1,5 +1,7 @@
 // Authentication / authorisation middleware.
 const { supabase } = require("../helpers/clients");
+const { ukParts } = require("../lib/timesheetReminder");
+const { leaverStatus } = require("../lib/leavers");
 
 // ── JWT auth middleware ───────────────────────────────────────────────────────
 async function requireAuth(req, res, next) {
@@ -14,6 +16,10 @@ async function requireAuth(req, res, next) {
     const { data: { user }, error } = await supabase.auth.getUser(token);
     if (error || !user) {
       return res.status(401).json({ error: "Unauthorised — invalid or expired token" });
+    }
+    // A leaver's existing token can outlive the login ban by up to an hour — refuse it.
+    if (leaverStatus(user.app_metadata, ukParts(new Date()).dateStr) === "left") {
+      return res.status(401).json({ error: "This account has been deactivated" });
     }
     req.user = user;
     next();

@@ -4,6 +4,7 @@
 const { supabase } = require("./clients");
 const { sendEmail, escapeHtml, notificationEmailHtml, notificationRecipients, getUserEmail, getHrEmails } = require("./email");
 const reminderLib = require("../lib/timesheetReminder");
+const { leaverStatus } = require("../lib/leavers");
 const hrReport = require("../lib/hrReport");
 const { renderReportPdf, renderReportExcel } = require("../lib/hrReportRender");
 const { claimTotalPence } = require("../lib/expenseClaims");
@@ -62,6 +63,8 @@ async function computeReminderRecipients(settings, onlyUserId) {
   const { data: usersData } = await supabase.auth.admin.listUsers();
   const recipients = [];
   for (const u of usersData?.users || []) {
+    // Staff who have left are never chased (still chased during their notice period).
+    if (leaverStatus(u.app_metadata, ukNow.dateStr) === "left") continue;
     if (onlyUserId && u.id !== onlyUserId) continue;
     if (!onlyUserId && !reminderLib.isRemindableRole(u.app_metadata?.role)) continue;
     const createdMonday = reminderLib.mondayOf((u.created_at || settings.track_from).slice(0, 10));
@@ -175,6 +178,8 @@ async function gatherHrReportData(reportWeekMonday) {
 
   const expected = users
     .filter((u) => reminderLib.isRemindableRole(u.app_metadata?.role))
+    // Leavers are expected up to and including their leaving week, never after.
+    .filter((u) => !u.app_metadata?.left_at || reportWeekMonday <= reminderLib.mondayOf(u.app_metadata.left_at))
     .map((u) => ({ userId: u.id, name: nameById[u.id] }));
 
   const statusByUser = {};

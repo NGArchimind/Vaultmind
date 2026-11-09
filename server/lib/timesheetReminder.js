@@ -79,6 +79,12 @@ function firstOutstandingWeek(weekStarts, submissions, currentWeekMonday) {
 // subsByUser: { [userId]: { [week_start]: status } }. Only remindable roles count as
 // expected, and never before the week their account was created (same rules as the
 // reminder emails). Returns newest-first: [{ week, expected, outstanding: [{id, name, label}] }].
+// Is this person expected to submit for `week`? From their start week, up to and
+// including the week of their leaving date (leftAt), never after.
+function isExpectedInWeek({ startMonday, leftAt }, week) {
+  return startMonday <= week && (!leftAt || week <= mondayOf(leftAt));
+}
+
 function buildWeekStatus({ users, subsByUser, trackFromMonday, currentWeekMonday }) {
   const weeks = enumerateWeekStarts(trackFromMonday, currentWeekMonday);
   const staff = (users || [])
@@ -86,7 +92,7 @@ function buildWeekStatus({ users, subsByUser, trackFromMonday, currentWeekMonday
     .map((u) => ({ ...u, startMonday: laterMonday(trackFromMonday, mondayOf(u.createdAt || trackFromMonday)) }));
   return weeks
     .map((week) => {
-      const expectedStaff = staff.filter((u) => u.startMonday <= week);
+      const expectedStaff = staff.filter((u) => isExpectedInWeek(u, week));
       const outstanding = expectedStaff
         .flatMap((u) => computeOutstandingWeeks([week], (subsByUser || {})[u.id] || {})
           .map((o) => ({ id: u.id, name: u.name, label: o.label })))
@@ -124,4 +130,5 @@ module.exports = {
   parseISODateUTCNoon, toISODate, mondayOf, enumerateWeekStarts, addWeeks,
   laterMonday, isRemindableRole, computeOutstandingWeeks, ukParts, isReminderDue,
   firstOutstandingWeek, buildWeekStatus, filterRecipientsToWeek, chaseableWeeks,
+  isExpectedInWeek,
 };
